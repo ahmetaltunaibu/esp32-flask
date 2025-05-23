@@ -26,7 +26,7 @@
             <div class="card-body">
                 <p><strong>Konum:</strong> {{ cihaz.konum }}</p>
                 <p><strong>MAC Adresi:</strong> {{ cihaz.mac }}</p>
-                <p><strong>Son Güncelleme:</strong> {{ cihaz.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+                <p><strong>Son Güncelleme:</strong> {{ cihaz.timestamp|format_timestamp }}</p>
             </div>
         </div>
 
