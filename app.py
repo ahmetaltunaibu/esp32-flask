@@ -7,11 +7,11 @@ app = Flask(__name__)
 # Cihaz verilerini saklamak için
 cihazlar = {}
 
-# Timestamp filtre fonksiyonu
+# Timestamp formatlama fonksiyonu
 def format_timestamp(timestamp):
     try:
         # Milisaniyeyi saniyeye çevir ve formatla
-        return datetime.fromtimestamp(timestamp / 1000).strftime('%Y-%m-%d %H:%M:%S')
+        return datetime.fromtimestamp(timestamp / 1000).strftime('%H:%M:%S')
     except:
         return "N/A"
 
