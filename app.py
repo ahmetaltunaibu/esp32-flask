@@ -1,7 +1,7 @@
 from flask import Flask, request, render_template_string
 
 app = Flask(__name__)
-current_temperature = None
+current_temperature = None  # Son alınan sıcaklık verisi
 
 @app.route("/data", methods=["POST"])
 def receive_data():
