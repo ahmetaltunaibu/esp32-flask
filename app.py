@@ -7,6 +7,17 @@ app = Flask(__name__)
 # Cihaz verilerini saklamak için
 cihazlar = {}
 
+# Timestamp filtre fonksiyonu
+def timestamp_to_time(timestamp):
+    try:
+        # Milisaniyeyi saniyeye çevir ve formatla
+        return datetime.fromtimestamp(timestamp / 1000).strftime('%H:%M:%S')
+    except:
+        return "N/A"
+
+# Filtreyi Jinja2'ye ekle
+app.jinja_env.filters['timestamp_to_time'] = timestamp_to_time
+
 @app.route('/data', methods=['POST'])
 def receive_data():
     data = request.get_json()
