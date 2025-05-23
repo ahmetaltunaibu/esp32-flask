@@ -39,7 +39,7 @@
                         </div>
                         <h6 class="card-subtitle mb-2 text-muted">{{ cihaz.konum }}</h6>
                         <p class="card-text">
-                            <small>Son güncelleme: {{ cihaz.timestamp|timestamp_to_time }}</small><br>
+                            <small>Son güncelleme: {{ cihaz.timestamp|format_timestamp }}</small><br>
                             <small>MAC: {{ cihaz.mac }}</small>
                         </p>
                     </div>
