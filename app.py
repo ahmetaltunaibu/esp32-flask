@@ -8,15 +8,15 @@ app = Flask(__name__)
 cihazlar = {}
 
 # Timestamp filtre fonksiyonu
-def timestamp_to_time(timestamp):
+def format_timestamp(timestamp):
     try:
         # Milisaniyeyi saniyeye çevir ve formatla
-        return datetime.fromtimestamp(timestamp / 1000).strftime('%H:%M:%S')
+        return datetime.fromtimestamp(timestamp / 1000).strftime('%Y-%m-%d %H:%M:%S')
     except:
         return "N/A"
 
 # Filtreyi Jinja2'ye ekle
-app.jinja_env.filters['timestamp_to_time'] = timestamp_to_time
+app.jinja_env.filters['format_timestamp'] = format_timestamp
 
 @app.route('/data', methods=['POST'])
 def receive_data():
@@ -36,7 +36,10 @@ def index():
 
 @app.route('/cihaz/<cihaz_id>')
 def cihaz_detay(cihaz_id):
-    return render_template('cihaz_detay.html', cihaz=cihazlar.get(cihaz_id))
+    cihaz = cihazlar.get(cihaz_id)
+    if cihaz:
+        return render_template('cihaz_detay.html', cihaz=cihaz)
+    return "Cihaz bulunamadı", 404
 
 if __name__ == '__main__':
     app.run(debug=True)
