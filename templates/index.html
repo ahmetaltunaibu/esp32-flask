@@ -1,15 +1,38 @@
 <!DOCTYPE html>
-<html lang="tr">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32 Sıcaklık Verisi</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <title>ESP32 Modbus Data</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+    </style>
 </head>
 <body>
-    <div class="container">
-        <h1>ESP32 Sıcaklık Verisi</h1>
-        <p>Mevcut sıcaklık: {{ temp }} °C</p>
-    </div>
+    <h1>ESP32 Modbus Data</h1>
+    <table>
+        <thead>
+            <tr>
+                <th>Timestamp</th>
+                <th>MAC Address</th>
+                {% for i in range(13) %}
+                <th>Data{{ i }}</th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in data|reverse %}
+            <tr>
+                <td>{{ item.timestamp }}</td>
+                <td>{{ item.mac }}</td>
+                {% for i in range(13) %}
+                <td>{{ item['data' ~ i]|round(4) }}</td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </body>
 </html>
