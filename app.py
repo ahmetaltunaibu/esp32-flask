@@ -1,19 +1,28 @@
-from flask import Flask, request, render_template
+from flask import Flask, request, jsonify, render_template
+import json
+from datetime import datetime
 
 app = Flask(__name__)
 
-current_temperature = None  # Son alınan sıcaklık verisini saklama
+# Verileri saklamak için basit bir liste
+received_data = []
 
-@app.route("/data", methods=["POST"])
+@app.route('/data', methods=['POST'])
 def receive_data():
-    global current_temperature
     data = request.get_json()
-    current_temperature = data.get("temperature")
-    return "OK"
+    data['timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    received_data.append(data)
+    
+    # Son 10 kaydı tut
+    if len(received_data) > 10:
+        received_data.pop(0)
+    
+    print("Received data:", data)
+    return jsonify({"status": "success", "message": "Data received"})
 
-@app.route("/")
+@app.route('/')
 def index():
-    return render_template("index.html", temp=current_temperature or "Henüz veri yok")
+    return render_template('index.html', data=received_data)
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+if __name__ == '__main__':
+    app.run(debug=True)
