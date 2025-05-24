@@ -190,8 +190,12 @@ def login_required(f):
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        users = get_users()
-        if not users.get(session['username'], {}).get('is_admin', False):
+        conn = get_db()
+        user = conn.execute('SELECT is_admin FROM users WHERE username = ?', 
+                          (session['username'],)).fetchone()
+        conn.close()
+        
+        if not user or not user['is_admin']:
             flash('Bu işlem için yetkiniz yok', 'danger')
             return redirect(url_for('index'))
         return f(*args, **kwargs)
@@ -306,11 +310,12 @@ def receive_data():
         return jsonify({"status": "success", "message": "Veri alındı"})
     return jsonify({"status": "error", "message": "Geçersiz veri"}), 400
 
-# Cihaz Yönetimi
 @app.route('/cihaz/<cihaz_id>')
 @login_required
 def cihaz_detay(cihaz_id):
     conn = get_db()
+    
+    # Cihaz bilgilerini al
     cihaz = conn.execute('SELECT * FROM devices WHERE cihaz_id = ?', (cihaz_id,)).fetchone()
     
     if not cihaz:
@@ -318,32 +323,26 @@ def cihaz_detay(cihaz_id):
         conn.close()
         return redirect(url_for('index'))
     
-    # Son sensör verilerini al
+    # Son 1 saatteki TÜM sensör verilerini al (gruplanmamış)
     veriler = conn.execute('''
-        SELECT sensor_id, sensor_value, sensor_unit, timestamp 
+        SELECT sensor_id, sensor_value, sensor_unit, timestamp
         FROM sensor_data 
-        WHERE cihaz_id = ? 
-        ORDER BY timestamp DESC 
-        LIMIT 1
-    ''', (cihaz_id,)).fetchall()
+        WHERE cihaz_id = ? AND timestamp >= ?
+        ORDER BY timestamp DESC
+    ''', (cihaz_id, int(time.time()*1000) - 3600000)).fetchall()
     
-    # Sensör verilerini formatla
+    # Verileri sensör ID'lerine göre grupla
     sensor_data = {}
     for veri in veriler:
-        sensor_data[veri['sensor_id']] = {
-            'deger': veri['sensor_value'],
-            'birim': veri['sensor_unit'],
-            'timestamp': veri['timestamp']
-        }
+        if veri['sensor_id'] not in sensor_data:
+            sensor_data[veri['sensor_id'] = {
+                'deger': veri['sensor_value'],
+                'birim': veri['sensor_unit'],
+                'timestamp': veri['timestamp']
+            }
     
     conn.close()
-    
-    users = get_users()
-    return render_template('cihaz_detay.html',
-                         cihaz=cihaz,
-                         sensor_data=sensor_data,
-                         now=int(time.time() * 1000),
-                         user=users[session['username']])
+    return render_template('cihaz_detay.html', cihaz=cihaz, sensor_data=sensor_data)
 
 @app.route('/gecmis/<cihaz_id>')
 @login_required
