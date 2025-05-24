@@ -1,0 +1,118 @@
+{% extends "layout.html" %}
+
+{% block title %}Firmware Yönetimi{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Firmware Yönetimi</h1>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0">Yeni Firmware Yükle</h5>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('upload_firmware') }}" enctype="multipart/form-data" class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label">Firmware Dosyası (.bin)</label>
+                <input type="file" class="form-control" name="file" accept=".bin" required>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Versiyon Numarası</label>
+                <input type="text" class="form-control" name="version" placeholder="1.1.0" required>
+            </div>
+            <div class="col-md-5">
+                <label class="form-label">Sürüm Notları</label>
+                <textarea class="form-control" name="release_notes" rows="1" required></textarea>
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-upload"></i> Yükle
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">Firmware Versiyonları</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped" id="firmwareTable">
+                <thead>
+                    <tr>
+                        <th>Versiyon</th>
+                        <th>Yükleme Tarihi</th>
+                        <th>Durum</th>
+                        <th>İşlemler</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for version in versions %}
+                    <tr>
+                        <td>v{{ version.version }}</td>
+                        <td>{{ version.created_at }}</td>
+                        <td>
+                            {% if version.is_active %}
+                            <span class="badge bg-success">Aktif</span>
+                            {% else %}
+                            <span class="badge bg-secondary">Pasif</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{{ url_for('download_firmware', version=version.version) }}" 
+                               class="btn btn-sm btn-outline-primary me-1">
+                                <i class="fas fa-download"></i> İndir
+                            </a>
+                            {% if not version.is_active %}
+                            <button class="btn btn-sm btn-outline-success" 
+                                    onclick="activateVersion('{{ version.version }}')">
+                                <i class="fas fa-check"></i> Aktif Et
+                            </button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    $(document).ready(function() {
+        $('#firmwareTable').DataTable({
+            "order": [[1, "desc"]],
+            "language": {
+                "url": "//cdn.datatables.net/plug-ins/1.11.5/i18n/tr.json"
+            }
+        });
+    });
+
+    function activateVersion(version) {
+        if (confirm(`v${version} firmware'ini aktif etmek istediğinize emin misiniz?`)) {
+            fetch('/firmware/activate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ version: version })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                } else {
+                    alert(data.message || 'Bir hata oluştu');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('İşlem başarısız oldu');
+            });
+        }
+    }
+</script>
+{% endblock %}
