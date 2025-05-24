@@ -2,143 +2,119 @@
 
 {% block title %}{{ cihaz_adi }} - Geçmiş Veriler{% endblock %}
 
-{% block extra_css %}
-<style>
-    .filter-card {
-        background: #f8f9fa;
-        border-radius: 10px;
-        padding: 20px;
-        margin-bottom: 20px;
-    }
-    .sensor-badge {
-        font-size: 0.85rem;
-        padding: 0.35rem 0.65rem;
-    }
-    .table-responsive {
-        border-radius: 10px;
-        box-shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.1);
-    }
-</style>
-{% endblock %}
-
 {% block content %}
-<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-    <div>
-        <button class="btn btn-secondary btn-sm" onclick="window.history.back()">
-            <i class="fas fa-arrow-left"></i> Geri
-        </button>
-        <h1 class="h2 ms-2 d-inline-block">{{ cihaz_adi }} - Geçmiş Veriler</h1>
-    </div>
-    <div class="btn-toolbar mb-2 mb-md-0">
-        <span class="badge bg-info me-2">{{ veriler|length }} kayıt</span>
-        <button class="btn btn-success" onclick="exportToExcel()">
-            <i class="fas fa-file-excel"></i> Excel
-        </button>
-    </div>
-</div>
-
-<div class="filter-card">
-    <form method="GET" class="row g-3">
-        <div class="col-md-3">
-            <label class="form-label">Başlangıç Tarihi</label>
-            <input type="date" class="form-control" name="start_date" value="{{ start_date or '' }}">
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">Bitiş Tarihi</label>
-            <input type="date" class="form-control" name="end_date" value="{{ end_date or '' }}">
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">Sensör</label>
-            <select class="form-select" name="sensor_id">
-                <option value="">Tüm Sensörler</option>
-                {% for sensor in sensors %}
-                <option value="{{ sensor.sensor_id }}" {% if sensor_filter == sensor.sensor_id %}selected{% endif %}>
-                    {{ sensor.sensor_id }}
-                </option>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="col-md-3 d-flex align-items-end">
-            <button type="submit" class="btn btn-primary me-2">
-                <i class="fas fa-filter"></i> Filtrele
+<div class="container-fluid">
+    <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+        <div>
+            <button class="btn btn-secondary" onclick="window.history.back()">
+                <i class="fas fa-arrow-left"></i> Geri
             </button>
-            <a href="/gecmis/{{ cihaz_id }}" class="btn btn-outline-secondary">
-                <i class="fas fa-sync-alt"></i> Sıfırla
-            </a>
-        </div>
-    </form>
-</div>
-
-<div class="card">
-    <div class="card-header">
-        <h5 class="mb-0">Sensör Verileri</h5>
-    </div>
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-striped table-hover mb-0" id="veriTablosu">
-                <thead class="table-dark">
-                    <tr>
-                        <th>Tarih</th>
-                        <th>Saat</th>
-                        <th>Sensör ID</th>
-                        <th>Değer</th>
-                        <th>Birim</th>
-                        <th>Durum</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for veri in veriler %}
-                    <tr>
-                        <td>{{ veri.timestamp|format_date_only }}</td>
-                        <td>{{ veri.timestamp|format_time_only }}</td>
-                        <td>
-                            <span class="badge sensor-badge bg-secondary">{{ veri.sensor_id }}</span>
-                        </td>
-                        <td>
-                            <strong>{{ "%.2f"|format(veri.sensor_value) }}</strong>
-                        </td>
-                        <td>{{ veri.sensor_unit }}</td>
-                        <td>
-                            {% set value_percent = (veri.sensor_value / 100) * 100 %}
-                            {% if value_percent > 80 %}
-                                <span class="badge bg-danger">Yüksek</span>
-                            {% elif value_percent > 60 %}
-                                <span class="badge bg-warning">Orta</span>
-                            {% elif value_percent > 40 %}
-                                <span class="badge bg-info">Normal</span>
-                            {% else %}
-                                <span class="badge bg-success">Düşük</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+            <h2 class="d-inline ms-3">{{ cihaz_adi }} - Geçmiş Veriler</h2>
         </div>
     </div>
-</div>
 
-{% if not veriler %}
-<div class="alert alert-info text-center mt-4">
-    <h5>Veri Bulunamadı</h5>
-    <p>Seçilen kriterlere uygun veri bulunmamaktadır.</p>
+    <!-- Filtreleme Kartı -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <form method="GET" class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">Başlangıç Tarihi</label>
+                    <input type="date" class="form-control" name="start_date" value="{{ start_date or '' }}">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Bitiş Tarihi</label>
+                    <input type="date" class="form-control" name="end_date" value="{{ end_date or '' }}">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Sensör</label>
+                    <select class="form-select" name="sensor_id">
+                        <option value="">Tüm Sensörler</option>
+                        {% for sensor in sensors %}
+                        <option value="{{ sensor.sensor_id }}" {% if sensor_filter == sensor.sensor_id %}selected{% endif %}>
+                            {{ sensor.sensor_id }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary me-2">
+                        <i class="fas fa-search"></i> Filtrele
+                    </button>
+                    <a href="{{ url_for('excel_export', cihaz_id=cihaz_id) }}?{{ request.query_string.decode() }}" 
+                       class="btn btn-success">
+                        <i class="fas fa-file-excel"></i> Excel
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Veri Tablosu -->
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Sensör Verileri</h5>
+            <span class="badge bg-primary">{{ veriler|length }} kayıt</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-striped table-hover mb-0" id="veriTablosu">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Tarih</th>
+                            <th>Saat</th>
+                            <th>Sensör</th>
+                            <th>Değer</th>
+                            <th>Durum</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for veri in veriler %}
+                        <tr>
+                            <td>{{ veri.timestamp|format_date_only }}</td>
+                            <td>{{ veri.timestamp|format_time_only }}</td>
+                            <td>
+                                <span class="badge bg-secondary">{{ veri.sensor_id }}</span>
+                            </td>
+                            <td>
+                                <strong>{{ "%.2f"|format(veri.sensor_value) }}</strong> {{ veri.sensor_unit }}
+                            </td>
+                            <td>
+                                {% set value_percent = (veri.sensor_value / 100) * 100 %}
+                                {% if value_percent > 80 %}
+                                    <span class="badge bg-danger">Yüksek</span>
+                                {% elif value_percent > 60 %}
+                                    <span class="badge bg-warning">Orta</span>
+                                {% elif value_percent > 40 %}
+                                    <span class="badge bg-info">Normal</span>
+                                {% else %}
+                                    <span class="badge bg-success">Düşük</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    {% if not veriler %}
+    <div class="alert alert-info text-center mt-4">
+        <h5>Veri Bulunamadı</h5>
+        <p>Seçilen kriterlere uygun veri bulunmamaktadır.</p>
+    </div>
+    {% endif %}
 </div>
-{% endif %}
 
 <script>
     $(document).ready(function() {
         $('#veriTablosu').DataTable({
-            "order": [[0, "desc"], [1, "desc"]],
-            "pageLength": 25,
-            "language": {
-                "url": "//cdn.datatables.net/plug-ins/1.11.5/i18n/tr.json"
+            order: [[0, 'desc'], [1, 'desc']],
+            pageLength: 25,
+            language: {
+                url: '//cdn.datatables.net/plug-ins/1.11.5/i18n/tr.json'
             }
         });
     });
-
-    function exportToExcel() {
-        const params = new URLSearchParams(window.location.search);
-        window.location.href = '/excel/{{ cihaz_id }}?' + params.toString();
-    }
 </script>
 {% endblock %}
