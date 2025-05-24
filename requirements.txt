@@ -6,3 +6,4 @@ pyOpenSSL==23.2.0
 pandas==2.1.1
 gunicorn==21.2.0
 numpy==1.24.3
+apscheduler==3.10.1
