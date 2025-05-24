@@ -80,11 +80,11 @@
                             Firmware Yönetimi
                         </a>
                     </li>
-                    {% if 'username' in session %}
+                    {% if current_user %}
                     <li class="nav-item mt-4">
                         <div class="text-white px-3">
                             <i class="fas fa-user-circle"></i>
-                            {{ users[session['username']]['name'] }}
+                            {{ current_user.name }}
                         </div>
                     </li>
                     <li class="nav-item">
