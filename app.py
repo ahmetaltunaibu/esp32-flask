@@ -53,6 +53,37 @@ def init_db():
 # Uygulama başlatılırken veritabanını oluştur
 init_db()
 
+# app.py'ye yeni route'lar ekleyin
+@app.route('/firmware/<cihaz_id>', methods=['GET'])
+@login_required
+def firmware_info(cihaz_id):
+    # Cihaz için mevcut firmware bilgisini döndür
+    return jsonify({
+        "current_version": "1.0.0",
+        "latest_version": "1.1.0",
+        "release_notes": "Hata düzeltmeleri ve performans iyileştirmeleri"
+    })
+
+@app.route('/firmware/update', methods=['POST'])
+@login_required
+def initiate_update():
+    cihaz_id = request.json.get('cihaz_id')
+    # Burada gerçekte firmware dosyasını yöneteceksiniz
+    return jsonify({
+        "status": "update_scheduled",
+        "message": f"{cihaz_id} için güncelleme planlandı"
+    })
+
+@app.route('/firmware/download', methods=['GET'])
+def download_firmware():
+    # Gerçekte burada firmware.bin dosyasını sunacaksınız
+    firmware_path = "firmware.bin"
+    return send_file(
+        firmware_path,
+        as_attachment=True,
+        download_name="firmware.bin"
+    )
+
 # Kullanıcı işlemleri
 def get_users():
     conn = get_db()
