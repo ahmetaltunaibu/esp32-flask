@@ -1,0 +1,27 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">Cihaz Yönetim Paneli <small class="text-muted">Hoş geldiniz, {{ user.name }}</small></h1>
+    
+    <div class="row">
+        {% for cihaz_id, cihaz in cihazlar.items() %}
+        <div class="col-md-4">
+            <div class="card cihaz-kart" onclick="window.location.href='/cihaz/{{ cihaz_id }}'">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <h5 class="card-title">{{ cihaz.cihaz_adi }}</h5>
+                        <span class="status-indicator {% if (now - cihaz.timestamp) < 120000 %}online{% else %}offline{% endif %}"></span>
+                    </div>
+                    <h6 class="card-subtitle mb-2 text-muted">{{ cihaz.konum }}</h6>
+                    <p class="card-text">
+                        <small>Son güncelleme: {{ cihaz.timestamp|format_timestamp }}</small><br>
+                        <small>MAC: {{ cihaz.mac }}</small>
+                    </p>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
