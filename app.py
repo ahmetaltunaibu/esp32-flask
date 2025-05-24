@@ -1,6 +1,6 @@
 import os
 import sqlite3
-from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash, send_file
+from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash, send_file, Response
 from datetime import datetime, timedelta
 import time
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -15,7 +15,7 @@ from werkzeug.utils import secure_filename
 from cryptography.hazmat.backends import default_backend
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'dev-key-123')
+app.secret_key = os.environ.get('SECRET_KEY', 'gizli-anahtar-123')
 app.config['FIRMWARE_FOLDER'] = 'firmware'
 app.config['ALLOWED_EXTENSIONS'] = {'bin'}
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
@@ -29,6 +29,8 @@ def get_db():
 # Veritabanı tabloları oluştur
 def init_db():
     conn = get_db()
+    
+    # Sensor verileri tablosu
     conn.execute('''
         CREATE TABLE IF NOT EXISTS sensor_data (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -40,10 +42,12 @@ def init_db():
             sensor_value REAL,
             sensor_unit TEXT,
             timestamp INTEGER,
+            firmware_version TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     
+    # Kullanıcılar tablosu
     conn.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,6 +59,7 @@ def init_db():
         )
     ''')
     
+    # Firmware versiyonları tablosu
     conn.execute('''
         CREATE TABLE IF NOT EXISTS firmware_versions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,6 +69,20 @@ def init_db():
             signature_path TEXT,
             is_active BOOLEAN DEFAULT 1,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # Cihaz bilgileri tablosu (canlı veriler için)
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS devices (
+            cihaz_id TEXT PRIMARY KEY,
+            cihaz_adi TEXT,
+            konum TEXT,
+            mac TEXT,
+            firmware_version TEXT,
+            last_seen INTEGER,
+            online_status BOOLEAN DEFAULT 0,
+            ip_address TEXT
         )
     ''')
     
@@ -173,12 +192,282 @@ def admin_required(f):
 def index():
     current_time = int(time.time() * 1000)
     users = get_users()
+    
+    # Cihazları veritabanından al
+    conn = get_db()
+    cihazlar = conn.execute('SELECT * FROM devices ORDER BY last_seen DESC').fetchall()
+    conn.close()
+    
     return render_template('index.html',
                          cihazlar=cihazlar,
                          now=current_time,
                          user=users[session['username']],
                          users=users,
                          session=session)
+
+# Kullanıcı Yönetimi
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        users = get_users()
+        if username in users and check_password_hash(users[username]['password'], password):
+            session['username'] = username
+            flash('Başarıyla giriş yapıldı', 'success')
+            return redirect(url_for('index'))
+        flash('Kullanıcı adı veya şifre hatalı', 'danger')
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    session.pop('username', None)
+    flash('Başarıyla çıkış yapıldı', 'success')
+    return redirect(url_for('login'))
+
+@app.route('/signup', methods=['GET', 'POST'])
+def signup():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        name = request.form.get('name')
+        
+        if not all([username, password, name]):
+            flash('Tüm alanları doldurun', 'danger')
+        elif user_exists(username):
+            flash('Bu kullanıcı adı zaten alınmış', 'danger')
+        else:
+            if add_user(username, password, name):
+                flash('Hesap oluşturuldu. Giriş yapabilirsiniz.', 'success')
+                return redirect(url_for('login'))
+            else:
+                flash('Hesap oluşturulurken hata oluştu', 'danger')
+    return render_template('signup.html')
+
+# Veri Alım Endpointleri
+@app.route('/data', methods=['POST'])
+def receive_data():
+    data = request.get_json()
+    if data and 'cihaz_id' in data:
+        timestamp = int(time.time() * 1000)
+        data['timestamp'] = timestamp
+        data['firmware_version'] = data.get('firmware_version', '1.0.0')
+        
+        # Cihaz bilgilerini güncelle
+        conn = get_db()
+        conn.execute('''
+            INSERT OR REPLACE INTO devices 
+            (cihaz_id, cihaz_adi, konum, mac, firmware_version, last_seen, online_status, ip_address)
+            VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+        ''', (
+            data['cihaz_id'],
+            data.get('cihaz_adi', 'Bilinmeyen'),
+            data.get('konum', 'Bilinmeyen'),
+            data.get('mac', ''),
+            data['firmware_version'],
+            timestamp,
+            request.remote_addr
+        ))
+        
+        # Sensör verilerini kaydet
+        if 'veriler' in data:
+            for veri in data['veriler']:
+                conn.execute('''
+                    INSERT INTO sensor_data 
+                    (cihaz_id, cihaz_adi, konum, mac, sensor_id, sensor_value, sensor_unit, timestamp, firmware_version)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    data['cihaz_id'],
+                    data.get('cihaz_adi', 'Bilinmeyen'),
+                    data.get('konum', 'Bilinmeyen'),
+                    data.get('mac', ''),
+                    veri.get('sensor_id', ''),
+                    veri.get('deger', 0),
+                    veri.get('birim', ''),
+                    timestamp,
+                    data['firmware_version']
+                ))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({"status": "success", "message": "Veri alındı"})
+    return jsonify({"status": "error", "message": "Geçersiz veri"}), 400
+
+# Cihaz Yönetimi
+@app.route('/cihaz/<cihaz_id>')
+@login_required
+def cihaz_detay(cihaz_id):
+    conn = get_db()
+    cihaz = conn.execute('SELECT * FROM devices WHERE cihaz_id = ?', (cihaz_id,)).fetchone()
+    
+    if not cihaz:
+        flash('Cihaz bulunamadı', 'danger')
+        conn.close()
+        return redirect(url_for('index'))
+    
+    # Son sensör verilerini al
+    veriler = conn.execute('''
+        SELECT sensor_id, sensor_value, sensor_unit, timestamp 
+        FROM sensor_data 
+        WHERE cihaz_id = ? 
+        ORDER BY timestamp DESC 
+        LIMIT 1
+    ''', (cihaz_id,)).fetchall()
+    
+    # Sensör verilerini formatla
+    sensor_data = {}
+    for veri in veriler:
+        sensor_data[veri['sensor_id']] = {
+            'deger': veri['sensor_value'],
+            'birim': veri['sensor_unit'],
+            'timestamp': veri['timestamp']
+        }
+    
+    conn.close()
+    
+    users = get_users()
+    return render_template('cihaz_detay.html',
+                         cihaz=cihaz,
+                         sensor_data=sensor_data,
+                         now=int(time.time() * 1000),
+                         user=users[session['username']])
+
+@app.route('/gecmis/<cihaz_id>')
+@login_required
+def gecmis_veriler(cihaz_id):
+    # Filtreleme parametreleri
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    sensor_filter = request.args.get('sensor_id')
+    
+    # Cihaz bilgilerini al
+    conn = get_db()
+    cihaz = conn.execute('SELECT * FROM devices WHERE cihaz_id = ?', (cihaz_id,)).fetchone()
+    
+    if not cihaz:
+        flash('Cihaz bulunamadı', 'danger')
+        conn.close()
+        return redirect(url_for('index'))
+    
+    # SQL sorgusu oluştur
+    query = '''
+        SELECT * FROM sensor_data 
+        WHERE cihaz_id = ?
+    '''
+    params = [cihaz_id]
+    
+    if start_date:
+        start_timestamp = int(datetime.strptime(start_date, '%Y-%m-%d').timestamp() * 1000)
+        query += ' AND timestamp >= ?'
+        params.append(start_timestamp)
+    
+    if end_date:
+        end_timestamp = int((datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)).timestamp() * 1000)
+        query += ' AND timestamp < ?'
+        params.append(end_timestamp)
+    
+    if sensor_filter:
+        query += ' AND sensor_id = ?'
+        params.append(sensor_filter)
+    
+    query += ' ORDER BY timestamp DESC LIMIT 1000'
+    
+    veriler = conn.execute(query, params).fetchall()
+    
+    # Sensör listesi al
+    sensors_query = '''
+        SELECT DISTINCT sensor_id FROM sensor_data 
+        WHERE cihaz_id = ? 
+        ORDER BY sensor_id
+    '''
+    sensors = conn.execute(sensors_query, [cihaz_id]).fetchall()
+    conn.close()
+    
+    users = get_users()
+    return render_template('gecmis_veriler.html',
+                         veriler=veriler,
+                         cihaz_id=cihaz_id,
+                         cihaz_adi=cihaz['cihaz_adi'],
+                         sensors=sensors,
+                         start_date=start_date,
+                         end_date=end_date,
+                         sensor_filter=sensor_filter,
+                         user=users[session['username']])
+
+@app.route('/excel/<cihaz_id>')
+@login_required  
+def excel_export(cihaz_id):
+    # Filtreleme parametreleri
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    sensor_filter = request.args.get('sensor_id')
+    
+    # SQL sorgusu oluştur
+    query = '''
+        SELECT cihaz_id, cihaz_adi, konum, sensor_id, sensor_value, 
+               sensor_unit, timestamp, created_at, firmware_version
+        FROM sensor_data 
+        WHERE cihaz_id = ?
+    '''
+    params = [cihaz_id]
+    
+    if start_date:
+        start_timestamp = int(datetime.strptime(start_date, '%Y-%m-%d').timestamp() * 1000)
+        query += ' AND timestamp >= ?'
+        params.append(start_timestamp)
+    
+    if end_date:
+        end_timestamp = int((datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)).timestamp() * 1000)
+        query += ' AND timestamp < ?'
+        params.append(end_timestamp)
+    
+    if sensor_filter:
+        query += ' AND sensor_id = ?'
+        params.append(sensor_filter)
+    
+    query += ' ORDER BY timestamp DESC'
+    
+    conn = get_db()
+    veriler = conn.execute(query, params).fetchall()
+    cihaz_adi = conn.execute('SELECT cihaz_adi FROM devices WHERE cihaz_id = ?', (cihaz_id,)).fetchone()['cihaz_adi']
+    conn.close()
+    
+    # DataFrame oluştur
+    data = []
+    for veri in veriler:
+        data.append({
+            'Cihaz ID': veri['cihaz_id'],
+            'Cihaz Adı': veri['cihaz_adi'],
+            'Konum': veri['konum'],
+            'Sensör ID': veri['sensor_id'],
+            'Değer': veri['sensor_value'],
+            'Birim': veri['sensor_unit'],
+            'Tarih': datetime.fromtimestamp(veri['timestamp'] / 1000).strftime('%d.%m.%Y'),
+            'Saat': datetime.fromtimestamp(veri['timestamp'] / 1000).strftime('%H:%M:%S'),
+            'Firmware Versiyon': veri['firmware_version'],
+            'Kayıt Zamanı': veri['created_at']
+        })
+    
+    df = pd.DataFrame(data)
+    
+    # Excel dosyası oluştur
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Sensor Data', index=False)
+    
+    output.seek(0)
+    
+    # Dosya adı oluştur
+    filename = f"{cihaz_adi}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=filename
+    )
 
 # Firmware Yönetimi
 @app.route('/firmware')
@@ -189,6 +478,39 @@ def firmware_management():
     versions = conn.execute('SELECT * FROM firmware_versions ORDER BY created_at DESC').fetchall()
     conn.close()
     return render_template('firmware_management.html', versions=versions)
+
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+
+def sign_firmware(file_path):
+    # Örnek private key (gerçek uygulamada .env'de saklayın)
+    private_key_pem = """
+    -----BEGIN RSA PRIVATE KEY-----
+    MIIEowIBAAKCAQEAz7v5P5Z8vI3Jj9X9K2sL6v2Qx1Yt8uZ7W3bN1cX6y5MvG0P
+    ... (gerçek private key buraya) ...
+    -----END RSA PRIVATE KEY-----
+    """
+    
+    private_key = serialization.load_pem_private_key(
+        private_key_pem.encode(),
+        password=None,
+        backend=default_backend()
+    )
+    
+    with open(file_path, 'rb') as f:
+        firmware = f.read()
+    
+    signature = private_key.sign(
+        firmware,
+        padding.PSS(
+            mgf=padding.MGF1(hashes.SHA256()),
+            salt_length=padding.PSS.MAX_LENGTH
+        ),
+        hashes.SHA256()
+    )
+    
+    return signature
 
 @app.route('/firmware/upload', methods=['POST'])
 @login_required
@@ -260,28 +582,6 @@ def download_firmware(version):
     
     return send_file(firmware['file_path'], as_attachment=True)
 
-@app.route('/firmware/check/<cihaz_id>')
-@login_required
-def check_firmware(cihaz_id):
-    conn = get_db()
-    latest = conn.execute('''
-        SELECT version, release_notes FROM firmware_versions
-        WHERE is_active = 1
-        ORDER BY created_at DESC LIMIT 1
-    ''').fetchone()
-    conn.close()
-    
-    if not latest:
-        return jsonify({"error": "No active firmware available"}), 404
-    
-    return jsonify({
-        "current_version": "1.0.0",  # Cihazdan gelen versiyon
-        "latest_version": latest['version'],
-        "release_notes": latest['release_notes'],
-        "url": url_for('download_firmware', version=latest['version'], _external=True),
-        "signature_url": url_for('download_signature', version=latest['version'], _external=True)
-    })
-
 @app.route('/firmware/signature/<version>')
 @login_required
 def download_signature(version):
@@ -297,216 +597,37 @@ def download_signature(version):
         
     return send_file(firmware['signature_path'], as_attachment=True)
 
-# Kullanıcı Yönetimi Route'ları
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        
-        users = get_users()
-        if username in users and check_password_hash(users[username]['password'], password):
-            session['username'] = username
-            flash('Başarıyla giriş yapıldı', 'success')
-            return redirect(url_for('index'))
-        flash('Kullanıcı adı veya şifre hatalı', 'danger')
-    return render_template('login.html')
-
-@app.route('/logout')
-def logout():
-    session.pop('username', None)
-    flash('Başarıyla çıkış yapıldı', 'success')
-    return redirect(url_for('login'))
-
-@app.route('/signup', methods=['GET', 'POST'])
-def signup():
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        name = request.form.get('name')
-        
-        if not all([username, password, name]):
-            flash('Tüm alanları doldurun', 'danger')
-        elif user_exists(username):
-            flash('Bu kullanıcı adı zaten alınmış', 'danger')
-        else:
-            if add_user(username, password, name):
-                flash('Hesap oluşturuldu. Giriş yapabilirsiniz.', 'success')
-                return redirect(url_for('login'))
-            else:
-                flash('Hesap oluşturulurken hata oluştu', 'danger')
-    return render_template('signup.html')
-
-# Veri Alım Route'ları
-@app.route('/data', methods=['POST'])
-def receive_data():
-    data = request.get_json()
-    if data and 'cihaz_id' in data:
-        timestamp = int(time.time() * 1000)
-        data['timestamp'] = timestamp
-        data['firmware_version'] = data.get('firmware_version', '1.0.0')
-        cihazlar[data['cihaz_id']] = data
-        
-        # Veritabanına kaydet
-        conn = get_db()
-        if 'veriler' in data:
-            for veri in data['veriler']:
-                conn.execute('''
-                    INSERT INTO sensor_data 
-                    (cihaz_id, cihaz_adi, konum, mac, sensor_id, sensor_value, sensor_unit, timestamp, firmware_version)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    data['cihaz_id'],
-                    data.get('cihaz_adi', ''),
-                    data.get('konum', ''),
-                    data.get('mac', ''),
-                    veri.get('sensor_id', ''),
-                    veri.get('deger', 0),
-                    veri.get('birim', ''),
-                    timestamp,
-                    data['firmware_version']
-                ))
-        conn.commit()
-        conn.close()
-        
-        return jsonify({"status": "success"})
-    return jsonify({"status": "error"}), 400
-
-# Cihaz Yönetim Route'ları
-@app.route('/cihaz/<cihaz_id>')
+@app.route('/firmware/check/<cihaz_id>')
 @login_required
-def cihaz_detay(cihaz_id):
-    if cihaz_id in cihazlar:
-        users = get_users()
-        return render_template('cihaz_detay.html',
-                            cihaz=cihazlar[cihaz_id],
-                            now=int(time.time() * 1000),
-                            user=users[session['username']])
-    flash('Cihaz bulunamadı', 'danger')
-    return redirect(url_for('index'))
-
-@app.route('/gecmis/<cihaz_id>')
-@login_required
-def gecmis_veriler(cihaz_id):
-    start_date = request.args.get('start_date')
-    end_date = request.args.get('end_date')
-    sensor_filter = request.args.get('sensor_id')
-    
-    query = '''
-        SELECT * FROM sensor_data 
-        WHERE cihaz_id = ?
-    '''
-    params = [cihaz_id]
-    
-    if start_date:
-        start_timestamp = int(datetime.strptime(start_date, '%Y-%m-%d').timestamp() * 1000)
-        query += ' AND timestamp >= ?'
-        params.append(start_timestamp)
-    
-    if end_date:
-        end_timestamp = int((datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)).timestamp() * 1000)
-        query += ' AND timestamp < ?'
-        params.append(end_timestamp)
-    
-    if sensor_filter:
-        query += ' AND sensor_id = ?'
-        params.append(sensor_filter)
-    
-    query += ' ORDER BY timestamp DESC LIMIT 1000'
-    
+def check_firmware(cihaz_id):
     conn = get_db()
-    veriler = conn.execute(query, params).fetchall()
     
-    sensors_query = '''
-        SELECT DISTINCT sensor_id FROM sensor_data 
-        WHERE cihaz_id = ? 
-        ORDER BY sensor_id
-    '''
-    sensors = conn.execute(sensors_query, [cihaz_id]).fetchall()
+    # Cihazın mevcut firmware versiyonunu al
+    cihaz = conn.execute('SELECT firmware_version FROM devices WHERE cihaz_id = ?', (cihaz_id,)).fetchone()
+    if not cihaz:
+        return jsonify({"error": "Cihaz bulunamadı"}), 404
+    
+    current_version = cihaz['firmware_version']
+    
+    # En son firmware versiyonunu al
+    latest = conn.execute('''
+        SELECT version, release_notes FROM firmware_versions
+        WHERE is_active = 1
+        ORDER BY created_at DESC LIMIT 1
+    ''').fetchone()
     conn.close()
     
-    cihaz_adi = cihazlar.get(cihaz_id, {}).get('cihaz_adi', cihaz_id)
-    users = get_users()
+    if not latest:
+        return jsonify({"error": "No active firmware available"}), 404
     
-    return render_template('gecmis_veriler.html',
-                        veriler=veriler,
-                        cihaz_id=cihaz_id,
-                        cihaz_adi=cihaz_adi,
-                        sensors=sensors,
-                        start_date=start_date,
-                        end_date=end_date,
-                        sensor_filter=sensor_filter,
-                        user=users[session['username']])
+    return jsonify({
+        "current_version": current_version,
+        "latest_version": latest['version'],
+        "release_notes": latest['release_notes'],
+        "url": url_for('download_firmware', version=latest['version'], _external=True),
+        "signature_url": url_for('download_signature', version=latest['version'], _external=True)
+    })
 
-@app.route('/excel/<cihaz_id>')
-@login_required  
-def excel_export(cihaz_id):
-    start_date = request.args.get('start_date')
-    end_date = request.args.get('end_date')
-    sensor_filter = request.args.get('sensor_id')
-    
-    query = '''
-        SELECT cihaz_id, cihaz_adi, konum, sensor_id, sensor_value, 
-               sensor_unit, timestamp, created_at, firmware_version
-        FROM sensor_data 
-        WHERE cihaz_id = ?
-    '''
-    params = [cihaz_id]
-    
-    if start_date:
-        start_timestamp = int(datetime.strptime(start_date, '%Y-%m-%d').timestamp() * 1000)
-        query += ' AND timestamp >= ?'
-        params.append(start_timestamp)
-    
-    if end_date:
-        end_timestamp = int((datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)).timestamp() * 1000)
-        query += ' AND timestamp < ?'
-        params.append(end_timestamp)
-    
-    if sensor_filter:
-        query += ' AND sensor_id = ?'
-        params.append(sensor_filter)
-    
-    query += ' ORDER BY timestamp DESC'
-    
-    conn = get_db()
-    veriler = conn.execute(query, params).fetchall()
-    conn.close()
-    
-    data = []
-    for veri in veriler:
-        data.append({
-            'Cihaz ID': veri['cihaz_id'],
-            'Cihaz Adı': veri['cihaz_adi'],
-            'Konum': veri['konum'],
-            'Sensör ID': veri['sensor_id'],
-            'Değer': veri['sensor_value'],
-            'Birim': veri['sensor_unit'],
-            'Tarih': datetime.fromtimestamp(veri['timestamp'] / 1000).strftime('%d.%m.%Y'),
-            'Saat': datetime.fromtimestamp(veri['timestamp'] / 1000).strftime('%H:%M:%S'),
-            'Firmware Versiyon': veri['firmware_version'],
-            'Kayıt Zamanı': veri['created_at']
-        })
-    
-    df = pd.DataFrame(data)
-    
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, sheet_name='Sensor Data', index=False)
-    
-    output.seek(0)
-    
-    cihaz_adi = cihazlar.get(cihaz_id, {}).get('cihaz_adi', cihaz_id)
-    filename = f"{cihaz_adi}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-    
-    return send_file(
-        output,
-        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        as_attachment=True,
-        download_name=filename
-    )
-
-# Güncelleme Stream Route'u
 @app.route('/firmware/update_stream')
 @login_required
 def firmware_update_stream():
@@ -514,7 +635,7 @@ def firmware_update_stream():
     version = request.args.get('version')
     
     def generate():
-        # Burada gerçek güncelleme süreci simüle ediliyor
+        # Güncelleme sürecini simüle et
         for i in range(0, 101, 5):
             time.sleep(0.5)
             yield f"data: {{\"progress\": {i}}}\n\n"
@@ -527,41 +648,32 @@ def firmware_update_stream():
 @app.route('/firmware/cancel')
 @login_required
 def cancel_update():
-    # Güncelleme iptal işlemleri
-    return jsonify({"status": "cancelled"})
+    # Güncelleme iptal işlemleri burada yapılacak
+    return jsonify({"status": "cancelled", "message": "Güncelleme iptal edildi"})
 
-def allowed_file(filename):
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+# Cihaz durum güncelleme (her dakika çalışacak bir görev)
+def update_device_status():
+    with app.app_context():
+        conn = get_db()
+        threshold = int(time.time() * 1000) - 120000  # 2 dakikadan eski cihazlar offline
+        
+        conn.execute('''
+            UPDATE devices 
+            SET online_status = CASE 
+                WHEN last_seen >= ? THEN 1 
+                ELSE 0 
+            END
+        ''', (threshold,))
+        
+        conn.commit()
+        conn.close()
 
-def sign_firmware(file_path):
-    # Örnek private key (gerçek uygulamada .env'de saklayın)
-    private_key_pem = """
-    -----BEGIN RSA PRIVATE KEY-----
-    MIIEpAIBAAKCAQEAz7v5P5Z8vI3Jj9X9K2sL6v2Qx1Yt8uZ7W3bN1cX6y5MvG0P
-    ... (gerçek private key buraya) ...
-    -----END RSA PRIVATE KEY-----
-    """
-    
-    private_key = serialization.load_pem_private_key(
-        private_key_pem.encode(),
-        password=None,
-        backend=default_backend()
-    )
-    
-    with open(file_path, 'rb') as f:
-        firmware = f.read()
-    
-    signature = private_key.sign(
-        firmware,
-        padding.PSS(
-            mgf=padding.MGF1(hashes.SHA256()),
-            salt_length=padding.PSS.MAX_LENGTH
-        ),
-        hashes.SHA256()
-    )
-    
-    return signature
+# Zamanlanmış görevleri başlat
+if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+    from apscheduler.schedulers.background import BackgroundScheduler
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(update_device_status, 'interval', minutes=1)
+    scheduler.start()
 
 if __name__ == '__main__':
     if not os.path.exists('firmware'):
