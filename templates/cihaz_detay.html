@@ -5,18 +5,26 @@
 {% block extra_css %}
 <style>
     .sensor-card {
-        transition: transform 0.3s;
+        transition: all 0.3s;
         cursor: pointer;
+        height: 100%;
     }
     .sensor-card:hover {
         transform: translateY(-5px);
         box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    }
+    .sensor-value {
+        font-size: 1.75rem;
+        font-weight: bold;
     }
     .gauge-container {
         width: 100%;
         max-width: 120px;
         height: 120px;
         margin: 0 auto;
+    }
+    .last-update {
+        font-size: 0.85rem;
     }
 </style>
 {% endblock %}
@@ -33,16 +41,18 @@
         <a href="{{ url_for('gecmis_veriler', cihaz_id=cihaz.cihaz_id) }}" class="btn btn-info me-2">
             <i class="fas fa-history"></i> Geçmiş Veriler
         </a>
+        {% if is_admin %}
         <button class="btn btn-warning" onclick="checkFirmware('{{ cihaz.cihaz_id }}')">
             <i class="fas fa-sync-alt"></i> Güncelle
         </button>
+        {% endif %}
     </div>
 </div>
 
 <div class="row mb-4">
     <div class="col-md-6">
         <div class="card h-100">
-            <div class="card-header">
+            <div class="card-header bg-primary text-white">
                 <h6 class="m-0 font-weight-bold">Cihaz Bilgileri</h6>
             </div>
             <div class="card-body">
@@ -57,18 +67,26 @@
                     </div>
                 </div>
             </div>
+            <div class="card-footer bg-transparent">
+                <small class="text-muted">
+                    Son Güncelleme: {{ cihaz.last_seen|format_timestamp }}
+                </small>
+            </div>
         </div>
     </div>
     <div class="col-md-6">
         <div class="card h-100">
-            <div class="card-header d-flex justify-content-between align-items-center">
+            <div class="card-header d-flex justify-content-between align-items-center bg-primary text-white">
                 <h6 class="m-0 font-weight-bold">Durum</h6>
                 <span class="badge bg-{% if cihaz.online_status %}success{% else %}danger{% endif %}">
                     {% if cihaz.online_status %}Online{% else %}Offline{% endif %}
                 </span>
             </div>
             <div class="card-body">
-                <p class="card-text">Son Güncelleme: {{ cihaz.last_seen|format_timestamp }}</p>
+                <div class="text-center py-4">
+                    <i class="fas fa-{% if cihaz.online_status %}check-circle text-success{% else %}times-circle text-danger{% endif %} fa-4x mb-3"></i>
+                    <p class="mb-0">{{ cihaz.ip_address }}</p>
+                </div>
             </div>
         </div>
     </div>
@@ -78,40 +96,95 @@
 <div class="row">
     {% for sensor_id, veri in sensor_data.items() %}
     <div class="col-xl-3 col-md-6 mb-4">
-        <div class="card sensor-card h-100">
+        <div class="card sensor-card">
             <div class="card-body text-center">
-                <h6 class="card-title text-muted">{{ sensor_id }}</h6>
-                <div class="gauge-container mb-2">
+                <h6 class="card-title text-muted text-uppercase">{{ sensor_id }}</h6>
+                <div class="gauge-container mb-3">
                     <canvas id="gauge-{{ loop.index }}"></canvas>
                 </div>
-                <h3 class="text-primary">{{ "%.2f"|format(veri.deger) }} <small class="text-muted">{{ veri.birim }}</small></h3>
-                <p class="text-muted small mt-2">{{ veri.timestamp|format_time_only }}</p>
+                <div class="sensor-value text-primary mb-1">
+                    {{ "%.2f"|format(veri.deger) }}
+                </div>
+                <small class="text-muted">{{ veri.birim }}</small>
+                <div class="last-update text-muted mt-2">
+                    <i class="fas fa-clock"></i> {{ veri.timestamp|format_time_only }}
+                </div>
+            </div>
+            <div class="card-footer bg-transparent text-center">
+                <a href="{{ url_for('gecmis_veriler', cihaz_id=cihaz.cihaz_id) }}?sensor_id={{ sensor_id }}"
+                   class="btn btn-sm btn-outline-primary">
+                    <i class="fas fa-chart-line"></i> Detaylar
+                </a>
             </div>
         </div>
     </div>
     {% endfor %}
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-    // Gauge grafikleri
+    // Gauge grafikleri oluştur
     {% for sensor_id, veri in sensor_data.items() %}
-    new Chart(document.getElementById('gauge-{{ loop.index }}'), {
-        type: 'doughnut',
-        data: {
-            datasets: [{
-                data: [{{ veri.deger }}, {{ 100 - veri.deger }}],
-                backgroundColor: ['#4e73df', '#f8f9fa'],
-                borderWidth: 0
-            }]
-        },
-        options: {
-            circumference: 180,
-            rotation: 270,
-            cutout: '75%',
-            plugins: { legend: { display: false }, tooltip: { enabled: false } }
+    (function() {
+        const ctx = document.getElementById('gauge-{{ loop.index }}').getContext('2d');
+        const value = {{ veri.deger }};
+        const max = Math.max(value * 1.5, 100);
+        
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                datasets: [{
+                    data: [value, max - value],
+                    backgroundColor: [
+                        getColor(value/max*100),
+                        '#f8f9fa'
+                    ],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                circumference: 180,
+                rotation: 270,
+                cutout: '75%',
+                plugins: { 
+                    legend: { display: false },
+                    tooltip: { enabled: false }
+                }
+            }
+        });
+        
+        function getColor(percent) {
+            if (percent > 80) return '#e74a3b';
+            if (percent > 60) return '#f6c23e';
+            if (percent > 40) return '#36b9cc';
+            return '#1cc88a';
         }
-    });
+    })();
     {% endfor %}
+
+    // Firmware güncelleme fonksiyonu
+    function checkFirmware(deviceId) {
+        fetch(`/firmware/check/${deviceId}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+                
+                if (data.latest_version !== data.current_version) {
+                    if (confirm(`Yeni firmware mevcut (v${data.latest_version}). Güncellemek istiyor musunuz?\n\n${data.release_notes}`)) {
+                        startUpdate(deviceId, data.latest_version);
+                    }
+                } else {
+                    alert('Cihaz zaten güncel!');
+                }
+            })
+            .catch(error => {
+                console.error('Hata:', error);
+                alert('Güncelleme kontrolü başarısız');
+            });
+    }
 
     // Sayfayı her 30 saniyede bir yenile
     setTimeout(() => location.reload(), 30000);
