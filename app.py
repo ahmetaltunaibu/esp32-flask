@@ -206,7 +206,8 @@ def signup():
         username = request.form.get('username')
         password = request.form.get('password')
         name = request.form.get('name')
-        
+        is_admin = True if request.form.get('is_admin') == 'on' else False  # Checkbox kontrolü
+
         if not all([username, password, name]):
             flash('Tüm alanları doldurun', 'danger')
             return redirect(url_for('signup'))
@@ -214,9 +215,9 @@ def signup():
         try:
             with get_db() as conn:
                 conn.execute('''
-                    INSERT INTO users (username, password, name)
-                    VALUES (?, ?, ?)
-                ''', (username, generate_password_hash(password), name))
+                    INSERT INTO users (username, password, name, is_admin)
+                    VALUES (?, ?, ?, ?)
+                ''', (username, generate_password_hash(password), name, is_admin))
                 conn.commit()
                 flash('Hesap oluşturuldu. Giriş yapabilirsiniz.', 'success')
                 return redirect(url_for('login'))
