@@ -160,6 +160,17 @@ app.jinja_env.filters['format_timestamp'] = format_timestamp
 app.jinja_env.filters['format_date_only'] = format_date_only
 app.jinja_env.filters['format_time_only'] = format_time_only
 
+# Context processor - tüm şablonlara ortak değişkenleri ekler
+@app.context_processor
+def inject_common_vars():
+    users = get_users()
+    current_user = users.get(session.get('username', ''), {}) if 'username' in session else None
+    return {
+        'users': users,
+        'current_user': current_user,
+        'now': int(time.time() * 1000)
+    }
+
 # Decorator
 def login_required(f):
     @wraps(f)
