@@ -1,27 +1,88 @@
 {% extends "layout.html" %}
 
+{% block title %}Dashboard{% endblock %}
+
 {% block content %}
-<div class="container mt-4">
-    <h1 class="mb-4">Cihaz Yönetim Paneli <small class="text-muted">Hoş geldiniz, {{ user.name }}</small></h1>
-    
-    <div class="row">
-        {% for cihaz_id, cihaz in cihazlar.items() %}
-        <div class="col-md-4">
-            <div class="card cihaz-kart" onclick="window.location.href='/cihaz/{{ cihaz_id }}'">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between">
-                        <h5 class="card-title">{{ cihaz.cihaz_adi }}</h5>
-                        <span class="status-indicator {% if (now - cihaz.timestamp) < 120000 %}online{% else %}offline{% endif %}"></span>
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Cihaz Yönetim Paneli</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <span class="me-2">Son Güncelleme: {{ now|format_timestamp }}</span>
+    </div>
+</div>
+
+<div class="row">
+    {% for cihaz in cihazlar %}
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card cihaz-kart h-100" onclick="window.location.href='/cihaz/{{ cihaz.cihaz_id }}'">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="d-flex justify-content-between">
+                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
+                                {{ cihaz.cihaz_adi }}
+                            </div>
+                            <span class="status-indicator {% if cihaz.online_status %}online{% else %}offline{% endif %}"></span>
+                        </div>
+                        <div class="h6 mb-0 text-gray-800">{{ cihaz.konum }}</div>
+                        <div class="mt-2">
+                            <small class="text-muted">MAC: {{ cihaz.mac }}</small><br>
+                            <small class="text-muted">Firmware: v{{ cihaz.firmware_version }}</small>
+                        </div>
                     </div>
-                    <h6 class="card-subtitle mb-2 text-muted">{{ cihaz.konum }}</h6>
-                    <p class="card-text">
-                        <small>Son güncelleme: {{ cihaz.timestamp|format_timestamp }}</small><br>
-                        <small>MAC: {{ cihaz.mac }}</small>
-                    </p>
+                    <div class="col-auto">
+                        <i class="fas fa-microchip fa-2x text-gray-300"></i>
+                    </div>
                 </div>
             </div>
         </div>
-        {% endfor %}
+    </div>
+    {% endfor %}
+</div>
+
+<div class="card mt-4">
+    <div class="card-header">
+        <h6 class="m-0 font-weight-bold text-primary">Son Aktivite</h6>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                <thead>
+                    <tr>
+                        <th>Cihaz Adı</th>
+                        <th>Konum</th>
+                        <th>Son Görülme</th>
+                        <th>Durum</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for cihaz in cihazlar %}
+                    <tr>
+                        <td>{{ cihaz.cihaz_adi }}</td>
+                        <td>{{ cihaz.konum }}</td>
+                        <td>{{ cihaz.last_seen|format_timestamp }}</td>
+                        <td>
+                            {% if cihaz.online_status %}
+                            <span class="badge bg-success">Online</span>
+                            {% else %}
+                            <span class="badge bg-danger">Offline</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
+
+<script>
+    $(document).ready(function() {
+        $('#dataTable').DataTable({
+            "order": [[2, "desc"]],
+            "language": {
+                "url": "//cdn.datatables.net/plug-ins/1.11.5/i18n/tr.json"
+            }
+        });
+    });
+</script>
 {% endblock %}
