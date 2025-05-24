@@ -439,9 +439,11 @@ def allowed_file(filename):
            filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
 def sign_firmware(file_path):
-    private_key_pem = """-----BEGIN PRIVATE KEY-----
-    ... (your private key here) ...
-    -----END PRIVATE KEY-----"""
+    private_key_pem = """
+-----BEGIN RSA PRIVATE KEY-----
+MIIEpAIBAAKCAQEA3Xo5bJ7... (yeni key)
+-----END RSA PRIVATE KEY-----
+"""
     
     private_key = serialization.load_pem_private_key(
         private_key_pem.encode(),
