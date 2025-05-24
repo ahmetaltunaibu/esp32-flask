@@ -5,19 +5,18 @@
 {% block extra_css %}
 <style>
     .sensor-card {
-        transition: all 0.3s;
+        transition: transform 0.3s;
         cursor: pointer;
     }
     .sensor-card:hover {
         transform: translateY(-5px);
-        box-shadow: 0 0.5rem 1.5rem 0 rgba(0, 0, 0, 0.15);
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
     }
-    .sensor-value {
-        font-size: 1.5rem;
-        font-weight: bold;
-    }
-    .progress-thin {
-        height: 5px;
+    .gauge-container {
+        width: 100%;
+        max-width: 120px;
+        height: 120px;
+        margin: 0 auto;
     }
 </style>
 {% endblock %}
@@ -31,7 +30,7 @@
         <h1 class="h2 ms-2 d-inline-block">{{ cihaz.cihaz_adi }}</h1>
     </div>
     <div class="btn-toolbar mb-2 mb-md-0">
-        <a href="/gecmis/{{ cihaz.cihaz_id }}" class="btn btn-info me-2">
+        <a href="{{ url_for('gecmis_veriler', cihaz_id=cihaz.cihaz_id) }}" class="btn btn-info me-2">
             <i class="fas fa-history"></i> Geçmiş Veriler
         </a>
         <button class="btn btn-warning" onclick="checkFirmware('{{ cihaz.cihaz_id }}')">
@@ -40,11 +39,11 @@
     </div>
 </div>
 
-<div class="row">
+<div class="row mb-4">
     <div class="col-md-6">
-        <div class="card mb-4">
+        <div class="card h-100">
             <div class="card-header">
-                <h6 class="m-0 font-weight-bold text-primary">Cihaz Bilgileri</h6>
+                <h6 class="m-0 font-weight-bold">Cihaz Bilgileri</h6>
             </div>
             <div class="card-body">
                 <div class="row">
@@ -57,40 +56,19 @@
                         <p><strong>Firmware:</strong> v{{ cihaz.firmware_version }}</p>
                     </div>
                 </div>
-                <div class="progress progress-thin mt-2">
-                    <div class="progress-bar bg-{% if cihaz.online_status %}success{% else %}danger{% endif %}" 
-                         role="progressbar" style="width: 100%"></div>
-                </div>
-                <small class="text-muted">Son Güncelleme: {{ cihaz.last_seen|format_timestamp }}</small>
             </div>
         </div>
     </div>
     <div class="col-md-6">
-        <div class="card mb-4">
+        <div class="card h-100">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h6 class="m-0 font-weight-bold text-primary">Sistem Durumu</h6>
+                <h6 class="m-0 font-weight-bold">Durum</h6>
                 <span class="badge bg-{% if cihaz.online_status %}success{% else %}danger{% endif %}">
                     {% if cihaz.online_status %}Online{% else %}Offline{% endif %}
                 </span>
             </div>
             <div class="card-body">
-                <div id="updatePanel" class="d-none">
-                    <h6 class="text-center mb-3">Firmware Güncelleme</h6>
-                    <div id="updateStatus" class="text-center mb-2"></div>
-                    <div class="progress mb-2">
-                        <div id="updateProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" 
-                             role="progressbar" style="width: 0%"></div>
-                    </div>
-                    <div class="d-flex justify-content-between">
-                        <span id="progressText">0%</span>
-                        <button id="cancelUpdateBtn" class="btn btn-sm btn-outline-danger">
-                            <i class="fas fa-times"></i> İptal
-                        </button>
-                    </div>
-                </div>
-                <div id="statusPanel">
-                    <p class="text-center text-muted">Cihaz normal çalışıyor</p>
-                </div>
+                <p class="card-text">Son Güncelleme: {{ cihaz.last_seen|format_timestamp }}</p>
             </div>
         </div>
     </div>
@@ -106,13 +84,8 @@
                 <div class="gauge-container mb-2">
                     <canvas id="gauge-{{ loop.index }}"></canvas>
                 </div>
-                <div class="sensor-value text-primary">
-                    {{ "%.2f"|format(veri.deger) }}
-                </div>
-                <small class="text-muted">{{ veri.birim }}</small>
-                <div class="mt-2 small">
-                    <span class="text-muted">{{ veri.timestamp|format_time_only }}</span>
-                </div>
+                <h3 class="text-primary">{{ "%.2f"|format(veri.deger) }} <small class="text-muted">{{ veri.birim }}</small></h3>
+                <p class="text-muted small mt-2">{{ veri.timestamp|format_time_only }}</p>
             </div>
         </div>
     </div>
@@ -120,137 +93,25 @@
 </div>
 
 <script>
-    // Gauge grafikleri oluştur
+    // Gauge grafikleri
     {% for sensor_id, veri in sensor_data.items() %}
-    (function() {
-        const ctx = document.getElementById('gauge-{{ loop.index }}').getContext('2d');
-        const value = {{ veri.deger }};
-        const max = Math.max(value * 1.5, 100);
-        
-        new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-                datasets: [{
-                    data: [value, max - value],
-                    backgroundColor: [
-                        getColor(value/max*100),
-                        '#f8f9fa'
-                    ],
-                    borderWidth: 0
-                }]
-            },
-            options: {
-                circumference: 180,
-                rotation: 270,
-                cutout: '75%',
-                plugins: { 
-                    legend: { display: false },
-                    tooltip: { enabled: false }
-                }
-            }
-        });
-        
-        function getColor(percent) {
-            if (percent > 80) return '#e74a3b';
-            if (percent > 60) return '#f6c23e';
-            if (percent > 40) return '#36b9cc';
-            return '#1cc88a';
+    new Chart(document.getElementById('gauge-{{ loop.index }}'), {
+        type: 'doughnut',
+        data: {
+            datasets: [{
+                data: [{{ veri.deger }}, {{ 100 - veri.deger }}],
+                backgroundColor: ['#4e73df', '#f8f9fa'],
+                borderWidth: 0
+            }]
+        },
+        options: {
+            circumference: 180,
+            rotation: 270,
+            cutout: '75%',
+            plugins: { legend: { display: false }, tooltip: { enabled: false } }
         }
-    })();
+    });
     {% endfor %}
-
-    // Firmware güncelleme fonksiyonları
-    function checkFirmware(deviceId) {
-        fetch(`/firmware/check/${deviceId}`)
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    alert(data.error);
-                    return;
-                }
-                
-                if (data.latest_version !== data.current_version) {
-                    if (confirm(`Yeni firmware mevcut (v${data.latest_version}). Güncellemek istiyor musunuz?\n\n${data.release_notes}`)) {
-                        startUpdate(deviceId, data.latest_version);
-                    }
-                } else {
-                    alert('Cihaz zaten güncel!');
-                }
-            })
-            .catch(error => {
-                console.error('Hata:', error);
-                alert('Güncelleme kontrolü başarısız');
-            });
-    }
-
-    function startUpdate(deviceId, version) {
-        const updatePanel = document.getElementById('updatePanel');
-        const statusPanel = document.getElementById('statusPanel');
-        const updateStatus = document.getElementById('updateStatus');
-        const progressBar = document.getElementById('updateProgressBar');
-        const progressText = document.getElementById('progressText');
-        const cancelBtn = document.getElementById('cancelUpdateBtn');
-        
-        updatePanel.classList.remove('d-none');
-        statusPanel.classList.add('d-none');
-        updateStatus.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Güncelleme başlatılıyor...`;
-        
-        let updateCancelled = false;
-        const eventSource = new EventSource(`/firmware/update_stream?device_id=${deviceId}&version=${version}`);
-        
-        eventSource.onmessage = function(e) {
-            const data = JSON.parse(e.data);
-            
-            if (data.progress) {
-                const progress = parseInt(data.progress);
-                progressBar.style.width = `${progress}%`;
-                progressText.textContent = `${progress}%`;
-                
-                if (progress < 30) {
-                    updateStatus.innerHTML = `<i class="fas fa-cloud-download-alt"></i> Firmware indiriliyor (${progress}%)`;
-                } else if (progress < 70) {
-                    updateStatus.innerHTML = `<i class="fas fa-microchip"></i> Cihaza yazılıyor (${progress}%)`;
-                } else {
-                    updateStatus.innerHTML = `<i class="fas fa-check-circle"></i> Sonlandırılıyor (${progress}%)`;
-                }
-            }
-            
-            if (data.message) {
-                updateStatus.innerHTML = `<i class="fas fa-info-circle"></i> ${data.message}`;
-            }
-            
-            if (data.status === 'completed') {
-                updateStatus.innerHTML = `<i class="fas fa-check-circle text-success"></i> Güncelleme başarılı!`;
-                progressBar.style.width = '100%';
-                progressText.textContent = '100%';
-                progressBar.classList.remove('progress-bar-animated', 'progress-bar-striped');
-                eventSource.close();
-                
-                setTimeout(() => {
-                    location.reload();
-                }, 3000);
-            }
-        };
-        
-        eventSource.onerror = function() {
-            if (!updateCancelled) {
-                updateStatus.innerHTML = `<i class="fas fa-times-circle text-danger"></i> Güncelleme hatası!`;
-                progressBar.classList.remove('progress-bar-animated', 'progress-bar-striped');
-                progressBar.style.backgroundColor = '#e74a3b';
-            }
-            eventSource.close();
-        };
-        
-        cancelBtn.onclick = function() {
-            if (confirm('Güncelleme iptal edilecek. Devam etmek istiyor musunuz?')) {
-                updateCancelled = true;
-                updateStatus.innerHTML = `<i class="fas fa-times-circle text-warning"></i> Güncelleme iptal edildi`;
-                progressBar.classList.remove('progress-bar-animated');
-                progressBar.style.backgroundColor = '#f6c23e';
-                fetch(`/firmware/cancel?device_id=${deviceId}`);
-            }
-        };
-    }
 
     // Sayfayı her 30 saniyede bir yenile
     setTimeout(() => location.reload(), 30000);
