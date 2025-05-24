@@ -1,12 +1,21 @@
 {% extends "layout.html" %}
 
-{% block title %}Dashboard{% endblock %}
-
 {% block content %}
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
     <h1 class="h2">Cihaz Yönetim Paneli</h1>
     <div class="btn-toolbar mb-2 mb-md-0">
-        <span class="me-2">Son Güncelleme: {{ now|format_timestamp }}</span>
+        <div class="btn-group me-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="window.location.reload()">
+                <i class="fas fa-sync-alt"></i> Yenile
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="alert alert-primary d-flex align-items-center">
+    <i class="fas fa-info-circle me-2"></i>
+    <div>
+        Hoş geldiniz, <strong>{{ current_user.name }}</strong> | Toplam <strong>{{ cihazlar|length }}</strong> cihaz bulunmaktadır
     </div>
 </div>
 
@@ -16,73 +25,52 @@
         <div class="card cihaz-kart h-100" onclick="window.location.href='/cihaz/{{ cihaz.cihaz_id }}'">
             <div class="card-body">
                 <div class="row no-gutters align-items-center">
-                    <div class="col mr-2">
+                    <div class="col me-2">
                         <div class="d-flex justify-content-between">
                             <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
                                 {{ cihaz.cihaz_adi }}
                             </div>
                             <span class="status-indicator {% if cihaz.online_status %}online{% else %}offline{% endif %}"></span>
                         </div>
-                        <div class="h6 mb-0 text-gray-800">{{ cihaz.konum }}</div>
-                        <div class="mt-2">
-                            <small class="text-muted">MAC: {{ cihaz.mac }}</small><br>
-                            <small class="text-muted">Firmware: v{{ cihaz.firmware_version }}</small>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800">
+                            {{ cihaz.konum }}
+                        </div>
+                        <div class="mt-2 small text-muted">
+                            <div><i class="fas fa-fw fa-microchip"></i> v{{ cihaz.firmware_version }}</div>
+                            <div><i class="fas fa-fw fa-clock"></i> {{ cihaz.last_seen|format_timestamp }}</div>
                         </div>
                     </div>
                     <div class="col-auto">
-                        <i class="fas fa-microchip fa-2x text-gray-300"></i>
+                        <i class="fas fa-industry fa-2x text-gray-300"></i>
                     </div>
                 </div>
+            </div>
+            <div class="card-footer small d-flex justify-content-between">
+                <span class="text-truncate" title="{{ cihaz.mac }}">
+                    <i class="fas fa-fw fa-network-wired"></i> {{ cihaz.mac }}
+                </span>
+                <span class="badge bg-{% if cihaz.online_status %}success{% else %}danger{% endif %}">
+                    {% if cihaz.online_status %}Online{% else %}Offline{% endif %}
+                </span>
             </div>
         </div>
     </div>
     {% endfor %}
 </div>
 
-<div class="card mt-4">
-    <div class="card-header">
-        <h6 class="m-0 font-weight-bold text-primary">Son Aktivite</h6>
-    </div>
-    <div class="card-body">
-        <div class="table-responsive">
-            <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
-                <thead>
-                    <tr>
-                        <th>Cihaz Adı</th>
-                        <th>Konum</th>
-                        <th>Son Görülme</th>
-                        <th>Durum</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for cihaz in cihazlar %}
-                    <tr>
-                        <td>{{ cihaz.cihaz_adi }}</td>
-                        <td>{{ cihaz.konum }}</td>
-                        <td>{{ cihaz.last_seen|format_timestamp }}</td>
-                        <td>
-                            {% if cihaz.online_status %}
-                            <span class="badge bg-success">Online</span>
-                            {% else %}
-                            <span class="badge bg-danger">Offline</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
+{% if not cihazlar %}
+<div class="alert alert-warning text-center">
+    <h5>Kayıtlı Cihaz Bulunamadı</h5>
+    <p>Henüz hiçbir cihaz bağlanmadı veya veri göndermedi.</p>
 </div>
+{% endif %}
 
 <script>
-    $(document).ready(function() {
-        $('#dataTable').DataTable({
-            "order": [[2, "desc"]],
-            "language": {
-                "url": "//cdn.datatables.net/plug-ins/1.11.5/i18n/tr.json"
-            }
-        });
-    });
+$(document).ready(function() {
+    // Her 30 saniyede bir sayfayı yenile
+    setTimeout(function() {
+        window.location.reload();
+    }, 30000);
+});
 </script>
 {% endblock %}
