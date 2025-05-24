@@ -96,23 +96,7 @@ def format_time_only(timestamp):
         return datetime.fromtimestamp(timestamp / 1000).strftime('%H:%M:%S')
     except:
         return "N/A"
-@app.route('/create_admin')
-def create_admin():
-    try:
-        with get_db() as conn:
-            conn.execute('''
-                INSERT INTO users (username, password, name, is_admin)
-                VALUES (?, ?, ?, ?)
-            ''', (
-                'admin',  # Kullanıcı adı
-                generate_password_hash('admin123'),  # Şifre
-                'Admin User',  # Ad
-                1  # is_admin=True
-            ))
-            conn.commit()
-        return "Admin kullanıcı oluşturuldu."
-    except sqlite3.IntegrityError:
-        return "Bu kullanıcı zaten mevcut."
+
 # Authentication Decorators
 def login_required(f):
     @wraps(f)
@@ -206,8 +190,7 @@ def signup():
         username = request.form.get('username')
         password = request.form.get('password')
         name = request.form.get('name')
-        is_admin = True if request.form.get('is_admin') == 'on' else False  # Checkbox kontrolü
-
+        
         if not all([username, password, name]):
             flash('Tüm alanları doldurun', 'danger')
             return redirect(url_for('signup'))
@@ -215,9 +198,9 @@ def signup():
         try:
             with get_db() as conn:
                 conn.execute('''
-                    INSERT INTO users (username, password, name, is_admin)
-                    VALUES (?, ?, ?, ?)
-                ''', (username, generate_password_hash(password), name, is_admin))
+                    INSERT INTO users (username, password, name)
+                    VALUES (?, ?, ?)
+                ''', (username, generate_password_hash(password), name))
                 conn.commit()
                 flash('Hesap oluşturuldu. Giriş yapabilirsiniz.', 'success')
                 return redirect(url_for('login'))
