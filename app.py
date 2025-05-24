@@ -35,19 +35,66 @@ def init_db():
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    
+    # Kullanıcı tablosu oluştur
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            name TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
     conn.commit()
     conn.close()
 
 # Uygulama başlatılırken veritabanını oluştur
 init_db()
 
-# Kullanıcı veritabanı
-users = {
-    "admin": {
-        "password": generate_password_hash("admin123"),
-        "name": "Admin"
-    }
-}
+# Kullanıcı işlemleri
+def get_users():
+    conn = get_db()
+    users_data = conn.execute('SELECT username, password, name FROM users').fetchall()
+    conn.close()
+    
+    users = {}
+    for user in users_data:
+        users[user['username']] = {
+            'password': user['password'],
+            'name': user['name']
+        }
+    
+    # Varsayılan admin kullanıcısı yoksa ekle
+    if 'admin' not in users:
+        add_user('admin', 'admin123', 'Admin')
+        users['admin'] = {
+            'password': generate_password_hash('admin123'),
+            'name': 'Admin'
+        }
+    
+    return users
+
+def add_user(username, password, name):
+    conn = get_db()
+    try:
+        conn.execute('''
+            INSERT INTO users (username, password, name)
+            VALUES (?, ?, ?)
+        ''', (username, generate_password_hash(password), name))
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        conn.close()
+
+def user_exists(username):
+    conn = get_db()
+    user = conn.execute('SELECT username FROM users WHERE username = ?', (username,)).fetchone()
+    conn.close()
+    return user is not None
 
 # Cihaz verileri (anlık için)
 cihazlar = {}
@@ -82,6 +129,13 @@ def login_required(f):
         if 'username' not in session:
             flash('Lütfen giriş yapın', 'danger')
             return redirect(url_for('login'))
+        
+        # Kullanıcının hala var olup olmadığını kontrol et
+        if not user_exists(session['username']):
+            session.pop('username', None)
+            flash('Kullanıcı bulunamadı. Lütfen tekrar giriş yapın', 'danger')
+            return redirect(url_for('login'))
+            
         return f(*args, **kwargs)
     return decorated_function
 
@@ -92,6 +146,7 @@ def login():
         username = request.form.get('username')
         password = request.form.get('password')
         
+        users = get_users()
         if username in users and check_password_hash(users[username]['password'], password):
             session['username'] = username
             flash('Başarıyla giriş yapıldı', 'success')
@@ -114,21 +169,21 @@ def signup():
         
         if not all([username, password, name]):
             flash('Tüm alanları doldurun', 'danger')
-        elif username in users:
+        elif user_exists(username):
             flash('Bu kullanıcı adı zaten alınmış', 'danger')
         else:
-            users[username] = {
-                "password": generate_password_hash(password),
-                "name": name
-            }
-            flash('Hesap oluşturuldu. Giriş yapabilirsiniz.', 'success')
-            return redirect(url_for('login'))
+            if add_user(username, password, name):
+                flash('Hesap oluşturuldu. Giriş yapabilirsiniz.', 'success')
+                return redirect(url_for('login'))
+            else:
+                flash('Hesap oluşturulurken hata oluştu', 'danger')
     return render_template('signup.html')
 
 @app.route('/')
 @login_required
 def index():
     current_time = int(time.time() * 1000)
+    users = get_users()
     return render_template('index.html',
                          cihazlar=cihazlar,
                          now=current_time,
@@ -172,6 +227,7 @@ def receive_data():
 @login_required
 def cihaz_detay(cihaz_id):
     if cihaz_id in cihazlar:
+        users = get_users()
         return render_template('cihaz_detay.html',
                              cihaz=cihazlar[cihaz_id],
                              user=users[session['username']])
@@ -222,6 +278,7 @@ def gecmis_veriler(cihaz_id):
     conn.close()
     
     cihaz_adi = cihazlar.get(cihaz_id, {}).get('cihaz_adi', cihaz_id)
+    users = get_users()
     
     return render_template('gecmis_veriler.html',
                          veriler=veriler,
