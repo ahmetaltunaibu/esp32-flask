@@ -20,6 +20,14 @@ app.config['FIRMWARE_FOLDER'] = 'firmware'
 app.config['ALLOWED_EXTENSIONS'] = {'bin'}
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
 
+
+# Sabit admin kullanıcısı (app.py'nin en üstüne ekleyin)
+HARDCODED_ADMIN = {
+    "username": "admin",
+    "password": "admin123",  # Gerçek projede asla böyle yapmayın!
+    "is_admin": True
+}
+
 # Database Setup
 def get_db():
     conn = sqlite3.connect('sensor_data.db')
@@ -110,12 +118,9 @@ def login_required(f):
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        with get_db() as conn:
-            user = conn.execute('SELECT is_admin FROM users WHERE username = ?', 
-                              (session['username'],)).fetchone()
-            if not user or not user['is_admin']:
-                flash('Bu işlem için yetkiniz yok', 'danger')
-                return redirect(url_for('index'))
+        if not session.get('is_admin'):
+            flash('Bu işlem için ADMIN yetkisi gerekiyor!', 'danger')
+            return redirect(url_for('index'))
         return f(*args, **kwargs)
     return decorated_function
 
@@ -167,15 +172,23 @@ def login():
         username = request.form.get('username')
         password = request.form.get('password')
         
+        # Sabit kullanıcı kontrolü
+        if username == HARDCODED_ADMIN["username"] and password == HARDCODED_ADMIN["password"]:
+            session['username'] = username
+            session['is_admin'] = True  # Admin yetkisi ver
+            flash('ADMIN olarak giriş yapıldı!', 'success')
+            return redirect(url_for('index'))
+        
+        # Eski veritabanı kontrolü (isteğe bağlı)
         with get_db() as conn:
             user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
-            
             if user and check_password_hash(user['password'], password):
                 session['username'] = username
-                flash('Başarıyla giriş yapıldı', 'success')
+                session['is_admin'] = bool(user['is_admin'])
+                flash('Giriş başarılı!', 'success')
                 return redirect(url_for('index'))
-            
-        flash('Kullanıcı adı veya şifre hatalı', 'danger')
+        
+        flash('Kullanıcı adı/şifre hatalı', 'danger')
     return render_template('login.html')
 
 @app.route('/logout')
