@@ -264,29 +264,31 @@ if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
 @admin_required
 def assign_firmware():
     data = request.get_json()
-    cihaz_id = data['cihaz_id']
-    firmware_version = data['firmware_version']
-    
+    if not data or 'device_id' not in data or 'version' not in data:
+        return jsonify({"error": "Geçersiz istek"}), 400
+
     with get_db() as conn:
-        # Cihazın varlığını kontrol et
-        cihaz = conn.execute('SELECT * FROM devices WHERE cihaz_id = ?', (cihaz_id,)).fetchone()
+        # Cihaz kontrolü
+        cihaz = conn.execute('SELECT * FROM devices WHERE cihaz_id = ?', (data['device_id'],)).fetchone()
         if not cihaz:
             return jsonify({"error": "Cihaz bulunamadı"}), 404
-        
-        # Firmware'in varlığını kontrol et
-        firmware = conn.execute('SELECT * FROM firmware_versions WHERE version = ?', (firmware_version,)).fetchone()
+
+        # Firmware kontrolü
+        firmware = conn.execute('SELECT * FROM firmware_versions WHERE version = ?', (data['version'],)).fetchone()
         if not firmware:
             return jsonify({"error": "Firmware versiyonu bulunamadı"}), 404
-        
-        # Cihaza firmware ataması yap
-        conn.execute('''
-            UPDATE devices 
-            SET target_firmware = ?
-            WHERE cihaz_id = ?
-        ''', (firmware_version, cihaz_id))
+
+        # Atama yap
+        conn.execute('UPDATE devices SET target_firmware = ? WHERE cihaz_id = ?', 
+                    (data['version'], data['device_id']))
         conn.commit()
-    
-    return jsonify({"status": "success", "message": f"{cihaz_id} cihazına v{firmware_version} atandı"})
+
+    return jsonify({
+        "message": f"{cihaz['cihaz_adi']} cihazına v{data['version']} firmware'i atandı",
+        "device": cihaz['cihaz_adi'],
+        "version": data['version']
+    })
+
 
 
 # Routes
