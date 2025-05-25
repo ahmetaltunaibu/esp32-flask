@@ -790,64 +790,55 @@ SECRET_KEY = b"GUVENLI_ANAHTAR_123"
 
 @app.route('/firmware/check/<cihaz_id>')
 def check_firmware(cihaz_id):
-    # API Key kontrolü (query parametresinden)
+    # API Key kontrolü
     api_key = request.args.get('api_key')
     if api_key != "GUVENLI_ANAHTAR_123":
-        return jsonify({
-            "error": "Yetkisiz erişim",
-            "update_available": False
-        }), 401
+        return jsonify({"error": "Yetkisiz erişim"}), 401
     
     try:
         with get_db() as conn:
-            # Cihaz bilgilerini al
+            # Cihaz ve hedef firmware kontrolü
             cihaz = conn.execute('''
-                SELECT firmware_version, target_firmware 
-                FROM devices 
-                WHERE cihaz_id = ?
+                SELECT d.firmware_version, d.target_firmware, f.file_path, f.signature_path
+                FROM devices d
+                LEFT JOIN firmware_versions f ON d.target_firmware = f.version
+                WHERE d.cihaz_id = ?
             ''', (cihaz_id,)).fetchone()
             
             if not cihaz:
                 return jsonify({
-                    "error": "Cihaz bulunamadı",
-                    "update_available": False
-                }), 404
+                    "update_available": False,
+                    "current_version": "1.0.0",
+                    "latest_version": "1.0.0"
+                })
             
             current_version = cihaz['firmware_version'] or "1.0.0"
             target_version = cihaz['target_firmware']
             
-            # Eğer hedef firmware atanmışsa ve mevcuttan farklıysa
-            if target_version and target_version != current_version:
-                firmware = conn.execute('''
-                    SELECT version, file_path, signature_path 
-                    FROM firmware_versions 
-                    WHERE version = ? AND is_active = 1
-                ''', (target_version,)).fetchone()
-                
-                if firmware:
-                    # Tam URL'leri oluştur
-                    base_url = request.url_root.rstrip('/')
-                    return jsonify({
-                        "update_available": True,
-                        "version": target_version,
-                        "current_version": current_version,
-                        "firmware_url": f"{base_url}/firmware/download/{target_version}?api_key={api_key}",
-                        "signature_url": f"{base_url}/firmware/signature/{target_version}?api_key={api_key}",
-                        "file_size": os.path.getsize(firmware['file_path']) if firmware['file_path'] else 0
-                    })
+            # Güncelleme kontrolü
+            if target_version and target_version != current_version and cihaz['file_path']:
+                base_url = request.url_root.rstrip('/')
+                return jsonify({
+                    "update_available": True,
+                    "current_version": current_version,
+                    "latest_version": target_version,
+                    "firmware_url": f"{base_url}/firmware/download/{target_version}?api_key={api_key}",
+                    "signature_url": f"{base_url}/firmware/signature/{target_version}?api_key={api_key}",
+                    "file_size": os.path.getsize(cihaz['file_path'])
+                })
             
-            # Güncelleme gerekmiyorsa
             return jsonify({
                 "update_available": False,
                 "current_version": current_version,
-                "latest_version": current_version
+                "latest_version": target_version or current_version
             })
             
     except Exception as e:
         return jsonify({
-            "error": f"Sunucu hatası: {str(e)}",
+            "error": str(e),
             "update_available": False
         }), 500
+
 
 # Alternatif: Daha basit endpoint (güvenlik kontrolü olmadan)
 @app.route('/firmware/check_simple/<cihaz_id>')
