@@ -790,53 +790,55 @@ SECRET_KEY = b"GUVENLI_ANAHTAR_123"
 
 @app.route('/firmware/check/<cihaz_id>')
 def check_firmware(cihaz_id):
-    # API Key kontrolü
+    # API Key kontrolü (query parametresinden)
     api_key = request.args.get('api_key')
     if api_key != "GUVENLI_ANAHTAR_123":
-        return jsonify({"error": "Yetkisiz erişim"}), 401
-    
-    # HMAC imza kontrolü (opsiyonel - sadece signature varsa kontrol et)
-    signature = request.args.get('signature', '')
-    if signature:  # Signature varsa kontrol et
-        valid = hmac.new(SECRET_KEY, cihaz_id.encode(), hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(signature, valid):
-            return jsonify({"error": "Geçersiz imza"}), 401
+        return jsonify({
+            "error": "Yetkisiz erişim",
+            "update_available": False
+        }), 401
     
     try:
         with get_db() as conn:
-            # Cihazın mevcut firmware versiyonunu al
-            cihaz = conn.execute('SELECT firmware_version, target_firmware FROM devices WHERE cihaz_id = ?', 
-                               (cihaz_id,)).fetchone()
+            # Cihaz bilgilerini al
+            cihaz = conn.execute('''
+                SELECT firmware_version, target_firmware 
+                FROM devices 
+                WHERE cihaz_id = ?
+            ''', (cihaz_id,)).fetchone()
             
             if not cihaz:
                 return jsonify({
                     "error": "Cihaz bulunamadı",
-                    "update_required": False
+                    "update_available": False
                 }), 404
             
             current_version = cihaz['firmware_version'] or "1.0.0"
             target_version = cihaz['target_firmware']
             
-            # Eğer target firmware atanmışsa güncelleme gerekli
+            # Eğer hedef firmware atanmışsa ve mevcuttan farklıysa
             if target_version and target_version != current_version:
-                # Aktif firmware versiyonunu kontrol et
                 firmware = conn.execute('''
-                    SELECT version, file_path FROM firmware_versions 
+                    SELECT version, file_path, signature_path 
+                    FROM firmware_versions 
                     WHERE version = ? AND is_active = 1
                 ''', (target_version,)).fetchone()
                 
                 if firmware:
+                    # Tam URL'leri oluştur
+                    base_url = request.url_root.rstrip('/')
                     return jsonify({
-                        "update_required": True,
+                        "update_available": True,
+                        "version": target_version,
                         "current_version": current_version,
-                        "latest_version": target_version,
-                        "download_url": f"/firmware/download/{target_version}",
-                        "signature_url": f"/firmware/signature/{target_version}"
+                        "firmware_url": f"{base_url}/firmware/download/{target_version}?api_key={api_key}",
+                        "signature_url": f"{base_url}/firmware/signature/{target_version}?api_key={api_key}",
+                        "file_size": os.path.getsize(firmware['file_path']) if firmware['file_path'] else 0
                     })
             
             # Güncelleme gerekmiyorsa
             return jsonify({
-                "update_required": False,
+                "update_available": False,
                 "current_version": current_version,
                 "latest_version": current_version
             })
@@ -844,7 +846,7 @@ def check_firmware(cihaz_id):
     except Exception as e:
         return jsonify({
             "error": f"Sunucu hatası: {str(e)}",
-            "update_required": False
+            "update_available": False
         }), 500
 
 # Alternatif: Daha basit endpoint (güvenlik kontrolü olmadan)
