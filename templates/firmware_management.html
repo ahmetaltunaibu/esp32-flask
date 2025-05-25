@@ -7,7 +7,7 @@
     <h1 class="h2">Firmware Yönetimi</h1>
 </div>
 
-<!-- Hata mesajlarını göstermek için ekledim -->
+<!-- Flash messages -->
 {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
         {% for category, message in messages %}
@@ -19,6 +19,7 @@
     {% endif %}
 {% endwith %}
 
+<!-- Firmware Upload Section -->
 <div class="card mb-4">
     <div class="card-header">
         <h5 class="mb-0">Yeni Firmware Yükle</h5>
@@ -46,6 +47,7 @@
     </div>
 </div>
 
+<!-- Firmware Versions Table -->
 <div class="card">
     <div class="card-header">
         <h5 class="mb-0">Firmware Versiyonları</h5>
@@ -69,7 +71,6 @@
                         <td>{{ version.created_at }}</td>
                         <td>
                             {% if version.file_path %}
-                                <!-- Düzeltilmiş satır: Parantez hatası giderildi -->
                                 {{ "%0.2f"|format(version.file_size/1024 if version.file_size else 0) }} KB
                             {% else %}
                                 Bilinmiyor
@@ -102,7 +103,7 @@
     </div>
 </div>
 
-<!-- Cihazlara Firmware Atama Bölümü -->
+<!-- Assign Firmware Section -->
 <div class="card mt-4">
     <div class="card-header">
         <h5 class="mb-0">Cihazlara Firmware Ata</h5>
@@ -128,16 +129,19 @@
                 </select>
             </div>
         </div>
-        <button id="assignFirmwareBtn" class="btn btn-primary" disabled>
+        <button id="assignFirmwareBtn" class="btn btn-primary">
             <i class="fas fa-paper-plane"></i> Firmware Ata
         </button>
         <div id="assignResult" class="mt-3"></div>
     </div>
 </div>
 
+<!-- JavaScript -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
 <script>
 $(document).ready(function() {
-    // DataTable ayarları
+    // Initialize DataTable
     $('#firmwareTable').DataTable({
         "order": [[1, "desc"]],
         "language": {
@@ -145,23 +149,27 @@ $(document).ready(function() {
         }
     });
 
-    // Buton durumunu güncelleyen fonksiyon
+    // Function to update button state
     function updateButtonState() {
         const deviceSelected = $('#deviceSelect').val() !== '';
         const firmwareSelected = $('#firmwareSelect').val() !== '';
         $('#assignFirmwareBtn').prop('disabled', !(deviceSelected && firmwareSelected));
     }
 
-    // Sayfa yüklendiğinde bir kere kontrol et
+    // Initial button state check
     updateButtonState();
 
-    // Combobox değişikliklerini dinle
+    // Event listeners for select changes
     $('#deviceSelect, #firmwareSelect').on('change', updateButtonState);
 
-    // Firmware atama işlemi
+    // Assign firmware button click handler
     $('#assignFirmwareBtn').click(function() {
         const deviceId = $('#deviceSelect').val();
         const firmwareVersion = $('#firmwareSelect').val();
+        
+        if (!deviceId || !firmwareVersion) {
+            return;
+        }
         
         $('#assignResult').html(`
             <div class="alert alert-info">
