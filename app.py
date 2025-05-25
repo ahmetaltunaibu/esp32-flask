@@ -187,6 +187,35 @@ if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
     scheduler.add_job(update_device_status, 'interval', minutes=1)
     scheduler.start()
 
+@app.route('/assign_firmware', methods=['POST'])
+@admin_required
+def assign_firmware():
+    data = request.get_json()
+    cihaz_id = data['cihaz_id']
+    firmware_version = data['firmware_version']
+    
+    with get_db() as conn:
+        # Cihazın varlığını kontrol et
+        cihaz = conn.execute('SELECT * FROM devices WHERE cihaz_id = ?', (cihaz_id,)).fetchone()
+        if not cihaz:
+            return jsonify({"error": "Cihaz bulunamadı"}), 404
+        
+        # Firmware'in varlığını kontrol et
+        firmware = conn.execute('SELECT * FROM firmware_versions WHERE version = ?', (firmware_version,)).fetchone()
+        if not firmware:
+            return jsonify({"error": "Firmware versiyonu bulunamadı"}), 404
+        
+        # Cihaza firmware ataması yap
+        conn.execute('''
+            UPDATE devices 
+            SET target_firmware = ?
+            WHERE cihaz_id = ?
+        ''', (firmware_version, cihaz_id))
+        conn.commit()
+    
+    return jsonify({"status": "success", "message": f"{cihaz_id} cihazına v{firmware_version} atandı"})
+
+
 # Routes
 @app.route('/')
 @login_required
@@ -606,21 +635,58 @@ def download_signature(version):
             
         return send_file(firmware['signature_path'], as_attachment=True)
 
+
+
 @app.route('/firmware/check/<cihaz_id>')
 @login_required
 @admin_required
 def check_firmware(cihaz_id):
     with get_db() as conn:
-        cihaz = conn.execute('SELECT firmware_version FROM devices WHERE cihaz_id = ?', 
-                           (cihaz_id,)).fetchone()
+        # Cihaz bilgilerini ve atanmış firmware'i al
+        cihaz = conn.execute('''
+            SELECT firmware_version, target_firmware 
+            FROM devices WHERE cihaz_id = ?
+        ''', (cihaz_id,)).fetchone()
+        
         if not cihaz:
             return jsonify({"error": "Cihaz bulunamadı"}), 404
         
+        # Eğer özel atanmış bir firmware varsa onu kullan
+        if cihaz['target_firmware']:
+            firmware = conn.execute('''
+                SELECT * FROM firmware_versions 
+                WHERE version = ?
+            ''', (cihaz['target_firmware'],)).fetchone()
+            
+            if firmware:
+                return jsonify({
+                    "update_required": True,
+                    "custom_update": True,
+                    "current_version": cihaz['firmware_version'],
+                    "new_version": firmware['version'],
+                    "url": url_for('download_firmware', version=firmware['version'], _external=True),
+                    "signature_url": url_for('download_signature', version=firmware['version'], _external=True),
+                    "release_notes": firmware['release_notes']
+                })
+        
+        # Yoksa en son aktif firmware'i öner
         latest = conn.execute('''
-            SELECT version, release_notes FROM firmware_versions
+            SELECT * FROM firmware_versions
             WHERE is_active = 1
             ORDER BY created_at DESC LIMIT 1
         ''').fetchone()
+        
+        if not latest:
+            return jsonify({"error": "No active firmware available"}), 404
+        
+        return jsonify({
+            "update_required": latest['version'] != cihaz['firmware_version'],
+            "current_version": cihaz['firmware_version'],
+            "latest_version": latest['version'],
+            "url": url_for('download_firmware', version=latest['version'], _external=True),
+            "signature_url": url_for('download_signature', version=latest['version'], _external=True),
+            "release_notes": latest['release_notes']
+        })
         
         if not latest:
             return jsonify({"error": "No active firmware available"}), 404
