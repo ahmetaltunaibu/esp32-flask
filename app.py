@@ -724,6 +724,22 @@ def upload_firmware():
         flash(f'Firmware yüklenirken hata oluştu: {str(e)}', 'danger')
         return redirect(url_for('firmware_management'))
 
+@app.route('/firmware/activate', methods=['POST'])
+@admin_required
+def activate_firmware():
+    data = request.get_json()
+    if not data or 'version' not in data:
+        return jsonify({"error": "Geçersiz istek"}), 400
+
+    with get_db() as conn:
+        # Önce tüm firmware'leri pasif yap
+        conn.execute('UPDATE firmware_versions SET is_active = 0')
+        # Sonra seçileni aktif yap
+        conn.execute('UPDATE firmware_versions SET is_active = 1 WHERE version = ?', (data['version'],))
+        conn.commit()
+
+    return jsonify({"success": True, "message": "Firmware aktif edildi"})
+
 @app.route('/firmware/download/<version>')
 @login_required
 def download_firmware(version):
