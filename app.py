@@ -13,12 +13,41 @@ from cryptography.hazmat.primitives import serialization
 from werkzeug.utils import secure_filename
 from cryptography.hazmat.backends import default_backend
 from apscheduler.schedulers.background import BackgroundScheduler
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import serialization
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'default-secret-key')
 app.config['FIRMWARE_FOLDER'] = 'firmware'
 app.config['ALLOWED_EXTENSIONS'] = {'bin'}
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
+
+
+
+# Private key oluştur
+private_key = rsa.generate_private_key(
+    public_exponent=65537,
+    key_size=2048,
+)
+
+# Private key'i PEM formatında kaydet
+private_pem = private_key.private_bytes(
+    encoding=serialization.Encoding.PEM,
+    format=serialization.PrivateFormat.PKCS8,
+    encryption_algorithm=serialization.NoEncryption()
+)
+
+# Public key'i PEM formatında kaydet
+public_pem = private_key.public_key().public_bytes(
+    encoding=serialization.Encoding.PEM,
+    format=serialization.PublicFormat.SubjectPublicKeyInfo
+)
+
+print("Private Key:")
+print(private_pem.decode('utf-8'))
+
+print("\nPublic Key:")
+print(public_pem.decode('utf-8'))
 
 
 # Sabit admin kullanıcısı (app.py'nin en üstüne ekleyin)
@@ -440,19 +469,10 @@ def allowed_file(filename):
 
 def sign_firmware(file_path):
     private_key_pem = """
------BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAz7v5P5Z8vI3Jj9X9K2sL
-6v2Qx1Yt8uZ7W3bN1cX6y5MvG0PwJ8Xq3rT4sKj9LmN1oP3xYtZu7vQx1Yt8uZ
-7W3bN1cX6y5MvG0PwJ8Xq3rT4sKj9LmN1oP3xYtZu7vQx1Yt8uZ7W3bN1cX6y5M
-vG0PwJ8Xq3rT4sKj9LmN1oP3xYtZu7vQx1Yt8uZ7W3bN1cX6y5MvG0PwJ8Xq3rT4
-sKj9LmN1oP3xYtZu7vQx1Yt8uZ7W3bN1cX6y5MvG0PwJ8Xq3rT4sKj9LmN1oP3xY
-tZu7vQx1Yt8uZ7W3bN1cX6y5MvG0PwJ8Xq3rT4sKj9LmN1oP3xYtZu7vQx1Yt8uZ
-7W3bN1cX6y5MvG0PwJ8Xq3rT4sKj9LmN1oP3xYtZu7vQx1Yt8uZ7W3bN1cX6y5Mv
-G0PwJ8Xq3rT4sKj9LmN1oP3xYtZu7vQx1Yt8uZ7W3bN1cX6y5MvG0PwJ8Xq3rT4sK
-j9LmN1oP3xYtZu7vQx1Yt8uZ7W3bN1cX6y5MvG0PwJ8Xq3rT4sKj9LmN1oP3xYtZ
-u7vQx1Yt8uZ7W3bN1cX6y5MvG0PwJ8Xq3rT4sKj9LmN1oP3xYtZu7vQx1Yt8uZ7W
-3bN1cX6y5MvG0PwJ8Xq3rT4sKj9LmN1oP3xYtZ
------END PUBLIC KEY-----
+-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDZvY7UJj+O2VrG
+... (oluşturduğunuz gerçek private key buraya gelecek) ...
+-----END PRIVATE KEY-----
 """
     
     private_key = serialization.load_pem_private_key(
