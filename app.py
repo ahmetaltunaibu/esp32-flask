@@ -608,7 +608,8 @@ def excel_export(cihaz_id):
 def firmware_management():
     with get_db() as conn:
         versions = conn.execute('SELECT * FROM firmware_versions ORDER BY created_at DESC').fetchall()
-        return render_template('firmware_management.html', versions=versions)
+        cihazlar = conn.execute('SELECT * FROM devices ORDER BY cihaz_adi').fetchall()  # Cihaz listesini ekleyin
+    return render_template('firmware_management.html', versions=versions, cihazlar=cihazlar)  # cihazlar'ı template'e gönderin
 
 def allowed_file(filename):
     return '.' in filename and \
