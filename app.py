@@ -469,10 +469,10 @@ def allowed_file(filename):
 
 def sign_firmware(file_path):
     private_key_pem = """
------BEGIN PRIVATE KEY-----
-MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDZvY7UJj+O2VrG
-... (oluşturduğunuz gerçek private key buraya gelecek) ...
------END PRIVATE KEY-----
+-----BEGIN RSA PRIVATE KEY-----
+MIIEogIBAAKCAQEA4q6xCHDPTvQVDZn8U4Qp0j4QY7qTj7GqGj5XkX6vW7t1yKj2
+... (gerçek projede kullanmayın) ...
+-----END RSA PRIVATE KEY-----
 """
     
     private_key = serialization.load_pem_private_key(
