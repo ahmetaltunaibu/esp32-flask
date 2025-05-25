@@ -776,35 +776,14 @@ def download_signature(version):
 @login_required
 @admin_required
 def check_firmware(cihaz_id):
+    # Remove @login_required decorator for ESP32 access
+    # Or create a separate unauthenticated endpoint
+    
     with get_db() as conn:
-        # Cihaz bilgilerini ve atanmış firmware'i al
-        cihaz = conn.execute('''
-            SELECT firmware_version, target_firmware 
-            FROM devices WHERE cihaz_id = ?
-        ''', (cihaz_id,)).fetchone()
-        
+        cihaz = conn.execute('SELECT * FROM devices WHERE cihaz_id = ?', (cihaz_id,)).fetchone()
         if not cihaz:
             return jsonify({"error": "Cihaz bulunamadı"}), 404
         
-        # Eğer özel atanmış bir firmware varsa onu kullan
-        if cihaz['target_firmware']:
-            firmware = conn.execute('''
-                SELECT * FROM firmware_versions 
-                WHERE version = ?
-            ''', (cihaz['target_firmware'],)).fetchone()
-            
-            if firmware:
-                return jsonify({
-                    "update_required": True,
-                    "custom_update": True,
-                    "current_version": cihaz['firmware_version'],
-                    "new_version": firmware['version'],
-                    "url": url_for('download_firmware', version=firmware['version'], _external=True),
-                    "signature_url": url_for('download_signature', version=firmware['version'], _external=True),
-                    "release_notes": firmware['release_notes']
-                })
-        
-        # Yoksa en son aktif firmware'i öner
         latest = conn.execute('''
             SELECT * FROM firmware_versions
             WHERE is_active = 1
@@ -812,7 +791,7 @@ def check_firmware(cihaz_id):
         ''').fetchone()
         
         if not latest:
-            return jsonify({"error": "No active firmware available"}), 404
+            return jsonify({"update_required": False})
         
         return jsonify({
             "update_required": latest['version'] != cihaz['firmware_version'],
@@ -821,17 +800,6 @@ def check_firmware(cihaz_id):
             "url": url_for('download_firmware', version=latest['version'], _external=True),
             "signature_url": url_for('download_signature', version=latest['version'], _external=True),
             "release_notes": latest['release_notes']
-        })
-        
-        if not latest:
-            return jsonify({"error": "No active firmware available"}), 404
-        
-        return jsonify({
-            "current_version": cihaz['firmware_version'],
-            "latest_version": latest['version'],
-            "release_notes": latest['release_notes'],
-            "url": url_for('download_firmware', version=latest['version'], _external=True),
-            "signature_url": url_for('download_signature', version=latest['version'], _external=True)
         })
 
 @app.route('/firmware/update_stream')
