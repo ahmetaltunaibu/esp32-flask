@@ -5,103 +5,54 @@
 {% block content %}
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
     <h1 class="h2">Firmware Yönetimi</h1>
-    <div class="btn-toolbar mb-2 mb-md-0">
-        <div class="btn-group me-2">
-            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="location.reload()">
-                <i class="fas fa-sync-alt"></i> Yenile
-            </button>
-        </div>
-    </div>
 </div>
 
-<div class="row">
-    <!-- Firmware Yükleme Kartı -->
-    <div class="col-md-6 mb-4">
-        <div class="card h-100">
-            <div class="card-header bg-primary text-white">
-                <h5 class="mb-0"><i class="fas fa-upload me-2"></i> Yeni Firmware Yükle</h5>
+<!-- Hata mesajlarını göstermek için ekledim -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="alert alert-{{ category }} alert-dismissible fade show">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
             </div>
-            <div class="card-body">
-                <form id="uploadForm" enctype="multipart/form-data">
-                    <div class="mb-3">
-                        <label for="firmwareFile" class="form-label">Firmware Dosyası (.bin)</label>
-                        <input class="form-control" type="file" id="firmwareFile" name="file" accept=".bin" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="versionNumber" class="form-label">Versiyon Numarası</label>
-                        <input type="text" class="form-control" id="versionNumber" name="version" 
-                               placeholder="1.0.0" pattern="\d+\.\d+\.\d+" required>
-                        <small class="text-muted">Format: X.Y.Z (örn: 1.0.1)</small>
-                    </div>
-                    <div class="mb-3">
-                        <label for="releaseNotes" class="form-label">Sürüm Notları</label>
-                        <textarea class="form-control" id="releaseNotes" name="release_notes" rows="3" required></textarea>
-                    </div>
-                    <button type="submit" class="btn btn-primary">
-                        <i class="fas fa-upload me-2"></i> Yükle
-                    </button>
-                </form>
-                <div id="uploadProgress" class="mt-3" style="display:none;">
-                    <div class="progress">
-                        <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" 
-                             role="progressbar" style="width: 0%">0%</div>
-                    </div>
-                    <div id="uploadStatus" class="text-center mt-2"></div>
-                </div>
-            </div>
-        </div>
-    </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
 
-    <!-- Cihaz Güncelleme Kartı -->
-    <div class="col-md-6 mb-4">
-        <div class="card h-100">
-            <div class="card-header bg-success text-white">
-                <h5 class="mb-0"><i class="fas fa-microchip me-2"></i> Cihaz Güncelleme</h5>
-            </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <label for="targetDevice" class="form-label">Cihaz Seçin</label>
-                    <select class="form-select" id="targetDevice">
-                        <option value="">-- Cihaz Seçin --</option>
-                        {% for cihaz in cihazlar %}
-                        <option value="{{ cihaz.cihaz_id }}" 
-                                data-version="{{ cihaz.firmware_version }}">
-                            {{ cihaz.cihaz_adi }} (v{{ cihaz.firmware_version }})
-                        </option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="mb-3">
-                    <label for="targetFirmware" class="form-label">Firmware Versiyonu</label>
-                    <select class="form-select" id="targetFirmware">
-                        <option value="">-- Versiyon Seçin --</option>
-                        {% for firmware in firmwares %}
-                        <option value="{{ firmware.version }}">v{{ firmware.version }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="d-grid gap-2">
-                    <button id="assignFirmwareBtn" class="btn btn-success" disabled>
-                        <i class="fas fa-paper-plane me-2"></i> Firmware Ata
-                    </button>
-                    <button id="checkUpdateBtn" class="btn btn-info" disabled>
-                        <i class="fas fa-sync-alt me-2"></i> Güncelleme Kontrol Et
-                    </button>
-                </div>
-                <div id="updateStatus" class="mt-3"></div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Firmware Listesi -->
 <div class="card mb-4">
     <div class="card-header">
-        <h5 class="mb-0"><i class="fas fa-list me-2"></i> Firmware Versiyonları</h5>
+        <h5 class="mb-0">Yeni Firmware Yükle</h5>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('upload_firmware') }}" enctype="multipart/form-data" class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label">Firmware Dosyası (.bin)</label>
+                <input type="file" class="form-control" name="file" accept=".bin" required>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Versiyon Numarası</label>
+                <input type="text" class="form-control" name="version" placeholder="1.1.0" required>
+            </div>
+            <div class="col-md-5">
+                <label class="form-label">Sürüm Notları</label>
+                <textarea class="form-control" name="release_notes" rows="1" required></textarea>
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-upload"></i> Yükle
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">Firmware Versiyonları</h5>
     </div>
     <div class="card-body">
         <div class="table-responsive">
-            <table class="table table-striped table-hover" id="firmwareTable">
+            <table class="table table-striped" id="firmwareTable">
                 <thead>
                     <tr>
                         <th>Versiyon</th>
@@ -118,7 +69,8 @@
                         <td>{{ version.created_at }}</td>
                         <td>
                             {% if version.file_path %}
-                                {{ (version.file_path|file_size|default(0)/1024|round(2) }} KB
+                                <!-- Düzeltilmiş satır: Parantez hatası giderildi -->
+                                {{ "%0.2f"|format(version.file_size/1024 if version.file_size else 0) }} KB
                             {% else %}
                                 Bilinmiyor
                             {% endif %}
@@ -131,27 +83,16 @@
                             {% endif %}
                         </td>
                         <td>
-                            <div class="btn-group btn-group-sm">
-                                <a href="{{ url_for('download_firmware', version=version.version) }}" 
-                                   class="btn btn-outline-primary" title="İndir">
-                                    <i class="fas fa-download"></i>
-                                </a>
-                                {% if version.is_active %}
-                                <button class="btn btn-outline-danger deactivate-btn" 
-                                        data-version="{{ version.version }}" title="Pasifleştir">
-                                    <i class="fas fa-ban"></i>
-                                </button>
-                                {% else %}
-                                <button class="btn btn-outline-success activate-btn" 
-                                        data-version="{{ version.version }}" title="Aktifleştir">
-                                    <i class="fas fa-check"></i>
-                                </button>
-                                {% endif %}
-                                <button class="btn btn-outline-danger delete-btn" 
-                                        data-version="{{ version.version }}" title="Sil">
-                                    <i class="fas fa-trash"></i>
-                                </button>
-                            </div>
+                            <a href="{{ url_for('download_firmware', version=version.version) }}" 
+                               class="btn btn-sm btn-outline-primary me-1">
+                                <i class="fas fa-download"></i> İndir
+                            </a>
+                            {% if not version.is_active %}
+                            <button class="btn btn-sm btn-outline-success" 
+                                    onclick="activateVersion('{{ version.version }}')">
+                                <i class="fas fa-check"></i> Aktif Et
+                            </button>
+                            {% endif %}
                         </td>
                     </tr>
                     {% endfor %}
@@ -161,31 +102,36 @@
     </div>
 </div>
 
-<!-- Güncelleme Geçmişi -->
-<div class="card">
+<!-- Cihazlara Firmware Atama Bölümü -->
+<div class="card mt-4">
     <div class="card-header">
-        <h5 class="mb-0"><i class="fas fa-history me-2"></i> Güncelleme Geçmişi</h5>
+        <h5 class="mb-0">Cihazlara Firmware Ata</h5>
     </div>
     <div class="card-body">
-        <div class="table-responsive">
-            <table class="table table-striped" id="updateHistoryTable">
-                <thead>
-                    <tr>
-                        <th>Tarih</th>
-                        <th>Cihaz</th>
-                        <th>Eski Versiyon</th>
-                        <th>Yeni Versiyon</th>
-                        <th>Durum</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <!-- Bu kısım için backend'de bir endpoint oluşturmanız gerekir -->
-                    <tr>
-                        <td colspan="5" class="text-center">Geçmiş verisi bulunamadı</td>
-                    </tr>
-                </tbody>
-            </table>
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <label class="form-label">Cihaz Seçin</label>
+                <select id="deviceSelect" class="form-select">
+                    <option value="">-- Cihaz Seçin --</option>
+                    {% for cihaz in cihazlar %}
+                    <option value="{{ cihaz.cihaz_id }}">{{ cihaz.cihaz_adi }} (v{{ cihaz.firmware_version }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Firmware Seçin</label>
+                <select id="firmwareSelect" class="form-select">
+                    <option value="">-- Versiyon Seçin --</option>
+                    {% for firmware in versions %}
+                    <option value="{{ firmware.version }}">v{{ firmware.version }}</option>
+                    {% endfor %}
+                </select>
+            </div>
         </div>
+        <button id="assignFirmwareBtn" class="btn btn-primary" disabled>
+            <i class="fas fa-paper-plane"></i> Firmware Ata
+        </button>
+        <div id="assignResult" class="mt-3"></div>
     </div>
 </div>
 
@@ -193,255 +139,89 @@
 $(document).ready(function() {
     // DataTable ayarları
     $('#firmwareTable').DataTable({
-        order: [[1, 'desc']],
-        language: {
-            url: '//cdn.datatables.net/plug-ins/1.11.5/i18n/tr.json'
+        "order": [[1, "desc"]],
+        "language": {
+            "url": "//cdn.datatables.net/plug-ins/1.11.5/i18n/tr.json"
         }
     });
 
-    $('#updateHistoryTable').DataTable({
-        order: [[0, 'desc']],
-        language: {
-            url: '//cdn.datatables.net/plug-ins/1.11.5/i18n/tr.json'
-        }
+    // Cihaz ve firmware seçim kontrolü
+    $('#deviceSelect, #firmwareSelect').change(function() {
+        const deviceSelected = $('#deviceSelect').val() !== '';
+        const firmwareSelected = $('#firmwareSelect').val() !== '';
+        $('#assignFirmwareBtn').prop('disabled', !(deviceSelected && firmwareSelected));
     });
 
-    // Cihaz seçildiğinde
-    $('#targetDevice').change(function() {
-        const selectedDevice = $(this).val();
-        const currentVersion = $(this).find(':selected').data('version');
-        
-        $('#assignFirmwareBtn').prop('disabled', !selectedDevice || !$('#targetFirmware').val());
-        $('#checkUpdateBtn').prop('disabled', !selectedDevice);
-        
-        if (selectedDevice) {
-            $('#updateStatus').html(`
-                <div class="alert alert-info">
-                    <i class="fas fa-info-circle me-2"></i>
-                    Seçilen cihaz: <strong>${$(this).find(':selected').text()}</strong>
-                    <br>Mevcut versiyon: <strong>v${currentVersion}</strong>
-                </div>
-            `);
-        } else {
-            $('#updateStatus').empty();
-        }
-    });
-
-    // Firmware seçildiğinde
-    $('#targetFirmware').change(function() {
-        $('#assignFirmwareBtn').prop('disabled', !$('#targetDevice').val() || !$(this).val());
-    });
-
-    // Firmware atama butonu
+    // Firmware atama işlemi
     $('#assignFirmwareBtn').click(function() {
-        const deviceId = $('#targetDevice').val();
-        const firmwareVersion = $('#targetFirmware').val();
+        const deviceId = $('#deviceSelect').val();
+        const firmwareVersion = $('#firmwareSelect').val();
         
-        if (!deviceId || !firmwareVersion) return;
-
-        $('#updateStatus').html(`
-            <div class="alert alert-warning">
-                <i class="fas fa-spinner fa-spin me-2"></i>
-                Firmware atanıyor...
-            </div>
-        `);
-
-        $.ajax({
-            url: '/assign_firmware',
-            method: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify({
-                cihaz_id: deviceId,
-                firmware_version: firmwareVersion
-            }),
-            success: function(response) {
-                $('#updateStatus').html(`
-                    <div class="alert alert-success">
-                        <i class="fas fa-check-circle me-2"></i>
-                        ${response.message}
-                        <br>Cihaz en geç 5 dakika içinde güncellemeyi algılayacaktır.
-                    </div>
-                `);
-            },
-            error: function(xhr) {
-                const error = xhr.responseJSON?.error || 'Bir hata oluştu';
-                $('#updateStatus').html(`
-                    <div class="alert alert-danger">
-                        <i class="fas fa-exclamation-circle me-2"></i>
-                        ${error}
-                    </div>
-                `);
-            }
-        });
-    });
-
-    // Güncelleme kontrol butonu
-    $('#checkUpdateBtn').click(function() {
-        const deviceId = $('#targetDevice').val();
-        if (!deviceId) return;
-
-        $('#updateStatus').html(`
+        $('#assignResult').html(`
             <div class="alert alert-info">
-                <i class="fas fa-spinner fa-spin me-2"></i>
-                Cihaz güncelleme durumu kontrol ediliyor...
+                <i class="fas fa-spinner fa-spin"></i> İşlem yapılıyor...
             </div>
         `);
 
-        $.get(`/firmware/check/${deviceId}`, function(response) {
-            if (response.error) {
-                $('#updateStatus').html(`
+        fetch('/assign_firmware', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                device_id: deviceId,
+                version: firmwareVersion
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                $('#assignResult').html(`
                     <div class="alert alert-danger">
-                        <i class="fas fa-exclamation-circle me-2"></i>
-                        ${response.error}
-                    </div>
-                `);
-                return;
-            }
-
-            if (response.update_required) {
-                const versionInfo = response.custom_update ? 
-                    `Atanmış versiyon: <strong>v${response.new_version}</strong>` : 
-                    `Önerilen versiyon: <strong>v${response.latest_version}</strong>`;
-                
-                $('#updateStatus').html(`
-                    <div class="alert alert-warning">
-                        <i class="fas fa-exclamation-triangle me-2"></i>
-                        Güncelleme gerekli!
-                        <br>Mevcut versiyon: <strong>v${response.current_version}</strong>
-                        <br>${versionInfo}
-                        <br>Sürüm notları: ${response.release_notes}
-                        <div class="mt-2">
-                            <button class="btn btn-sm btn-success force-update-btn">
-                                <i class="fas fa-bolt me-2"></i> Hemen Güncelle
-                            </button>
-                        </div>
+                        <i class="fas fa-exclamation-circle"></i> ${data.error}
                     </div>
                 `);
             } else {
-                $('#updateStatus').html(`
+                $('#assignResult').html(`
                     <div class="alert alert-success">
-                        <i class="fas fa-check-circle me-2"></i>
-                        Cihaz zaten güncel (<strong>v${response.current_version}</strong>)
+                        <i class="fas fa-check-circle"></i> ${data.message}
                     </div>
                 `);
             }
-        }).fail(function() {
-            $('#updateStatus').html(`
+        })
+        .catch(error => {
+            $('#assignResult').html(`
                 <div class="alert alert-danger">
-                    <i class="fas fa-exclamation-circle me-2"></i>
-                    Güncelleme kontrolü başarısız oldu
+                    <i class="fas fa-exclamation-circle"></i> İşlem sırasında hata oluştu
                 </div>
             `);
+            console.error('Error:', error);
         });
     });
-
-    // Firmware yükleme formu
-    $('#uploadForm').submit(function(e) {
-        e.preventDefault();
-        
-        const formData = new FormData();
-        formData.append('file', $('#firmwareFile')[0].files[0]);
-        formData.append('version', $('#versionNumber').val());
-        formData.append('release_notes', $('#releaseNotes').val());
-
-        $('#uploadProgress').show();
-        $('#progressBar').css('width', '0%').text('0%');
-        $('#uploadStatus').html('<i class="fas fa-spinner fa-spin me-2"></i> Dosya yükleniyor...');
-
-        $.ajax({
-            url: '/firmware/upload',
-            method: 'POST',
-            data: formData,
-            processData: false,
-            contentType: false,
-            xhr: function() {
-                const xhr = new window.XMLHttpRequest();
-                xhr.upload.addEventListener('progress', function(e) {
-                    if (e.lengthComputable) {
-                        const percent = Math.round((e.loaded / e.total) * 100);
-                        $('#progressBar').css('width', percent + '%').text(percent + '%');
-                    }
-                });
-                return xhr;
-            },
-            success: function(response) {
-                $('#uploadStatus').html(`
-                    <div class="alert alert-success">
-                        <i class="fas fa-check-circle me-2"></i>
-                        Firmware başarıyla yüklendi!
-                    </div>
-                `);
-                setTimeout(() => location.reload(), 2000);
-            },
-            error: function(xhr) {
-                const error = xhr.responseJSON?.error || xhr.responseText || 'Yükleme başarısız oldu';
-                $('#uploadStatus').html(`
-                    <div class="alert alert-danger">
-                        <i class="fas fa-exclamation-circle me-2"></i>
-                        ${error}
-                    </div>
-                `);
-            }
-        });
-    });
-
-    // Aktif/Pasif butonları
-    $(document).on('click', '.activate-btn', function() {
-        const version = $(this).data('version');
-        if (confirm(`v${version} firmware'ini aktif etmek istediğinize emin misiniz?`)) {
-            toggleFirmwareStatus(version, true);
-        }
-    });
-
-    $(document).on('click', '.deactivate-btn', function() {
-        const version = $(this).data('version');
-        if (confirm(`v${version} firmware'ini pasifleştirmek istediğinize emin misiniz?`)) {
-            toggleFirmwareStatus(version, false);
-        }
-    });
-
-    // Silme butonu
-    $(document).on('click', '.delete-btn', function() {
-        const version = $(this).data('version');
-        if (confirm(`v${version} firmware'ini silmek istediğinize emin misiniz? Bu işlem geri alınamaz!`)) {
-            deleteFirmware(version);
-        }
-    });
-
-    // Firmware durum değiştirme fonksiyonu
-    function toggleFirmwareStatus(version, activate) {
-        $.ajax({
-            url: '/firmware/set_status',
-            method: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify({
-                version: version,
-                is_active: activate
-            }),
-            success: function() {
-                location.reload();
-            },
-            error: function(xhr) {
-                alert('İşlem başarısız oldu: ' + (xhr.responseJSON?.error || 'Bilinmeyen hata'));
-            }
-        });
-    }
-
-    // Firmware silme fonksiyonu
-    function deleteFirmware(version) {
-        $.ajax({
-            url: '/firmware/delete',
-            method: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify({ version: version }),
-            success: function() {
-                location.reload();
-            },
-            error: function(xhr) {
-                alert('Silme işlemi başarısız oldu: ' + (xhr.responseJSON?.error || 'Bilinmeyen hata'));
-            }
-        });
-    }
 });
+
+function activateVersion(version) {
+    if (confirm(`v${version} firmware'ini aktif etmek istediğinize emin misiniz?`)) {
+        fetch('/firmware/activate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ version: version })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert(data.message || 'Bir hata oluştu');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('İşlem başarısız oldu');
+        });
+    }
+}
 </script>
 {% endblock %}
