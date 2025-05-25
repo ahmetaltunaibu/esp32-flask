@@ -65,6 +65,7 @@ def get_db():
 
 def init_db():
     with get_db() as conn:
+        # Sensor verileri tablosu
         conn.execute('''
             CREATE TABLE IF NOT EXISTS sensor_data (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,9 +74,12 @@ def init_db():
                 sensor_value REAL NOT NULL,
                 sensor_unit TEXT NOT NULL,
                 timestamp INTEGER NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cihaz_id) REFERENCES devices(cihaz_id) ON DELETE CASCADE
             )
         ''')
+        
+        # Cihazlar tablosu (yeni sütunlar eklendi)
         conn.execute('''
             CREATE TABLE IF NOT EXISTS devices (
                 cihaz_id TEXT PRIMARY KEY,
@@ -83,31 +87,100 @@ def init_db():
                 konum TEXT NOT NULL,
                 mac TEXT NOT NULL,
                 firmware_version TEXT NOT NULL,
+                target_firmware TEXT,
                 last_seen INTEGER NOT NULL,
                 online_status BOOLEAN DEFAULT 0,
-                ip_address TEXT
+                ip_address TEXT,
+                device_type TEXT DEFAULT 'default',
+                update_channel TEXT DEFAULT 'stable',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_update DATETIME,
+                FOREIGN KEY (target_firmware) REFERENCES firmware_versions(version)
             )
         ''')
+        
+        # Kullanıcılar tablosu
         conn.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
                 password TEXT NOT NULL,
                 name TEXT NOT NULL,
-                is_admin BOOLEAN DEFAULT 0
+                is_admin BOOLEAN DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_login DATETIME
             )
         ''')
+        
+        # Firmware versiyonları tablosu (yeni sütunlar eklendi)
         conn.execute('''
             CREATE TABLE IF NOT EXISTS firmware_versions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 version TEXT UNIQUE NOT NULL,
                 release_notes TEXT,
-                file_path TEXT,
-                signature_path TEXT,
+                file_path TEXT NOT NULL,
+                file_size INTEGER,
+                signature_path TEXT NOT NULL,
                 is_active BOOLEAN DEFAULT 1,
+                is_verified BOOLEAN DEFAULT 0,
+                compatible_devices TEXT DEFAULT 'all',
+                uploader_id INTEGER,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (uploader_id) REFERENCES users(id)
+            )
+        ''')
+        
+        # Güncelleme geçmişi tablosu (yeni eklendi)
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS update_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cihaz_id TEXT NOT NULL,
+                old_version TEXT NOT NULL,
+                new_version TEXT NOT NULL,
+                status TEXT NOT NULL,  -- 'success', 'failed', 'pending'
+                error_message TEXT,
+                initiated_by INTEGER,
+                timestamp INTEGER NOT NULL,
+                FOREIGN KEY (cihaz_id) REFERENCES devices(cihaz_id),
+                FOREIGN KEY (initiated_by) REFERENCES users(id)
+            )
+        ''')
+        
+        # Cihaz grupları tablosu (yeni eklendi)
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS device_groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_name TEXT UNIQUE NOT NULL,
+                description TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        
+        # Cihaz-grup ilişkileri (yeni eklendi)
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS device_group_mapping (
+                group_id INTEGER NOT NULL,
+                cihaz_id TEXT NOT NULL,
+                PRIMARY KEY (group_id, cihaz_id),
+                FOREIGN KEY (group_id) REFERENCES device_groups(id) ON DELETE CASCADE,
+                FOREIGN KEY (cihaz_id) REFERENCES devices(cihaz_id) ON DELETE CASCADE
+            )
+        ''')
+        
+        # Varsayılan admin kullanıcısı (güvenli versiyon)
+        try:
+            conn.execute('''
+                INSERT INTO users (username, password, name, is_admin)
+                VALUES (?, ?, ?, ?)
+            ''', (
+                'admin',
+                generate_password_hash(os.environ.get('ADMIN_PASSWORD', 'securepassword123')),
+                'System Admin',
+                1
+            ))
+        except sqlite3.IntegrityError:
+            pass  # Kullanıcı zaten varsa
+        
         conn.commit()
 
 init_db()
@@ -248,6 +321,49 @@ def login():
         
         flash('Kullanıcı adı/şifre hatalı', 'danger')
     return render_template('login.html')
+
+# app.py'ye bu endpointleri ekleyin
+@app.route('/firmware/set_status', methods=['POST'])
+@admin_required
+def set_firmware_status():
+    data = request.get_json()
+    with get_db() as conn:
+        conn.execute('''
+            UPDATE firmware_versions 
+            SET is_active = ?
+            WHERE version = ?
+        ''', (bool(data['is_active']), data['version']))
+        conn.commit()
+    return jsonify({"success": True})
+
+@app.route('/firmware/delete', methods=['POST'])
+@admin_required
+def delete_firmware():
+    data = request.get_json()
+    with get_db() as conn:
+        # Önce dosyaları sil
+        firmware = conn.execute('''
+            SELECT file_path, signature_path 
+            FROM firmware_versions 
+            WHERE version = ?
+        ''', (data['version'],)).fetchone()
+        
+        if firmware:
+            try:
+                if firmware['file_path'] and os.path.exists(firmware['file_path']):
+                    os.remove(firmware['file_path'])
+                if firmware['signature_path'] and os.path.exists(firmware['signature_path']):
+                    os.remove(firmware['signature_path'])
+            except Exception as e:
+                app.logger.error(f"File deletion error: {str(e)}")
+        
+        # Sonra veritabanından sil
+        conn.execute('DELETE FROM firmware_versions WHERE version = ?', (data['version'],))
+        conn.commit()
+    
+    return jsonify({"success": True})
+
+
 
 @app.route('/logout')
 def logout():
