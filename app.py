@@ -784,26 +784,113 @@ def check_firmware_unsecured(cihaz_id):
     response.headers.add('Access-Control-Allow-Origin', '*')
     return response
 
+# app.py'deki firmware check endpoint'ini değiştirin
+
 SECRET_KEY = b"GUVENLI_ANAHTAR_123"
+
 @app.route('/firmware/check/<cihaz_id>')
 def check_firmware(cihaz_id):
     # API Key kontrolü
-    if request.args.get('api_key') != "GUVENLI_ANAHTAR_123":
+    api_key = request.args.get('api_key')
+    if api_key != "GUVENLI_ANAHTAR_123":
         return jsonify({"error": "Yetkisiz erişim"}), 401
     
-    # HMAC imza kontrolü (opsiyonel ek güvenlik)
+    # HMAC imza kontrolü (opsiyonel - sadece signature varsa kontrol et)
     signature = request.args.get('signature', '')
-    valid = hmac.new(SECRET_KEY, cihaz_id.encode(), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(signature, valid):
-        return jsonify({"error": "Geçersiz imza"}), 401
+    if signature:  # Signature varsa kontrol et
+        valid = hmac.new(SECRET_KEY, cihaz_id.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, valid):
+            return jsonify({"error": "Geçersiz imza"}), 401
     
-    # Gerçek işlemler
-    return jsonify({
-        "update_required": False,
-        "current_version": "1.0.0",
-        "latest_version": "1.0.0"
-    })
+    try:
+        with get_db() as conn:
+            # Cihazın mevcut firmware versiyonunu al
+            cihaz = conn.execute('SELECT firmware_version, target_firmware FROM devices WHERE cihaz_id = ?', 
+                               (cihaz_id,)).fetchone()
+            
+            if not cihaz:
+                return jsonify({
+                    "error": "Cihaz bulunamadı",
+                    "update_required": False
+                }), 404
+            
+            current_version = cihaz['firmware_version'] or "1.0.0"
+            target_version = cihaz['target_firmware']
+            
+            # Eğer target firmware atanmışsa güncelleme gerekli
+            if target_version and target_version != current_version:
+                # Aktif firmware versiyonunu kontrol et
+                firmware = conn.execute('''
+                    SELECT version, file_path FROM firmware_versions 
+                    WHERE version = ? AND is_active = 1
+                ''', (target_version,)).fetchone()
+                
+                if firmware:
+                    return jsonify({
+                        "update_required": True,
+                        "current_version": current_version,
+                        "latest_version": target_version,
+                        "download_url": f"/firmware/download/{target_version}",
+                        "signature_url": f"/firmware/signature/{target_version}"
+                    })
+            
+            # Güncelleme gerekmiyorsa
+            return jsonify({
+                "update_required": False,
+                "current_version": current_version,
+                "latest_version": current_version
+            })
+            
+    except Exception as e:
+        return jsonify({
+            "error": f"Sunucu hatası: {str(e)}",
+            "update_required": False
+        }), 500
 
+# Alternatif: Daha basit endpoint (güvenlik kontrolü olmadan)
+@app.route('/firmware/check_simple/<cihaz_id>')
+def check_firmware_simple(cihaz_id):
+    """Basit firmware kontrolü - sadece API key ile"""
+    api_key = request.args.get('api_key')
+    if api_key != "GUVENLI_ANAHTAR_123":
+        return jsonify({"error": "Yetkisiz erişim"}), 401
+    
+    try:
+        with get_db() as conn:
+            cihaz = conn.execute('SELECT firmware_version, target_firmware FROM devices WHERE cihaz_id = ?', 
+                               (cihaz_id,)).fetchone()
+            
+            if not cihaz:
+                return jsonify({
+                    "update_required": False,
+                    "current_version": "1.0.0",
+                    "latest_version": "1.0.0"
+                }), 200
+            
+            current_version = cihaz['firmware_version'] or "1.0.0"
+            target_version = cihaz['target_firmware']
+            
+            if target_version and target_version != current_version:
+                return jsonify({
+                    "update_required": True,
+                    "current_version": current_version,
+                    "latest_version": target_version,
+                    "download_url": f"/firmware/download/{target_version}?api_key=GUVENLI_ANAHTAR_123",
+                    "signature_url": f"/firmware/signature/{target_version}?api_key=GUVENLI_ANAHTAR_123"
+                })
+            
+            return jsonify({
+                "update_required": False,
+                "current_version": current_version,
+                "latest_version": current_version
+            })
+            
+    except Exception as e:
+        return jsonify({
+            "update_required": False,
+            "current_version": "1.0.0",
+            "latest_version": "1.0.0"
+        }), 200
 
 @app.route('/firmware/update_stream')
 @login_required
