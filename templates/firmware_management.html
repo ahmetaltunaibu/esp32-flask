@@ -145,12 +145,18 @@ $(document).ready(function() {
         }
     });
 
-    // Cihaz ve firmware seçim kontrolü
-    $('#deviceSelect, #firmwareSelect').change(function() {
+    // Buton durumunu güncelleyen fonksiyon
+    function updateButtonState() {
         const deviceSelected = $('#deviceSelect').val() !== '';
         const firmwareSelected = $('#firmwareSelect').val() !== '';
         $('#assignFirmwareBtn').prop('disabled', !(deviceSelected && firmwareSelected));
-    });
+    }
+
+    // Sayfa yüklendiğinde bir kere kontrol et
+    updateButtonState();
+
+    // Combobox değişikliklerini dinle
+    $('#deviceSelect, #firmwareSelect').on('change', updateButtonState);
 
     // Firmware atama işlemi
     $('#assignFirmwareBtn').click(function() {
