@@ -842,6 +842,12 @@ def check_firmware(cihaz_id):
             "update_available": False
         }), 500
 
+@app.route('/admin/download_db')
+@admin_required
+def download_db():
+    return send_file('sensor_data.db', as_attachment=True)
+
+
 @app.route('/admin/db_dump')
 @admin_required
 def admin_db_dump():
