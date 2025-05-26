@@ -1189,6 +1189,66 @@ def not_found(error):
 def internal_error(error):
     return jsonify({"error": "Sunucu hatası"}), 500
 
+# Debug endpoint'leri ekle
+@app.route('/debug/database_info')
+@login_required
+@admin_required
+def debug_database_info():
+    try:
+        with get_db() as conn:
+            sensor_count = conn.execute('SELECT COUNT(*) as count FROM sensor_data').fetchone()
+            device_count = conn.execute('SELECT COUNT(*) as count FROM devices').fetchone()
+            
+            recent_data = conn.execute('''
+                SELECT * FROM sensor_data 
+                ORDER BY timestamp DESC 
+                LIMIT 10
+            ''').fetchall()
+            
+            return jsonify({
+                'sensor_count': sensor_count['count'],
+                'device_count': device_count['count'],
+                'recent_data': [dict(row) for row in recent_data]
+            })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/debug/test_insert')
+@login_required
+@admin_required
+def test_insert():
+    try:
+        timestamp = int(time.time() * 1000)
+        
+        with get_db() as conn:
+            # Test cihazı ekle
+            conn.execute('''
+                INSERT OR REPLACE INTO devices 
+                (cihaz_id, cihaz_adi, konum, mac, firmware_version, last_seen, online_status, ip_address)
+                VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+            ''', ('TEST_001', 'Test Cihazı', 'Test Lokasyon', '00:11:22:33:44:55', '1.0.0', timestamp, '127.0.0.1'))
+            
+            # Test sensor verisi ekle
+            conn.execute('''
+                INSERT INTO sensor_data 
+                (cihaz_id, sensor_id, sensor_value, sensor_unit, timestamp)
+                VALUES (?, ?, ?, ?, ?)
+            ''', ('TEST_001', 'temp', 25.5, '°C', timestamp))
+            
+            conn.commit()
+            
+            # Toplam sayıyı kontrol et
+            total = conn.execute('SELECT COUNT(*) as count FROM sensor_data').fetchone()
+            
+            return jsonify({
+                'success': True,
+                'message': 'Test verisi eklendi',
+                'total_count': total['count']
+            })
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     os.makedirs(app.config['FIRMWARE_FOLDER'], exist_ok=True)
     logger.info("🚀 Flask server starting...")
