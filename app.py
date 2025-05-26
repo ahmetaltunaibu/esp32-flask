@@ -98,11 +98,13 @@ HARDCODED_ADMIN = {
     "is_admin": True
 }
 
+
 # Database Setup
 def get_db():
     conn = sqlite3.connect('sensor_data.db')
     conn.row_factory = sqlite3.Row
     return conn
+
 
 def init_db():
     with get_db() as conn:
@@ -119,7 +121,7 @@ def init_db():
                 FOREIGN KEY (cihaz_id) REFERENCES devices(cihaz_id) ON DELETE CASCADE
             )
         ''')
-        
+
         # Cihazlar tablosu
         conn.execute('''
             CREATE TABLE IF NOT EXISTS devices (
@@ -139,7 +141,7 @@ def init_db():
                 FOREIGN KEY (target_firmware) REFERENCES firmware_versions(version)
             )
         ''')
-        
+
         # Kullanıcılar tablosu
         conn.execute('''
             CREATE TABLE IF NOT EXISTS users (
@@ -152,7 +154,7 @@ def init_db():
                 last_login DATETIME
             )
         ''')
-        
+
         # Firmware versiyonları tablosu
         conn.execute('''
             CREATE TABLE IF NOT EXISTS firmware_versions (
@@ -170,7 +172,7 @@ def init_db():
                 FOREIGN KEY (uploader_id) REFERENCES users(id)
             )
         ''')
-        
+
         # Güncelleme geçmişi tablosu
         conn.execute('''
             CREATE TABLE IF NOT EXISTS update_history (
@@ -186,7 +188,7 @@ def init_db():
                 FOREIGN KEY (initiated_by) REFERENCES users(id)
             )
         ''')
-        
+
         # Cihaz grupları tablosu
         conn.execute('''
             CREATE TABLE IF NOT EXISTS device_groups (
@@ -196,7 +198,7 @@ def init_db():
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-        
+
         # Cihaz-grup ilişkileri
         conn.execute('''
             CREATE TABLE IF NOT EXISTS device_group_mapping (
@@ -207,7 +209,7 @@ def init_db():
                 FOREIGN KEY (cihaz_id) REFERENCES devices(cihaz_id) ON DELETE CASCADE
             )
         ''')
-        
+
         # Varsayılan admin kullanıcısı
         try:
             conn.execute('''
@@ -221,10 +223,12 @@ def init_db():
             ))
         except sqlite3.IntegrityError:
             pass
-        
+
         conn.commit()
 
+
 init_db()
+
 
 # Template Filters
 @app.template_filter('format_timestamp')
@@ -234,6 +238,7 @@ def format_timestamp(timestamp):
     except:
         return "N/A"
 
+
 @app.template_filter('format_date_only')
 def format_date_only(timestamp):
     try:
@@ -241,12 +246,14 @@ def format_date_only(timestamp):
     except:
         return "N/A"
 
+
 @app.template_filter('format_time_only')
 def format_time_only(timestamp):
     try:
         return datetime.fromtimestamp(timestamp / 1000).strftime('%H:%M:%S')
     except:
         return "N/A"
+
 
 # Authentication Decorators
 def login_required(f):
@@ -256,7 +263,9 @@ def login_required(f):
             flash('Lütfen giriş yapın', 'danger')
             return redirect(url_for('login'))
         return f(*args, **kwargs)
+
     return decorated_function
+
 
 def admin_required(f):
     @wraps(f)
@@ -267,19 +276,22 @@ def admin_required(f):
             flash('Bu işlem için ADMIN yetkisi gerekiyor!', 'danger')
             return redirect(url_for('index'))
         return f(*args, **kwargs)
+
     return decorated_function
+
 
 # Context Processors
 @app.context_processor
 def inject_user():
     if 'username' not in session:
         return dict(current_user=None, is_admin=False)
-    
+
     with get_db() as conn:
         user = conn.execute('SELECT name, is_admin FROM users WHERE username = ?',
-                          (session['username'],)).fetchone()
+                            (session['username'],)).fetchone()
         return dict(current_user=dict(name=user['name']) if user else None,
-                  is_admin=user['is_admin'] if user else False)
+                    is_admin=user['is_admin'] if user else False)
+
 
 # Background Tasks
 def update_device_status():
@@ -298,10 +310,12 @@ def update_device_status():
         except Exception as e:
             app.logger.error(f"Error updating device status: {str(e)}")
 
+
 if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
     scheduler = BackgroundScheduler()
     scheduler.add_job(update_device_status, 'interval', minutes=1)
     scheduler.start()
+
 
 # Routes
 @app.route('/')
@@ -311,19 +325,20 @@ def index():
         cihazlar = conn.execute('SELECT * FROM devices ORDER BY last_seen DESC').fetchall()
         return render_template('index.html', cihazlar=cihazlar)
 
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-        
+
         # Sabit kullanıcı kontrolü
         if username == HARDCODED_ADMIN["username"] and password == HARDCODED_ADMIN["password"]:
             session['username'] = username
             session['is_admin'] = True
             flash('ADMIN olarak giriş yapıldı!', 'success')
             return redirect(url_for('index'))
-        
+
         # Veritabanı kontrolü
         with get_db() as conn:
             user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
@@ -332,9 +347,10 @@ def login():
                 session['is_admin'] = bool(user['is_admin'])
                 flash('Giriş başarılı!', 'success')
                 return redirect(url_for('index'))
-        
+
         flash('Kullanıcı adı/şifre hatalı', 'danger')
     return render_template('login.html')
+
 
 @app.route('/logout')
 def logout():
@@ -343,17 +359,18 @@ def logout():
     flash('Başarıyla çıkış yapıldı', 'success')
     return redirect(url_for('login'))
 
+
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
         name = request.form.get('name')
-        
+
         if not all([username, password, name]):
             flash('Tüm alanları doldurun', 'danger')
             return redirect(url_for('signup'))
-        
+
         try:
             with get_db() as conn:
                 conn.execute('''
@@ -365,19 +382,20 @@ def signup():
                 return redirect(url_for('login'))
         except sqlite3.IntegrityError:
             flash('Bu kullanıcı adı zaten alınmış', 'danger')
-    
+
     return render_template('signup.html')
+
 
 @app.route('/data', methods=['POST'])
 def receive_data():
     data = request.get_json()
     if not data or 'cihaz_id' not in data:
         return jsonify({"status": "error", "message": "Geçersiz veri"}), 400
-    
+
     timestamp = int(time.time() * 1000)
     data['timestamp'] = timestamp
     data['firmware_version'] = data.get('firmware_version', '1.0.0')
-    
+
     try:
         with get_db() as conn:
             # Update device info
@@ -394,7 +412,7 @@ def receive_data():
                 timestamp,
                 request.remote_addr
             ))
-            
+
             # Save sensor data
             if 'veriler' in data:
                 for veri in data['veriler']:
@@ -409,12 +427,13 @@ def receive_data():
                         veri.get('birim', ''),
                         timestamp
                     ))
-            
+
             conn.commit()
             return jsonify({"status": "success", "message": "Veri alındı"})
-    
+
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+
 
 @app.route('/cihaz/<cihaz_id>')
 @login_required
@@ -425,7 +444,7 @@ def cihaz_detay(cihaz_id):
             if not cihaz:
                 flash('Cihaz bulunamadı', 'danger')
                 return redirect(url_for('index'))
-            
+
             # Get latest sensor values
             veriler = conn.execute('''
                 SELECT s1.* FROM sensor_data s1
@@ -437,7 +456,7 @@ def cihaz_detay(cihaz_id):
                 ) s2 ON s1.sensor_id = s2.sensor_id AND s1.timestamp = s2.max_timestamp
                 ORDER BY s1.sensor_id
             ''', (cihaz_id,)).fetchall()
-            
+
             sensor_data = {}
             for veri in veriler:
                 sensor_data[veri['sensor_id']] = {
@@ -445,12 +464,13 @@ def cihaz_detay(cihaz_id):
                     'birim': veri['sensor_unit'],
                     'timestamp': veri['timestamp']
                 }
-            
+
             return render_template('cihaz_detay.html', cihaz=cihaz, sensor_data=sensor_data)
-    
+
     except Exception as e:
         flash(f'Veri alınırken hata oluştu: {str(e)}', 'danger')
         return redirect(url_for('index'))
+
 
 @app.route('/gecmis/<cihaz_id>')
 @login_required
@@ -459,88 +479,89 @@ def gecmis_veriler(cihaz_id):
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         sensor_filter = request.args.get('sensor_id')
-        
+
         with get_db() as conn:
             cihaz = conn.execute('SELECT * FROM devices WHERE cihaz_id = ?', (cihaz_id,)).fetchone()
             if not cihaz:
                 flash('Cihaz bulunamadı', 'danger')
                 return redirect(url_for('index'))
-            
+
             query = 'SELECT * FROM sensor_data WHERE cihaz_id = ?'
             params = [cihaz_id]
-            
+
             if start_date:
                 start_timestamp = int(datetime.strptime(start_date, '%Y-%m-%d').timestamp() * 1000)
                 query += ' AND timestamp >= ?'
                 params.append(start_timestamp)
-            
+
             if end_date:
                 end_timestamp = int((datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)).timestamp() * 1000)
                 query += ' AND timestamp < ?'
                 params.append(end_timestamp)
-            
+
             if sensor_filter:
                 query += ' AND sensor_id = ?'
                 params.append(sensor_filter)
-            
+
             query += ' ORDER BY timestamp DESC LIMIT 1000'
             veriler = conn.execute(query, params).fetchall()
-            
+
             sensors = conn.execute('''
                 SELECT DISTINCT sensor_id FROM sensor_data 
                 WHERE cihaz_id = ? 
                 ORDER BY sensor_id
             ''', (cihaz_id,)).fetchall()
-            
+
             return render_template('gecmis_veriler.html',
-                                veriler=veriler,
-                                cihaz_id=cihaz_id,
-                                cihaz_adi=cihaz['cihaz_adi'],
-                                sensors=sensors,
-                                start_date=start_date,
-                                end_date=end_date,
-                                sensor_filter=sensor_filter)
-    
+                                   veriler=veriler,
+                                   cihaz_id=cihaz_id,
+                                   cihaz_adi=cihaz['cihaz_adi'],
+                                   sensors=sensors,
+                                   start_date=start_date,
+                                   end_date=end_date,
+                                   sensor_filter=sensor_filter)
+
     except Exception as e:
         flash(f'Geçmiş veriler alınırken hata oluştu: {str(e)}', 'danger')
         return redirect(url_for('index'))
 
+
 @app.route('/excel/<cihaz_id>')
-@login_required  
+@login_required
 def excel_export(cihaz_id):
     try:
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         sensor_filter = request.args.get('sensor_id')
-        
+
         query = '''
             SELECT cihaz_id, sensor_id, sensor_value, sensor_unit, timestamp
             FROM sensor_data 
             WHERE cihaz_id = ?
         '''
         params = [cihaz_id]
-        
+
         if start_date:
             start_timestamp = int(datetime.strptime(start_date, '%Y-%m-%d').timestamp() * 1000)
             query += ' AND timestamp >= ?'
             params.append(start_timestamp)
-        
+
         if end_date:
             end_timestamp = int((datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)).timestamp() * 1000)
             query += ' AND timestamp < ?'
             params.append(end_timestamp)
-        
+
         if sensor_filter:
             query += ' AND sensor_id = ?'
             params.append(sensor_filter)
-        
+
         query += ' ORDER BY timestamp DESC'
-        
+
         with get_db() as conn:
             veriler = conn.execute(query, params).fetchall()
-            cihaz_adi = conn.execute('SELECT cihaz_adi FROM devices WHERE cihaz_id = ?', 
-                                   (cihaz_id,)).fetchone()['cihaz_adi']
-            
+            cihaz_adi = conn.execute('SELECT cihaz_adi FROM devices WHERE cihaz_id = ?',
+                                     (cihaz_id,)).fetchone()['cihaz_adi']
+
             data = []
             for veri in veriler:
                 data.append({
@@ -551,25 +572,26 @@ def excel_export(cihaz_id):
                     'Tarih': datetime.fromtimestamp(veri['timestamp'] / 1000).strftime('%d.%m.%Y'),
                     'Saat': datetime.fromtimestamp(veri['timestamp'] / 1000).strftime('%H:%M:%S')
                 })
-            
+
             df = pd.DataFrame(data)
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df.to_excel(writer, sheet_name='Sensor Data', index=False)
-            
+
             output.seek(0)
             filename = f"{cihaz_adi}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            
+
             return send_file(
                 output,
                 mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 as_attachment=True,
                 download_name=filename
             )
-    
+
     except Exception as e:
         flash(f'Excel oluşturulurken hata oluştu: {str(e)}', 'danger')
         return redirect(url_for('gecmis_veriler', cihaz_id=cihaz_id))
+
 
 # Firmware Management
 @app.route('/firmware')
@@ -581,9 +603,11 @@ def firmware_management():
         cihazlar = conn.execute('SELECT * FROM devices ORDER BY cihaz_adi').fetchall()
     return render_template('firmware_management.html', versions=versions, cihazlar=cihazlar)
 
+
 def allowed_file(filename):
     return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+        filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+
 
 def sign_firmware(file_path):
     """
@@ -592,7 +616,7 @@ def sign_firmware(file_path):
     try:
         with open(file_path, 'rb') as f:
             firmware = f.read()
-        
+
         # Global private_key değişkenini kullan
         signature = private_key.sign(
             firmware,
@@ -602,13 +626,14 @@ def sign_firmware(file_path):
             ),
             hashes.SHA256()
         )
-        
+
         print(f"✅ Firmware imzalandı: {os.path.basename(file_path)}")
         return signature
-        
+
     except Exception as e:
         print(f"❌ Firmware imzalama hatası: {str(e)}")
         raise
+
 
 @app.route('/firmware/upload', methods=['POST'])
 @login_required
@@ -617,40 +642,40 @@ def upload_firmware():
     if 'file' not in request.files:
         flash('Dosya seçilmedi', 'danger')
         return redirect(url_for('firmware_management'))
-    
+
     file = request.files['file']
     version = request.form.get('version')
     release_notes = request.form.get('release_notes')
-    
+
     if not file or file.filename == '':
         flash('Dosya seçilmedi', 'danger')
         return redirect(url_for('firmware_management'))
-    
+
     if not version:
         flash('Versiyon bilgisi gerekli', 'danger')
         return redirect(url_for('firmware_management'))
-    
+
     if not allowed_file(file.filename):
         flash('Geçersiz dosya türü', 'danger')
         return redirect(url_for('firmware_management'))
-    
+
     try:
         os.makedirs(app.config['FIRMWARE_FOLDER'], exist_ok=True)
-        
+
         filename = secure_filename(f"firmware_v{version}.bin")
         file_path = os.path.join(app.config['FIRMWARE_FOLDER'], filename)
         file.save(file_path)
-        
+
         file_size = os.path.getsize(file_path)
-        
+
         # Sign firmware
         signature = sign_firmware(file_path)
         sig_filename = f"firmware_v{version}.sig"
         sig_path = os.path.join(app.config['FIRMWARE_FOLDER'], sig_filename)
-        
+
         with open(sig_path, 'wb') as f:
             f.write(signature)
-        
+
         # Save to database
         with get_db() as conn:
             try:
@@ -662,12 +687,13 @@ def upload_firmware():
                 flash('Firmware başarıyla yüklendi', 'success')
             except sqlite3.IntegrityError:
                 flash('Bu versiyon zaten mevcut', 'danger')
-        
+
         return redirect(url_for('firmware_management'))
-    
+
     except Exception as e:
         flash(f'Firmware yüklenirken hata oluştu: {str(e)}', 'danger')
         return redirect(url_for('firmware_management'))
+
 
 # DÜZELTME: Firmware atama endpoint'i
 @app.route('/assign_firmware', methods=['POST'])
@@ -729,7 +755,55 @@ def assign_firmware():
                 "details": str(e)
             }), 500
 
-# DÜZELTME: Firmware kontrol endpoint'i
+
+# app.py'e bu debug endpoint'ini ekle:
+
+@app.route('/debug/device/<cihaz_id>')
+@admin_required
+def debug_device_firmware(cihaz_id):
+    """
+    🔍 Cihaz firmware durumunu debug et
+    """
+    with get_db() as conn:
+        # Cihaz bilgilerini al
+        device_query = '''
+            SELECT 
+                d.cihaz_id,
+                d.cihaz_adi,
+                d.firmware_version as current_version, 
+                d.target_firmware,
+                d.online_status,
+                d.last_seen,
+                f.file_path, 
+                f.signature_path, 
+                f.release_notes,
+                f.file_size,
+                f.is_active as firmware_is_active
+            FROM devices d
+            LEFT JOIN firmware_versions f ON d.target_firmware = f.version
+            WHERE d.cihaz_id = ?
+        '''
+
+        device = conn.execute(device_query, (cihaz_id,)).fetchone()
+
+        # Tüm firmware versiyonlarını al  
+        firmwares = conn.execute('SELECT * FROM firmware_versions ORDER BY created_at DESC').fetchall()
+
+        return jsonify({
+            "device_id": cihaz_id,
+            "device_found": device is not None,
+            "device_data": dict(device) if device else None,
+            "all_firmwares": [dict(f) for f in firmwares],
+            "debug_info": {
+                "current_version": device['current_version'] if device else None,
+                "target_firmware": device['target_firmware'] if device else None,
+                "has_file_path": bool(device['file_path']) if device else False,
+                "firmware_is_active": device['firmware_is_active'] if device else None
+            }
+        })
+
+
+# Firmware check endpoint'ini debug mesajlarıyla güncelle:
 @app.route('/firmware/check/<cihaz_id>')
 def check_firmware(cihaz_id):
     api_key = request.args.get('api_key')
@@ -738,8 +812,8 @@ def check_firmware(cihaz_id):
 
     try:
         with get_db() as conn:
-            # Cihaz ve target firmware bilgilerini al
-            device = conn.execute('''
+            # DEBUG: Sorguları logla
+            device_query = '''
                 SELECT 
                     d.cihaz_id,
                     d.firmware_version as current_version, 
@@ -747,34 +821,47 @@ def check_firmware(cihaz_id):
                     f.file_path, 
                     f.signature_path, 
                     f.release_notes,
-                    f.file_size
+                    f.file_size,
+                    f.is_active as firmware_is_active
                 FROM devices d
                 LEFT JOIN firmware_versions f ON d.target_firmware = f.version
                 WHERE d.cihaz_id = ?
-            ''', (cihaz_id,)).fetchone()
+            '''
 
-            print(f"DEBUG: Cihaz sorgulandı - ID: {cihaz_id}")
+            device = conn.execute(device_query, (cihaz_id,)).fetchone()
+
+            # DEBUG: Sonuçları logla
+            print(f"🔍 DEBUG - Firmware Check")
+            print(f"Cihaz ID: {cihaz_id}")
+            print(f"Device Found: {device is not None}")
+
             if device:
-                print(f"DEBUG: Current: {device['current_version']}, Target: {device['target_firmware']}")
+                print(f"Current Version: {device['current_version']}")
+                print(f"Target Firmware: {device['target_firmware']}")
+                print(f"File Path: {device['file_path']}")
+                print(f"Firmware Active: {device['firmware_is_active']}")
             else:
-                print("DEBUG: Cihaz bulunamadı!")
+                print("❌ Cihaz bulunamadı!")
 
             if not device:
                 return jsonify({
                     "update_available": False,
                     "current_version": "1.0.0",
-                    "latest_version": "1.0.0"
+                    "latest_version": "1.0.0",
+                    "debug": "Device not found"
                 })
 
             current_version = device['current_version'] or "1.0.0"
             target_version = device['target_firmware']
 
+            print(f"Karşılaştırma: Current={current_version}, Target={target_version}")
+
             # Güncelleme gerekiyor mu?
             if target_version and target_version != current_version and device['file_path']:
                 base_url = request.url_root.rstrip('/')
-                
-                print(f"DEBUG: Güncelleme mevcut - {current_version} -> {target_version}")
-                
+
+                print(f"✅ Güncelleme mevcut: {current_version} -> {target_version}")
+
                 return jsonify({
                     "update_available": True,
                     "current_version": current_version,
@@ -783,24 +870,26 @@ def check_firmware(cihaz_id):
                     "firmware_url": f"{base_url}/firmware/download/{target_version}?api_key={api_key}",
                     "signature_url": f"{base_url}/firmware/signature/{target_version}?api_key={api_key}",
                     "file_size": device['file_size'] or 0,
-                    "release_notes": device['release_notes'] or "Yeni sürüm güncellemesi"
+                    "release_notes": device['release_notes'] or "Yeni sürüm güncellemesi",
+                    "debug": f"Update: {current_version} -> {target_version}"
                 })
 
-            print(f"DEBUG: Güncelleme yok - Current: {current_version}, Target: {target_version}")
-            
+            print(f"❌ Güncelleme yok")
+
             return jsonify({
                 "update_available": False,
                 "current_version": current_version,
-                "latest_version": target_version or current_version
+                "latest_version": target_version or current_version,
+                "debug": f"No update needed. Current: {current_version}, Target: {target_version}"
             })
 
     except Exception as e:
-        print(f"DEBUG: Hata - {str(e)}")
+        print(f"❌ Firmware Check Hatası: {str(e)}")
         return jsonify({
             "error": str(e),
-            "update_available": False
+            "update_available": False,
+            "debug": "Exception occurred"
         }), 500
-
 @app.route('/firmware/activate', methods=['POST'])
 @admin_required
 def activate_firmware():
@@ -817,39 +906,42 @@ def activate_firmware():
 
     return jsonify({"success": True, "message": "Firmware aktif edildi"})
 
+
 @app.route('/firmware/download/<version>')
 def download_firmware(version):
     api_key = request.args.get('api_key')
     if api_key != "GUVENLI_ANAHTAR_123":
         return jsonify({"error": "Yetkisiz erişim"}), 401
-        
+
     with get_db() as conn:
         firmware = conn.execute('''
             SELECT file_path FROM firmware_versions 
             WHERE version = ?
         ''', (version,)).fetchone()
-        
+
         if not firmware or not os.path.exists(firmware['file_path']):
             return jsonify({"error": "Firmware bulunamadı"}), 404
-        
+
         return send_file(firmware['file_path'], as_attachment=True)
+
 
 @app.route('/firmware/signature/<version>')
 def download_signature(version):
     api_key = request.args.get('api_key')
     if api_key != "GUVENLI_ANAHTAR_123":
         return jsonify({"error": "Yetkisiz erişim"}), 401
-        
+
     with get_db() as conn:
         firmware = conn.execute('''
             SELECT signature_path FROM firmware_versions 
             WHERE version = ?
         ''', (version,)).fetchone()
-        
+
         if not firmware or not os.path.exists(firmware['signature_path']):
             return jsonify({"error": "Signature bulunamadı"}), 404
-            
+
         return send_file(firmware['signature_path'], as_attachment=True)
+
 
 # Debug endpoints
 @app.route('/admin/debug_device/<cihaz_id>')
@@ -858,16 +950,18 @@ def debug_device(cihaz_id):
     with get_db() as conn:
         device = conn.execute('SELECT * FROM devices WHERE cihaz_id = ?', (cihaz_id,)).fetchone()
         firmwares = conn.execute('SELECT * FROM firmware_versions ORDER BY created_at DESC').fetchall()
-        
+
         return jsonify({
             "device": dict(device) if device else None,
             "firmwares": [dict(f) for f in firmwares]
         })
 
+
 @app.route('/admin/download_db')
 @admin_required
 def download_db():
     return send_file('sensor_data.db', as_attachment=True)
+
 
 @app.route('/admin/db_dump')
 @admin_required
@@ -877,6 +971,7 @@ def admin_db_dump():
         firmwareler = conn.execute('SELECT * FROM firmware_versions').fetchall()
 
     return render_template('db_debug.html', cihazlar=cihazlar, firmwareler=firmwareler)
+
 
 if __name__ == '__main__':
     os.makedirs(app.config['FIRMWARE_FOLDER'], exist_ok=True)
