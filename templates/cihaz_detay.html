@@ -270,7 +270,7 @@
             </div>
             <div class="card-body">
                 <p class="text-muted mb-3">Son 24 saatlik verileri Excel olarak indirin</p>
-                <a href="{{ url_for('excel_export', cihaz_id=cihaz.cihaz_id) }}?start_date={{ (moment().subtract(1, 'days')).format('YYYY-MM-DD') }}" 
+                <a href="{{ url_for('excel_export', cihaz_id=cihaz.cihaz_id) }}" 
                    class="btn btn-success btn-modern">
                     <i class="fas fa-file-excel"></i> Excel İndir
                 </a>
@@ -285,12 +285,12 @@
             <div class="card-body">
                 <p class="text-muted mb-3">Farklı zaman aralıklarında verileri görüntüleyin</p>
                 <div class="btn-group w-100">
-                    <a href="{{ url_for('gecmis_veriler', cihaz_id=cihaz.cihaz_id) }}?days=1" 
-                       class="btn btn-sm btn-outline-primary">24h</a>
-                    <a href="{{ url_for('gecmis_veriler', cihaz_id=cihaz.cihaz_id) }}?days=7" 
-                       class="btn btn-sm btn-outline-primary">7 Gün</a>
-                    <a href="{{ url_for('gecmis_veriler', cihaz_id=cihaz.cihaz_id) }}?days=30" 
-                       class="btn btn-sm btn-outline-primary">30 Gün</a>
+                    <a href="{{ url_for('gecmis_veriler', cihaz_id=cihaz.cihaz_id) }}" 
+                       class="btn btn-sm btn-outline-primary" onclick="setQuickDate(this, 1)">24h</a>
+                    <a href="{{ url_for('gecmis_veriler', cihaz_id=cihaz.cihaz_id) }}" 
+                       class="btn btn-sm btn-outline-primary" onclick="setQuickDate(this, 7)">7 Gün</a>
+                    <a href="{{ url_for('gecmis_veriler', cihaz_id=cihaz.cihaz_id) }}" 
+                       class="btn btn-sm btn-outline-primary" onclick="setQuickDate(this, 30)">30 Gün</a>
                 </div>
             </div>
         </div>
@@ -379,6 +379,23 @@
                 console.error('Hata:', error);
                 alert('Güncelleme kontrolü başarısız');
             });
+    }
+
+    // Hızlı tarih seçimi için
+    function setQuickDate(element, days) {
+        event.preventDefault();
+        
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - days);
+        
+        const startDateStr = startDate.toISOString().split('T')[0];
+        const endDateStr = endDate.toISOString().split('T')[0];
+        
+        const baseUrl = element.href;
+        const newUrl = `${baseUrl}?start_date=${startDateStr}&end_date=${endDateStr}`;
+        
+        window.location.href = newUrl;
     }
 
     // Otomatik yenileme - sadece online cihazlar için
