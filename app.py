@@ -788,33 +788,34 @@ def check_firmware_unsecured(cihaz_id):
 
 SECRET_KEY = b"GUVENLI_ANAHTAR_123"
 
+
 @app.route('/firmware/check/<cihaz_id>')
 def check_firmware(cihaz_id):
-    # API Key kontrolü
     api_key = request.args.get('api_key')
     if api_key != "GUVENLI_ANAHTAR_123":
         return jsonify({"error": "Yetkisiz erişim"}), 401
-    
+
     try:
         with get_db() as conn:
             # Cihaz ve hedef firmware kontrolü
             cihaz = conn.execute('''
-                SELECT d.firmware_version, d.target_firmware, f.file_path, f.signature_path
+                SELECT d.firmware_version, d.target_firmware, 
+                       f.file_path, f.signature_path, f.release_notes
                 FROM devices d
                 LEFT JOIN firmware_versions f ON d.target_firmware = f.version
                 WHERE d.cihaz_id = ?
             ''', (cihaz_id,)).fetchone()
-            
+
             if not cihaz:
                 return jsonify({
                     "update_available": False,
                     "current_version": "1.0.0",
                     "latest_version": "1.0.0"
                 })
-            
+
             current_version = cihaz['firmware_version'] or "1.0.0"
             target_version = cihaz['target_firmware']
-            
+
             # Güncelleme kontrolü
             if target_version and target_version != current_version and cihaz['file_path']:
                 base_url = request.url_root.rstrip('/')
@@ -822,17 +823,19 @@ def check_firmware(cihaz_id):
                     "update_available": True,
                     "current_version": current_version,
                     "latest_version": target_version,
+                    "version": target_version,  # ESP32 kodu bunu bekliyor
                     "firmware_url": f"{base_url}/firmware/download/{target_version}?api_key={api_key}",
                     "signature_url": f"{base_url}/firmware/signature/{target_version}?api_key={api_key}",
-                    "file_size": os.path.getsize(cihaz['file_path'])
+                    "file_size": os.path.getsize(cihaz['file_path']),
+                    "release_notes": cihaz['release_notes'] or "Yeni sürüm güncellemesi"
                 })
-            
+
             return jsonify({
                 "update_available": False,
                 "current_version": current_version,
                 "latest_version": target_version or current_version
             })
-            
+
     except Exception as e:
         return jsonify({
             "error": str(e),
