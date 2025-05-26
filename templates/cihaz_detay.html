@@ -218,7 +218,22 @@
         {% if sensor_data %}
         <div class="sensor-grid">
             {% for sensor_id, veri in sensor_data.items() %}
-            <div class="sensor-card card" onclick="location.href='{{ url_for('gecmis_veriler', cihaz_id=cihaz.cihaz_id) }}?sensor_ids={{ sensor_id }}'">
+            {% set sensor_type = 'default-sensor' %}
+            {% if 'temp' in sensor_id.lower() %}
+                {% set sensor_type = 'temp-sensor' %}
+            {% elif 'hum' in sensor_id.lower() or 'nem' in sensor_id.lower() %}
+                {% set sensor_type = 'humidity-sensor' %}
+            {% elif 'pressure' in sensor_id.lower() or 'basinc' in sensor_id.lower() %}
+                {% set sensor_type = 'pressure-sensor' %}
+            {% elif 'light' in sensor_id.lower() or 'isik' in sensor_id.lower() %}
+                {% set sensor_type = 'light-sensor' %}
+            {% elif 'co2' in sensor_id.lower() %}
+                {% set sensor_type = 'co2-sensor' %}
+            {% elif 'voltage' in sensor_id.lower() or 'volt' in sensor_id.lower() %}
+                {% set sensor_type = 'voltage-sensor' %}
+            {% endif %}
+            
+            <div class="sensor-card card {{ sensor_type }}" onclick="location.href='{{ url_for('gecmis_veriler', cihaz_id=cihaz.cihaz_id) }}?sensor_ids={{ sensor_id }}'">
                 <div class="card-body text-center">
                     <!-- Sensör İkonu -->
                     <div class="sensor-icon">
