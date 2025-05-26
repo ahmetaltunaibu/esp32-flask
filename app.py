@@ -310,7 +310,17 @@ if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
 @login_required
 def index():
     with get_db() as conn:
-        cihazlar = conn.execute('SELECT * FROM devices ORDER BY last_seen DESC').fetchall()
+        # Tüm cihazları getir (online ve offline)
+        cihazlar = conn.execute('''
+            SELECT *,
+                CASE 
+                    WHEN last_seen >= ? THEN 1 
+                    ELSE 0 
+                END as real_online_status
+            FROM devices 
+            ORDER BY last_seen DESC
+        ''', (int(time.time() * 1000) - 120000,)).fetchall()
+        
         return render_template('index.html', cihazlar=cihazlar)
 
 @app.route('/login', methods=['GET', 'POST'])
