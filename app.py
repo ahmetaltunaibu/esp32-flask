@@ -117,7 +117,7 @@ def init_db():
                 sensor_unit TEXT NOT NULL,
                 timestamp INTEGER NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                -- FOREIGN KEY (cihaz_id) REFERENCES devices(cihaz_id) ON DELETE CASCADE
+                
             )
         ''')
         
