@@ -48,7 +48,7 @@
 </div>
 
 <!-- Firmware Versions Table -->
-<div class="card">
+<div class="card mb-4">
     <div class="card-header">
         <h5 class="mb-0">Firmware Versiyonları</h5>
     </div>
@@ -70,8 +70,8 @@
                         <td>v{{ version.version }}</td>
                         <td>{{ version.created_at }}</td>
                         <td>
-                            {% if version.file_path %}
-                                {{ "%0.2f"|format(version.file_size/1024 if version.file_size else 0) }} KB
+                            {% if version.file_size %}
+                                {{ "%0.2f"|format(version.file_size/1024) }} KB
                             {% else %}
                                 Bilinmiyor
                             {% endif %}
@@ -84,7 +84,7 @@
                             {% endif %}
                         </td>
                         <td>
-                            <a href="{{ url_for('download_firmware', version=version.version) }}" 
+                            <a href="{{ url_for('download_firmware', version=version.version) }}?api_key=GUVENLI_ANAHTAR_123" 
                                class="btn btn-sm btn-outline-primary me-1">
                                 <i class="fas fa-download"></i> İndir
                             </a>
@@ -104,34 +104,75 @@
 </div>
 
 <!-- Assign Firmware Section -->
-<div class="card mt-4">
-    <div class="card-header">
-        <h5 class="mb-0">Cihazlara Firmware Ata</h5>
+<div class="card">
+    <div class="card-header bg-warning text-dark">
+        <h5 class="mb-0">🎯 Cihazlara Firmware Ataması</h5>
     </div>
     <div class="card-body">
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i>
+            <strong>Önemli:</strong> Firmware atandıktan sonra cihaz bir sonraki güncelleme kontrolünde yeni firmware'i indirecektir.
+        </div>
+        
         <div class="row mb-3">
             <div class="col-md-6">
-                <label class="form-label">Cihaz Seçin</label>
+                <label class="form-label"><strong>🖥️ Cihaz Seçin</strong></label>
                 <select id="deviceSelect" class="form-select">
                     <option value="">-- Cihaz Seçin --</option>
                     {% for cihaz in cihazlar %}
-                    <option value="{{ cihaz.cihaz_id }}">{{ cihaz.cihaz_adi }} (v{{ cihaz.firmware_version }})</option>
+                    <option value="{{ cihaz.cihaz_id }}" 
+                            data-current="{{ cihaz.firmware_version }}"
+                            data-target="{{ cihaz.target_firmware or 'Yok' }}">
+                        {{ cihaz.cihaz_adi }} - Mevcut: v{{ cihaz.firmware_version }}
+                        {% if cihaz.target_firmware %}
+                         → Hedef: v{{ cihaz.target_firmware }}
+                        {% endif %}
+                    </option>
                     {% endfor %}
                 </select>
             </div>
             <div class="col-md-6">
-                <label class="form-label">Firmware Seçin</label>
+                <label class="form-label"><strong>💾 Atanacak Firmware</strong></label>
                 <select id="firmwareSelect" class="form-select">
                     <option value="">-- Versiyon Seçin --</option>
                     {% for firmware in versions %}
-                    <option value="{{ firmware.version }}">v{{ firmware.version }}</option>
+                    <option value="{{ firmware.version }}" 
+                            data-active="{{ firmware.is_active }}"
+                            data-notes="{{ firmware.release_notes }}">
+                        v{{ firmware.version }}
+                        {% if firmware.is_active %}
+                        <span class="badge bg-success">Aktif</span>
+                        {% endif %}
+                    </option>
                     {% endfor %}
                 </select>
             </div>
         </div>
-        <button id="assignFirmwareBtn" class="btn btn-primary">
+        
+        <!-- Seçim Detayları -->
+        <div id="selectionDetails" class="row mb-3" style="display: none;">
+            <div class="col-md-6">
+                <div class="card border-primary">
+                    <div class="card-header bg-primary text-white">
+                        <h6 class="mb-0">📱 Seçilen Cihaz</h6>
+                    </div>
+                    <div class="card-body" id="deviceDetails"></div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card border-success">
+                    <div class="card-header bg-success text-white">
+                        <h6 class="mb-0">💾 Seçilen Firmware</h6>
+                    </div>
+                    <div class="card-body" id="firmwareDetails"></div>
+                </div>
+            </div>
+        </div>
+        
+        <button id="assignFirmwareBtn" class="btn btn-warning btn-lg" disabled>
             <i class="fas fa-paper-plane"></i> Firmware Ata
         </button>
+        
         <div id="assignResult" class="mt-3"></div>
     </div>
 </div>
@@ -149,81 +190,127 @@ $(document).ready(function() {
         }
     });
 
-    // Function to update button state
-    function updateButtonState() {
+    // Function to update button state and show details
+    function updateUI() {
         const deviceSelected = $('#deviceSelect').val() !== '';
         const firmwareSelected = $('#firmwareSelect').val() !== '';
+        
         $('#assignFirmwareBtn').prop('disabled', !(deviceSelected && firmwareSelected));
+        
+        if (deviceSelected && firmwareSelected) {
+            showSelectionDetails();
+        } else {
+            $('#selectionDetails').hide();
+        }
     }
 
-    // Initial button state check
-    updateButtonState();
+    function showSelectionDetails() {
+        const deviceOption = $('#deviceSelect option:selected');
+        const firmwareOption = $('#firmwareSelect option:selected');
+        
+        // Device details
+        const deviceDetails = `
+            <strong>Cihaz ID:</strong> ${deviceOption.val()}<br>
+            <strong>Mevcut Firmware:</strong> v${deviceOption.data('current')}<br>
+            <strong>Hedef Firmware:</strong> ${deviceOption.data('target')}
+        `;
+        $('#deviceDetails').html(deviceDetails);
+        
+        // Firmware details
+        const firmwareDetails = `
+            <strong>Versiyon:</strong> v${firmwareOption.val()}<br>
+            <strong>Durum:</strong> ${firmwareOption.data('active') ? '<span class="badge bg-success">Aktif</span>' : '<span class="badge bg-secondary">Pasif</span>'}<br>
+            <strong>Notlar:</strong> ${firmwareOption.data('notes') || 'Belirtilmemiş'}
+        `;
+        $('#firmwareDetails').html(firmwareDetails);
+        
+        $('#selectionDetails').show();
+    }
 
-    // Event listeners for select changes
-    $('#deviceSelect, #firmwareSelect').on('change', updateButtonState);
+    // Event listeners
+    $('#deviceSelect, #firmwareSelect').on('change', updateUI);
 
     // Assign firmware button click handler
     $('#assignFirmwareBtn').click(function() {
-    const deviceId = $('#deviceSelect').val();
-    const firmwareVersion = $('#firmwareSelect').val();
-    
-    if (!deviceId || !firmwareVersion) return;
-    
-    $('#assignResult').html(`
-        <div class="alert alert-info">
-            <i class="fas fa-spinner fa-spin"></i> İşlem yapılıyor...
-        </div>
-    `);
+        const deviceId = $('#deviceSelect').val();
+        const firmwareVersion = $('#firmwareSelect').val();
+        const deviceName = $('#deviceSelect option:selected').text();
 
-    fetch('/assign_firmware', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            device_id: deviceId,
-            version: firmwareVersion
+        if (!deviceId || !firmwareVersion) return;
+
+        // Show loading
+        $('#assignResult').html(`
+            <div class="alert alert-info">
+                <i class="fas fa-spinner fa-spin"></i> <strong>İşlem yapılıyor...</strong><br>
+                <small>${deviceName} cihazına v${firmwareVersion} firmware'i atanıyor...</small>
+            </div>
+        `);
+
+        // Disable button
+        $('#assignFirmwareBtn').prop('disabled', true);
+
+        // Send request
+        fetch('/assign_firmware', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                device_id: deviceId,
+                version: firmwareVersion
+            })
         })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.error) {
+        .then(response => response.json())
+        .then(data => {
+            console.log('Response:', data);  // Debug
+            
+            if (data.error) {
+                $('#assignResult').html(`
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <strong>Hata!</strong><br>
+                        ${data.error}
+                        ${data.details ? '<br><small>' + data.details + '</small>' : ''}
+                    </div>
+                `);
+            } else if (data.success) {
+                $('#assignResult').html(`
+                    <div class="alert alert-success">
+                        <i class="fas fa-check-circle"></i> 
+                        <strong>Başarılı!</strong><br>
+                        ${data.message}<br>
+                        <small class="text-muted">
+                            Cihaz: ${data.device} | 
+                            Mevcut: v${data.current_version} → Hedef: v${data.version}
+                        </small>
+                        <hr>
+                        <button class="btn btn-sm btn-outline-primary" onclick="location.reload()">
+                            <i class="fas fa-sync-alt"></i> Sayfayı Yenile
+                        </button>
+                    </div>
+                `);
+                
+                // Update device select option
+                const option = $(`#deviceSelect option[value="${deviceId}"]`);
+                option.data('target', firmwareVersion);
+                option.text(option.text().replace(/→ Hedef:.*/, '') + ` → Hedef: v${firmwareVersion}`);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
             $('#assignResult').html(`
                 <div class="alert alert-danger">
                     <i class="fas fa-exclamation-circle"></i> 
-                    ${data.error}${data.details ? '<br><small>' + data.details + '</small>' : ''}
+                    <strong>İletişim Hatası!</strong><br>
+                    Sunucuyla iletişim kurulamadı.
                 </div>
             `);
-        } else {
-            $('#assignResult').html(`
-                <div class="alert alert-success">
-                    <i class="fas fa-check-circle"></i> ${data.message}
-                    <button class="btn btn-sm btn-outline-primary float-end" 
-                            onclick="checkDeviceUpdate('${deviceId}')">
-                        <i class="fas fa-sync-alt"></i> Durumu Kontrol Et
-                    </button>
-                </div>
-            `);
-        }
-    })
-    .catch(error => {
-        $('#assignResult').html(`
-            <div class="alert alert-danger">
-                <i class="fas fa-exclamation-circle"></i> İşlem sırasında hata oluştu
-            </div>
-        `);
-        console.error('Error:', error);
+        })
+        .finally(() => {
+            // Re-enable button
+            $('#assignFirmwareBtn').prop('disabled', false);
+        });
     });
-});
-
-// Cihaz durumunu kontrol etme fonksiyonu
-function checkDeviceUpdate(deviceId) {
-    fetch(`/cihaz/${deviceId}/status`)
-    .then(response => response.json())
-    .then(data => {
-        alert(`Cihaz Durumu:\nFirmware: v${data.firmware_version}\nHedef: v${data.target_firmware}`);
-    });
-}
 });
 
 function activateVersion(version) {
