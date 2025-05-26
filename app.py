@@ -484,7 +484,9 @@ def gecmis_veriler(cihaz_id):
     try:
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
-        sensor_filter = request.args.get('sensor_id')
+        selected_sensors = request.args.getlist('sensor_ids')  # Çoklu seçim
+        limit = request.args.get('limit', '1000')
+        order = request.args.get('order', 'desc')
         
         with get_db() as conn:
             cihaz = conn.execute('SELECT * FROM devices WHERE cihaz_id = ?', (cihaz_id,)).fetchone()
@@ -492,9 +494,11 @@ def gecmis_veriler(cihaz_id):
                 flash('Cihaz bulunamadı', 'danger')
                 return redirect(url_for('index'))
             
+            # Base query
             query = 'SELECT * FROM sensor_data WHERE cihaz_id = ?'
             params = [cihaz_id]
             
+            # Tarih filtreleri
             if start_date:
                 start_timestamp = int(datetime.strptime(start_date, '%Y-%m-%d').timestamp() * 1000)
                 query += ' AND timestamp >= ?'
@@ -505,13 +509,25 @@ def gecmis_veriler(cihaz_id):
                 query += ' AND timestamp < ?'
                 params.append(end_timestamp)
             
-            if sensor_filter:
-                query += ' AND sensor_id = ?'
-                params.append(sensor_filter)
+            # Çoklu sensör filtresi
+            if selected_sensors:
+                placeholders = ','.join(['?'] * len(selected_sensors))
+                query += f' AND sensor_id IN ({placeholders})'
+                params.extend(selected_sensors)
             
-            query += ' ORDER BY timestamp DESC LIMIT 1000'
+            # Sıralama
+            if order == 'asc':
+                query += ' ORDER BY timestamp ASC'
+            else:
+                query += ' ORDER BY timestamp DESC'
+            
+            # Limit
+            if limit != 'all':
+                query += f' LIMIT {int(limit)}'
+            
             veriler = conn.execute(query, params).fetchall()
             
+            # Tüm mevcut sensörleri al
             sensors = conn.execute('''
                 SELECT DISTINCT sensor_id FROM sensor_data 
                 WHERE cihaz_id = ? 
@@ -525,7 +541,7 @@ def gecmis_veriler(cihaz_id):
                                 sensors=sensors,
                                 start_date=start_date,
                                 end_date=end_date,
-                                sensor_filter=sensor_filter)
+                                selected_sensors=selected_sensors)
     
     except Exception as e:
         flash(f'Geçmiş veriler alınırken hata oluştu: {str(e)}', 'danger')
