@@ -1,0 +1,13 @@
+<h2>Cihazlar</h2>
+<ul>
+  {% for c in cihazlar %}
+    <li>{{ c.cihaz_id }} - {{ c.firmware_version }} - Target: {{ c.target_firmware }}</li>
+  {% endfor %}
+</ul>
+
+<h2>Firmware Versiyonları</h2>
+<ul>
+  {% for f in firmwareler %}
+    <li>{{ f.version }} - Aktif: {{ f.is_active }} - Dosya: {{ f.file_path }}</li>
+  {% endfor %}
+</ul>
