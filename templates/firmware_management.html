@@ -164,54 +164,66 @@ $(document).ready(function() {
 
     // Assign firmware button click handler
     $('#assignFirmwareBtn').click(function() {
-        const deviceId = $('#deviceSelect').val();
-        const firmwareVersion = $('#firmwareSelect').val();
-        
-        if (!deviceId || !firmwareVersion) {
-            return;
-        }
-        
-        $('#assignResult').html(`
-            <div class="alert alert-info">
-                <i class="fas fa-spinner fa-spin"></i> İşlem yapılıyor...
-            </div>
-        `);
+    const deviceId = $('#deviceSelect').val();
+    const firmwareVersion = $('#firmwareSelect').val();
+    
+    if (!deviceId || !firmwareVersion) return;
+    
+    $('#assignResult').html(`
+        <div class="alert alert-info">
+            <i class="fas fa-spinner fa-spin"></i> İşlem yapılıyor...
+        </div>
+    `);
 
-        fetch('/assign_firmware', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                device_id: deviceId,
-                version: firmwareVersion
-            })
+    fetch('/assign_firmware', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            device_id: deviceId,
+            version: firmwareVersion
         })
-        .then(response => response.json())
-        .then(data => {
-            if (data.error) {
-                $('#assignResult').html(`
-                    <div class="alert alert-danger">
-                        <i class="fas fa-exclamation-circle"></i> ${data.error}
-                    </div>
-                `);
-            } else {
-                $('#assignResult').html(`
-                    <div class="alert alert-success">
-                        <i class="fas fa-check-circle"></i> ${data.message}
-                    </div>
-                `);
-            }
-        })
-        .catch(error => {
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
             $('#assignResult').html(`
                 <div class="alert alert-danger">
-                    <i class="fas fa-exclamation-circle"></i> İşlem sırasında hata oluştu
+                    <i class="fas fa-exclamation-circle"></i> 
+                    ${data.error}${data.details ? '<br><small>' + data.details + '</small>' : ''}
                 </div>
             `);
-            console.error('Error:', error);
-        });
+        } else {
+            $('#assignResult').html(`
+                <div class="alert alert-success">
+                    <i class="fas fa-check-circle"></i> ${data.message}
+                    <button class="btn btn-sm btn-outline-primary float-end" 
+                            onclick="checkDeviceUpdate('${deviceId}')">
+                        <i class="fas fa-sync-alt"></i> Durumu Kontrol Et
+                    </button>
+                </div>
+            `);
+        }
+    })
+    .catch(error => {
+        $('#assignResult').html(`
+            <div class="alert alert-danger">
+                <i class="fas fa-exclamation-circle"></i> İşlem sırasında hata oluştu
+            </div>
+        `);
+        console.error('Error:', error);
     });
+});
+
+// Cihaz durumunu kontrol etme fonksiyonu
+function checkDeviceUpdate(deviceId) {
+    fetch(`/cihaz/${deviceId}/status`)
+    .then(response => response.json())
+    .then(data => {
+        alert(`Cihaz Durumu:\nFirmware: v${data.firmware_version}\nHedef: v${data.target_firmware}`);
+    });
+}
 });
 
 function activateVersion(version) {
