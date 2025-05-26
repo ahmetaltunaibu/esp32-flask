@@ -815,7 +815,7 @@ def assign_firmware():
             "details": str(e)
         }), 500
 
-# 🔍 DÜZELTME: Firmware kontrol endpoint'i - debug mesajlarıyla
+# 🔍 Firmware kontrol endpoint'i - debug mesajlarıyla
 @app.route('/firmware/check/<cihaz_id>')
 def check_firmware(cihaz_id):
     """
@@ -920,21 +920,130 @@ def check_firmware(cihaz_id):
             "debug": f"Exception occurred: {str(e)}"
         }), 500
 
-@app.route('/firmware/activate', methods=['POST'])
+@app.route('/firmware/delete', methods=['POST'])
 @admin_required
-def activate_firmware():
+def delete_firmware():
+    """
+    🗑️ Firmware versiyonunu sil (dosya + database)
+    """
     data = request.get_json()
     if not data or 'version' not in data:
+        return jsonify({"error": "Versiyon bilgisi gerekli"}), 400
+    
+    version = data['version']
+    logger.info(f"🗑️ Delete firmware request: v{version}")
+    
+    try:
+        with get_db() as conn:
+            # Firmware bilgilerini al
+            firmware = conn.execute('''
+                SELECT id, version, file_path, signature_path, is_active
+                FROM firmware_versions 
+                WHERE version = ?
+            ''', (version,)).fetchone()
+            
+            if not firmware:
+                return jsonify({"error": f"Firmware v{version} bulunamadı"}), 404
+            
+            # Aktif firmware silinmesin
+            if firmware['is_active']:
+                return jsonify({"error": "Aktif firmware silinemez. Önce başka bir firmware'i aktif edin"}), 400
+            
+            # Cihazlarda kullanılıyor mu kontrol et
+            devices_using = conn.execute('''
+                SELECT COUNT(*) as count FROM devices 
+                WHERE target_firmware = ? OR firmware_version = ?
+            ''', (version, version)).fetchone()
+            
+            if devices_using['count'] > 0:
+                return jsonify({
+                    "error": f"Bu firmware {devices_using['count']} cihaz tarafından kullanılıyor. Önce cihazları güncelleyin"
+                }), 400
+            
+            # Fiziksel dosyaları sil
+            files_deleted = []
+            files_failed = []
+            
+            if firmware['file_path'] and os.path.exists(firmware['file_path']):
+                try:
+                    os.remove(firmware['file_path'])
+                    files_deleted.append(firmware['file_path'])
+                    logger.info(f"✅ Deleted file: {firmware['file_path']}")
+                except Exception as e:
+                    files_failed.append(f"firmware: {str(e)}")
+                    logger.error(f"❌ Failed to delete file {firmware['file_path']}: {str(e)}")
+            
+            if firmware['signature_path'] and os.path.exists(firmware['signature_path']):
+                try:
+                    os.remove(firmware['signature_path'])
+                    files_deleted.append(firmware['signature_path'])
+                    logger.info(f"✅ Deleted signature: {firmware['signature_path']}")
+                except Exception as e:
+                    files_failed.append(f"signature: {str(e)}")
+                    logger.error(f"❌ Failed to delete signature {firmware['signature_path']}: {str(e)}")
+            
+            # Database'den sil
+            conn.execute('DELETE FROM firmware_versions WHERE version = ?', (version,))
+            conn.commit()
+            
+            logger.info(f"✅ Firmware v{version} deleted successfully")
+            
+            return jsonify({
+                "success": True,
+                "message": f"Firmware v{version} başarıyla silindi",
+                "files_deleted": files_deleted,
+                "files_failed": files_failed
+            })
+            
+    except Exception as e:
+        logger.error(f"❌ Firmware delete error: {str(e)}")
+        return jsonify({
+            "error": "Firmware silinirken hata oluştu",
+            "details": str(e)
+        }), 500
+
+@app.route('/firmware/set_status', methods=['POST'])
+@admin_required
+def set_firmware_status():
+    """
+    🔄 Firmware aktif/pasif durumunu değiştir
+    """
+    data = request.get_json()
+    if not data or 'version' not in data or 'is_active' not in data:
         return jsonify({"error": "Geçersiz istek"}), 400
-
-    with get_db() as conn:
-        # Önce tüm firmware'leri pasif yap
-        conn.execute('UPDATE firmware_versions SET is_active = 0')
-        # Sonra seçileni aktif yap
-        conn.execute('UPDATE firmware_versions SET is_active = 1 WHERE version = ?', (data['version'],))
-        conn.commit()
-
-    return jsonify({"success": True, "message": "Firmware aktif edildi"})
+    
+    version = data['version']  
+    is_active = bool(data['is_active'])
+    
+    try:
+        with get_db() as conn:
+            if is_active:
+                # Diğer tüm firmware'leri pasif yap
+                conn.execute('UPDATE firmware_versions SET is_active = 0')
+            
+            # Seçilen firmware'in durumunu değiştir
+            conn.execute('''
+                UPDATE firmware_versions 
+                SET is_active = ?
+                WHERE version = ?
+            ''', (is_active, version))
+            
+            conn.commit()
+            
+            status_text = "aktif" if is_active else "pasif"
+            logger.info(f"✅ Firmware v{version} {status_text} edildi")
+            
+            return jsonify({
+                "success": True,
+                "message": f"Firmware v{version} {status_text} edildi"
+            })
+            
+    except Exception as e:
+        logger.error(f"❌ Firmware status change error: {str(e)}")
+        return jsonify({
+            "error": "Durum değiştirilemedi",
+            "details": str(e)
+        }), 500
 
 @app.route('/firmware/download/<version>')
 def download_firmware(version):
