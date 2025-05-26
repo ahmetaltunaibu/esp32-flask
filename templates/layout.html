@@ -43,6 +43,10 @@
         .cihaz-kart:hover { transform: translateY(-5px); box-shadow: 0 0.5rem 1.5rem 0 rgba(0,0,0,0.15); }
     </style>
     {% block extra_css %}{% endblock %}
+    <!-- Debug: Session kontrol -->
+{% if session %}
+<script>console.log('Session:', '{{ session.username }}', '{{ session.is_admin }}');</script>
+{% endif %}
 </head>
 <body>
     <div class="container-fluid">
