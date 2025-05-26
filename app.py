@@ -274,6 +274,7 @@ if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
     scheduler.add_job(update_device_status, 'interval', minutes=1)
     scheduler.start()
 
+
 @app.route('/assign_firmware', methods=['POST'])
 @admin_required
 def assign_firmware():
@@ -282,26 +283,51 @@ def assign_firmware():
         return jsonify({"error": "Geçersiz istek"}), 400
 
     with get_db() as conn:
-        # Cihaz kontrolü
-        cihaz = conn.execute('SELECT * FROM devices WHERE cihaz_id = ?', (data['device_id'],)).fetchone()
-        if not cihaz:
-            return jsonify({"error": "Cihaz bulunamadı"}), 404
+        try:
+            # Transaction başlat
+            conn.execute('BEGIN TRANSACTION')
 
-        # Firmware kontrolü
-        firmware = conn.execute('SELECT * FROM firmware_versions WHERE version = ?', (data['version'],)).fetchone()
-        if not firmware:
-            return jsonify({"error": "Firmware versiyonu bulunamadı"}), 404
+            # 1. Firmware versiyonunu kontrol et
+            firmware = conn.execute('''
+                SELECT version FROM firmware_versions 
+                WHERE version = ? COLLATE NOCASE
+            ''', (data['version'],)).fetchone()
 
-        # Atama yap
-        conn.execute('UPDATE devices SET target_firmware = ? WHERE cihaz_id = ?', 
-                    (data['version'], data['device_id']))
-        conn.commit()
+            if not firmware:
+                return jsonify({"error": f"v{data['version']} firmware versiyonu bulunamadı"}), 404
 
-    return jsonify({
-        "message": f"{cihaz['cihaz_adi']} cihazına v{data['version']} firmware'i atandı",
-        "device": cihaz['cihaz_adi'],
-        "version": data['version']
-    })
+            # 2. Cihazı kontrol et
+            device = conn.execute('''
+                SELECT cihaz_adi FROM devices 
+                WHERE cihaz_id = ? COLLATE NOCASE
+            ''', (data['device_id'],)).fetchone()
+
+            if not device:
+                return jsonify({"error": "Cihaz bulunamadı"}), 404
+
+            # 3. Atama yap
+            conn.execute('''
+                UPDATE devices 
+                SET target_firmware = ?
+                WHERE cihaz_id = ? COLLATE NOCASE
+            ''', (firmware['version'], data['device_id']))
+
+            # 4. Değişiklikleri kaydet
+            conn.commit()
+
+            return jsonify({
+                "success": True,
+                "message": f"{device['cihaz_adi']} cihazına v{firmware['version']} atandı",
+                "device": device['cihaz_adi'],
+                "version": firmware['version']
+            })
+
+        except sqlite3.Error as e:
+            conn.rollback()
+            return jsonify({
+                "error": "Veritabanı hatası",
+                "details": str(e)
+            }), 500
 
 
 
