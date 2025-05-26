@@ -4,28 +4,93 @@
 
 {% block extra_css %}
 <style>
-    .sensor-checkbox {
-        margin-right: 8px;
+    .multiselect-container {
+        position: relative;
+        display: inline-block;
+        width: 100%;
     }
-    .sensor-group {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        margin-bottom: 15px;
+    
+    .multiselect-input {
+        width: 100%;
+        padding: 8px 40px 8px 12px;
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+        background-color: white;
+        cursor: pointer;
+        min-height: 38px;
     }
-    .sensor-item {
+    
+    .multiselect-dropdown {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: white;
+        border: 1px solid #ced4da;
+        border-top: none;
+        border-radius: 0 0 4px 4px;
+        max-height: 300px;
+        overflow-y: auto;
+        z-index: 1000;
+        display: none;
+    }
+    
+    .multiselect-option {
+        padding: 8px 12px;
+        cursor: pointer;
+        border-bottom: 1px solid #f8f9fa;
         display: flex;
         align-items: center;
-        padding: 5px 10px;
+    }
+    
+    .multiselect-option:hover {
         background-color: #f8f9fa;
-        border-radius: 5px;
-        border: 1px solid #dee2e6;
     }
-    .sensor-item:hover {
-        background-color: #e9ecef;
+    
+    .multiselect-option input[type="checkbox"] {
+        margin-right: 8px;
     }
-    .select-all-sensors {
+    
+    .multiselect-arrow {
+        position: absolute;
+        right: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        pointer-events: none;
+        transition: transform 0.2s;
+    }
+    
+    .multiselect-container.open .multiselect-arrow {
+        transform: translateY(-50%) rotate(180deg);
+    }
+    
+    .selected-tag {
+        display: inline-block;
+        background: #007bff;
+        color: white;
+        padding: 2px 8px;
+        margin: 2px;
+        border-radius: 12px;
+        font-size: 0.85em;
+    }
+    
+    .selected-tag .remove-tag {
+        margin-left: 5px;
+        cursor: pointer;
+        font-weight: bold;
+    }
+    
+    .filter-controls {
+        display: flex;
+        gap: 10px;
         margin-bottom: 10px;
+        flex-wrap: wrap;
+    }
+    
+    .quick-select {
+        padding: 4px 8px;
+        font-size: 0.85em;
+        border-radius: 4px;
     }
 </style>
 {% endblock %}
@@ -41,6 +106,19 @@
         </div>
     </div>
 
+    <!-- Veri Aralığı Bilgisi -->
+    {% if date_info.has_data %}
+    <div class="alert alert-info mb-4">
+        <i class="fas fa-info-circle"></i>
+        <strong>Veri Aralığı:</strong> 
+        {{ date_info.min_date }} ile {{ date_info.max_date }} tarihleri arasında 
+        <strong>{{ veriler|length }}</strong> kayıt mevcut.
+        {% if not request.args.get('start_date') and not request.args.get('end_date') %}
+        <span class="badge bg-success ms-2">Tüm veriler gösteriliyor</span>
+        {% endif %}
+    </div>
+    {% endif %}
+
     <!-- Filtreleme Kartı -->
     <div class="card mb-4">
         <div class="card-header">
@@ -51,53 +129,64 @@
                 <!-- Tarih Filtreleri -->
                 <div class="col-md-3">
                     <label class="form-label"><i class="fas fa-calendar-alt"></i> Başlangıç Tarihi</label>
-                    <input type="date" class="form-control" name="start_date" value="{{ start_date or '' }}">
+                    <input type="date" class="form-control" name="start_date" 
+                           value="{{ start_date or '' }}"
+                           {% if date_info.min_date %}min="{{ date_info.min_date }}"{% endif %}
+                           {% if date_info.max_date %}max="{{ date_info.max_date }}"{% endif %}>
+                    {% if date_info.has_data %}
+                    <div class="form-text">En eski: {{ date_info.min_date }}</div>
+                    {% endif %}
                 </div>
                 <div class="col-md-3">
                     <label class="form-label"><i class="fas fa-calendar-alt"></i> Bitiş Tarihi</label>
-                    <input type="date" class="form-control" name="end_date" value="{{ end_date or '' }}">
+                    <input type="date" class="form-control" name="end_date" 
+                           value="{{ end_date or '' }}"
+                           {% if date_info.min_date %}min="{{ date_info.min_date }}"{% endif %}
+                           {% if date_info.max_date %}max="{{ date_info.max_date }}"{% endif %}>
+                    {% if date_info.has_data %}
+                    <div class="form-text">En yeni: {{ date_info.max_date }}</div>
+                    {% endif %}
                 </div>
                 
-                <!-- Sensör Filtreleri -->
-                <div class="col-12">
+                <!-- Çoklu Sensör Seçimi -->
+                <div class="col-md-6">
                     <label class="form-label"><i class="fas fa-microchip"></i> Sensörler</label>
                     
-                    <!-- Tümünü Seç Butonu -->
-                    <div class="select-all-sensors">
-                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="selectAllSensors()">
+                    <!-- Hızlı Seçim Butonları -->
+                    <div class="filter-controls">
+                        <button type="button" class="btn btn-sm btn-outline-primary quick-select" onclick="selectAllSensors()">
                             <i class="fas fa-check-square"></i> Tümünü Seç
                         </button>
-                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearAllSensors()">
-                            <i class="fas fa-square"></i> Tümünü Temizle
+                        <button type="button" class="btn btn-sm btn-outline-secondary quick-select" onclick="clearAllSensors()">
+                            <i class="fas fa-square"></i> Temizle
                         </button>
-                        <span class="ms-3 text-muted" id="selectedCount">0 sensör seçili</span>
+                        <span class="badge bg-info" id="selectedCount">0 seçili</span>
                     </div>
                     
-                    <!-- Sensör Checkbox'ları -->
-                    <div class="sensor-group">
-                        {% set selected_sensors = request.args.getlist('sensor_ids') %}
-                        {% for sensor in sensors %}
-                        <div class="sensor-item">
-                            <input type="checkbox" 
-                                   class="form-check-input sensor-checkbox" 
-                                   name="sensor_ids" 
-                                   value="{{ sensor.sensor_id }}" 
-                                   id="sensor_{{ loop.index }}"
-                                   {% if sensor.sensor_id in selected_sensors %}checked{% endif %}
-                                   onchange="updateSelectedCount()">
-                            <label class="form-check-label" for="sensor_{{ loop.index }}">
-                                <span class="badge bg-secondary">{{ sensor.sensor_id }}</span>
-                            </label>
+                    <!-- Çoklu Seçim Dropdown -->
+                    <div class="multiselect-container" id="sensorMultiselect">
+                        <div class="multiselect-input" onclick="toggleDropdown()">
+                            <div id="selectedSensors">Sensör seçin...</div>
+                            <i class="fas fa-chevron-down multiselect-arrow"></i>
                         </div>
-                        {% endfor %}
-                        
-                        {% if not sensors %}
-                        <div class="text-muted">Bu cihaz için henüz sensör verisi yok</div>
-                        {% endif %}
+                        <div class="multiselect-dropdown" id="sensorDropdown">
+                            {% set selected_sensors = request.args.getlist('sensor_ids') %}
+                            {% for sensor in sensors %}
+                            <div class="multiselect-option">
+                                <input type="checkbox" 
+                                       name="sensor_ids" 
+                                       value="{{ sensor.sensor_id }}" 
+                                       id="sensor_{{ loop.index }}"
+                                       {% if sensor.sensor_id in selected_sensors %}checked{% endif %}
+                                       onchange="updateSelection()">
+                                <label for="sensor_{{ loop.index }}">{{ sensor.sensor_id }}</label>
+                            </div>
+                            {% endfor %}
+                        </div>
                     </div>
                 </div>
                 
-                <!-- Veri Limiti -->
+                <!-- Diğer Filtreler -->
                 <div class="col-md-3">
                     <label class="form-label"><i class="fas fa-list-ol"></i> Kayıt Limiti</label>
                     <select class="form-select" name="limit">
@@ -109,7 +198,6 @@
                     </select>
                 </div>
                 
-                <!-- Sıralama -->
                 <div class="col-md-3">
                     <label class="form-label"><i class="fas fa-sort"></i> Sıralama</label>
                     <select class="form-select" name="order">
@@ -118,7 +206,18 @@
                     </select>
                 </div>
                 
-                <!-- Butonlar -->
+                <!-- Hızlı Tarih Seçimi -->
+                <div class="col-md-6">
+                    <label class="form-label"><i class="fas fa-clock"></i> Hızlı Tarih Seçimi</label>
+                    <div class="btn-group w-100" role="group">
+                        <button type="button" class="btn btn-sm btn-outline-info" onclick="setQuickDate(1)">Son 1 Gün</button>
+                        <button type="button" class="btn btn-sm btn-outline-info" onclick="setQuickDate(7)">7 Gün</button>
+                        <button type="button" class="btn btn-sm btn-outline-info" onclick="setQuickDate(30)">30 Gün</button>
+                        <button type="button" class="btn btn-sm btn-outline-info" onclick="setQuickDate(90)">3 Ay</button>
+                    </div>
+                </div>
+                
+                <!-- İşlem Butonları -->
                 <div class="col-12">
                     <button type="submit" class="btn btn-primary me-2">
                         <i class="fas fa-search"></i> Filtrele
@@ -133,17 +232,6 @@
             </form>
         </div>
     </div>
-
-    <!-- Seçim Özeti -->
-    {% if request.args.getlist('sensor_ids') %}
-    <div class="alert alert-info">
-        <i class="fas fa-info-circle"></i>
-        <strong>Seçili Sensörler:</strong>
-        {% for sensor_id in request.args.getlist('sensor_ids') %}
-            <span class="badge bg-primary me-1">{{ sensor_id }}</span>
-        {% endfor %}
-    </div>
-    {% endif %}
 
     <!-- Veri Tablosu -->
     <div class="card">
@@ -215,39 +303,122 @@ $(document).ready(function() {
         }
     });
     
-    // Sayfa yüklendiğinde seçili sensör sayısını güncelle
-    updateSelectedCount();
+    // Sayfa yüklendiğinde seçimi güncelle ve tarihleri kontrol et
+    updateSelection();
+    initializeDates();
+    
+    // Dropdown dışına tıklandığında kapat
+    document.addEventListener('click', function(e) {
+        if (!document.getElementById('sensorMultiselect').contains(e.target)) {
+            closeDropdown();
+        }
+    });
 });
 
-// Seçili sensör sayısını güncelle
-function updateSelectedCount() {
-    const checkedBoxes = document.querySelectorAll('input[name="sensor_ids"]:checked');
-    const count = checkedBoxes.length;
-    const totalCount = document.querySelectorAll('input[name="sensor_ids"]').length;
+// Tarihleri başlat
+function initializeDates() {
+    const startDateInput = document.querySelector('input[name="start_date"]');
+    const endDateInput = document.querySelector('input[name="end_date"]');
     
-    document.getElementById('selectedCount').textContent = 
-        count + ' / ' + totalCount + ' sensör seçili';
+    // Eğer tarihler boşsa ve veri varsa otomatik doldur
+    {% if date_info.has_data %}
+    if (!startDateInput.value) {
+        startDateInput.value = '{{ date_info.min_date }}';
+    }
+    if (!endDateInput.value) {
+        endDateInput.value = '{{ date_info.max_date }}';
+    }
+    {% endif %}
+}
+
+// Dropdown aç/kapat
+function toggleDropdown() {
+    const container = document.getElementById('sensorMultiselect');
+    const dropdown = document.getElementById('sensorDropdown');
+    
+    container.classList.toggle('open');
+    dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+}
+
+function closeDropdown() {
+    const container = document.getElementById('sensorMultiselect');
+    const dropdown = document.getElementById('sensorDropdown');
+    
+    container.classList.remove('open');
+    dropdown.style.display = 'none';
+}
+
+// Seçimi güncelle
+function updateSelection() {
+    const checkboxes = document.querySelectorAll('#sensorDropdown input[type="checkbox"]');
+    const selectedContainer = document.getElementById('selectedSensors');
+    const countBadge = document.getElementById('selectedCount');
+    
+    const selected = [];
+    let checkedCount = 0;
+    
+    checkboxes.forEach(checkbox => {
+        if (checkbox.checked) {
+            selected.push(checkbox.value);
+            checkedCount++;
+        }
+    });
+    
+    // Seçili sensörleri göster
+    if (selected.length === 0) {
+        selectedContainer.innerHTML = 'Sensör seçin...';
+    } else if (selected.length <= 3) {
+        selectedContainer.innerHTML = selected.map(sensor => 
+            `<span class="selected-tag">${sensor} <span class="remove-tag" onclick="removeSensor('${sensor}')">&times;</span></span>`
+        ).join('');
+    } else {
+        selectedContainer.innerHTML = `<span class="selected-tag">${selected.length} sensör seçili</span>`;
+    }
+    
+    // Sayaç güncelle
+    countBadge.textContent = `${checkedCount} seçili`;
+}
+
+// Sensör kaldır
+function removeSensor(sensorId) {
+    const checkbox = document.querySelector(`input[value="${sensorId}"]`);
+    if (checkbox) {
+        checkbox.checked = false;
+        updateSelection();
+    }
 }
 
 // Tüm sensörleri seç
 function selectAllSensors() {
-    const checkboxes = document.querySelectorAll('input[name="sensor_ids"]');
+    const checkboxes = document.querySelectorAll('#sensorDropdown input[type="checkbox"]');
     checkboxes.forEach(checkbox => {
         checkbox.checked = true;
     });
-    updateSelectedCount();
+    updateSelection();
 }
 
-// Tüm sensör seçimlerini temizle
+// Tüm seçimleri temizle
 function clearAllSensors() {
-    const checkboxes = document.querySelectorAll('input[name="sensor_ids"]');
+    const checkboxes = document.querySelectorAll('#sensorDropdown input[type="checkbox"]');
     checkboxes.forEach(checkbox => {
         checkbox.checked = false;
     });
-    updateSelectedCount();
+    updateSelection();
 }
 
-// Tüm filtreleri temizle
+// Hızlı tarih seçimi
+function setQuickDate(days) {
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    
+    document.querySelector('input[name="start_date"]').value = 
+        startDate.toISOString().split('T')[0];
+    document.querySelector('input[name="end_date"]').value = 
+        endDate.toISOString().split('T')[0];
+}
+
+// Filtreleri temizle
 function clearFilters() {
     document.querySelector('input[name="start_date"]').value = '';
     document.querySelector('input[name="end_date"]').value = '';
@@ -264,35 +435,11 @@ function exportToExcel() {
     const form = document.getElementById('filterForm');
     const formData = new FormData(form);
     
-    // Excel export URL'ini oluştur
     const params = new URLSearchParams(formData);
     const excelUrl = '{{ url_for("excel_export", cihaz_id=cihaz_id) }}?' + params.toString();
     
-    // Yeni pencerede aç
     window.open(excelUrl, '_blank');
 }
-
-// Hızlı tarih seçimleri
-function setQuickDate(days) {
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
-    
-    document.querySelector('input[name="start_date"]').value = 
-        startDate.toISOString().split('T')[0];
-    document.querySelector('input[name="end_date"]').value = 
-        endDate.toISOString().split('T')[0];
-}
 </script>
-
-<!-- Hızlı Tarih Seçimi Butonları -->
-<div class="mt-3 text-center">
-    <div class="btn-group" role="group">
-        <button type="button" class="btn btn-sm btn-outline-info" onclick="setQuickDate(1)">Son 1 Gün</button>
-        <button type="button" class="btn btn-sm btn-outline-info" onclick="setQuickDate(7)">Son 7 Gün</button>
-        <button type="button" class="btn btn-sm btn-outline-info" onclick="setQuickDate(30)">Son 30 Gün</button>
-        <button type="button" class="btn btn-sm btn-outline-info" onclick="setQuickDate(90)">Son 3 Ay</button>
-    </div>
-</div>
 
 {% endblock %}
