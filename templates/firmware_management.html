@@ -2,6 +2,31 @@
 
 {% block title %}Firmware Yönetimi{% endblock %}
 
+{% block extra_css %}
+<style>
+    .auto-dismiss {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1055;
+        min-width: 300px;
+    }
+    
+    .btn-group-actions {
+        white-space: nowrap;
+    }
+    
+    .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+    }
+    
+    .table td {
+        vertical-align: middle;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
     <h1 class="h2">Firmware Yönetimi</h1>
@@ -84,16 +109,39 @@
                             {% endif %}
                         </td>
                         <td>
-                            <a href="{{ url_for('download_firmware', version=version.version) }}?api_key=GUVENLI_ANAHTAR_123" 
-                               class="btn btn-sm btn-outline-primary me-1">
-                                <i class="fas fa-download"></i> İndir
-                            </a>
-                            {% if not version.is_active %}
-                            <button class="btn btn-sm btn-outline-success" 
-                                    onclick="activateVersion('{{ version.version }}')">
-                                <i class="fas fa-check"></i> Aktif Et
-                            </button>
-                            {% endif %}
+                            <div class="btn-group-actions">
+                                <!-- Download Button -->
+                                <a href="{{ url_for('download_firmware', version=version.version) }}?api_key=GUVENLI_ANAHTAR_123" 
+                                   class="btn btn-sm btn-outline-primary me-1" title="Firmware İndir">
+                                    <i class="fas fa-download"></i>
+                                </a>
+                                
+                                <!-- Activate/Deactivate Button -->
+                                {% if version.is_active %}
+                                    <button class="btn btn-sm btn-success me-1" disabled title="Aktif Firmware">
+                                        <i class="fas fa-check"></i>
+                                    </button>
+                                {% else %}
+                                    <button class="btn btn-sm btn-outline-success me-1" 
+                                            onclick="setFirmwareStatus('{{ version.version }}', true)"
+                                            title="Aktif Et">
+                                        <i class="fas fa-play"></i>
+                                    </button>
+                                {% endif %}
+                                
+                                <!-- Delete Button -->
+                                {% if not version.is_active %}
+                                    <button class="btn btn-sm btn-outline-danger" 
+                                            onclick="deleteFirmware('{{ version.version }}')"
+                                            title="Kalıcı Olarak Sil">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                {% else %}
+                                    <button class="btn btn-sm btn-secondary" disabled title="Aktif firmware silinemez">
+                                        <i class="fas fa-lock"></i>
+                                    </button>
+                                {% endif %}
+                            </div>
                         </td>
                     </tr>
                     {% endfor %}
@@ -313,9 +361,54 @@ $(document).ready(function() {
     });
 });
 
-function activateVersion(version) {
-    if (confirm(`v${version} firmware'ini aktif etmek istediğinize emin misiniz?`)) {
-        fetch('/firmware/activate', {
+// 🔄 Firmware durumunu değiştir
+function setFirmwareStatus(version, isActive) {
+    const action = isActive ? 'aktif' : 'pasif';
+    const confirmMessage = `v${version} firmware'ini ${action} etmek istediğinize emin misiniz?`;
+    
+    if (confirm(confirmMessage)) {
+        fetch('/firmware/set_status', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ 
+                version: version,
+                is_active: isActive 
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showNotification('success', data.message);
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                showNotification('error', data.error || 'İşlem başarısız');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showNotification('error', 'İletişim hatası');
+        });
+    }
+}
+
+// 🗑️ Firmware sil
+function deleteFirmware(version) {
+    const confirmMsg = `⚠️ DİKKAT ⚠️\n\nv${version} firmware'ini kalıcı olarak silmek istediğinize emin misiniz?\n\n• Binary dosyası silinecek\n• İmza dosyası silinecek\n• Database kaydı silinecek\n\nBu işlem GERİ ALINAMAZ!`;
+    
+    if (confirm(confirmMsg)) {
+        // İkinci onay
+        const doubleConfirm = prompt(`Silme işlemini onaylamak için "SİL" yazın:`);
+        if (doubleConfirm !== "SİL") {
+            showNotification('info', 'Silme işlemi iptal edildi');
+            return;
+        }
+        
+        // Loading state
+        showNotification('info', `v${version} siliniyor...`);
+        
+        fetch('/firmware/delete', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -325,16 +418,63 @@ function activateVersion(version) {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                location.reload();
+                showNotification('success', data.message);
+                
+                // Dosya silme sonuçlarını göster
+                if (data.files_deleted && data.files_deleted.length > 0) {
+                    console.log('Silinen dosyalar:', data.files_deleted);
+                }
+                if (data.files_failed && data.files_failed.length > 0) {
+                    console.warn('Silinemeden dosyalar:', data.files_failed);
+                }
+                
+                setTimeout(() => location.reload(), 2000);
             } else {
-                alert(data.message || 'Bir hata oluştu');
+                showNotification('error', data.error || 'Silme işlemi başarısız');
             }
         })
         .catch(error => {
             console.error('Error:', error);
-            alert('İşlem başarısız oldu');
+            showNotification('error', 'Silme sırasında hata oluştu');
         });
     }
+}
+
+// 📢 Bildirim göster
+function showNotification(type, message) {
+    // Mevcut bildirimleri temizle
+    const existingAlerts = document.querySelectorAll('.alert.auto-dismiss');
+    existingAlerts.forEach(alert => alert.remove());
+    
+    // Yeni bildirim oluştur
+    const alertClass = type === 'success' ? 'alert-success' : 
+                     type === 'error' ? 'alert-danger' : 
+                     type === 'info' ? 'alert-info' : 'alert-warning';
+    
+    const alertHTML = `
+        <div class="alert ${alertClass} alert-dismissible fade show auto-dismiss" role="alert">
+            <i class="fas fa-${type === 'success' ? 'check-circle' : 
+                              type === 'error' ? 'exclamation-circle' : 
+                              type === 'info' ? 'info-circle' : 'exclamation-triangle'}"></i>
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    `;
+    
+    // Sayfanın üstüne ekle
+    const container = document.querySelector('.container-fluid') || document.body;
+    container.insertAdjacentHTML('afterbegin', alertHTML);
+    
+    // 5 saniye sonra otomatik kaldır
+    setTimeout(() => {
+        const alert = document.querySelector('.alert.auto-dismiss');
+        if (alert) alert.remove();
+    }, 5000);
+}
+
+// Deprecated function - geriye uyumluluk için
+function activateVersion(version) {
+    setFirmwareStatus(version, true);
 }
 </script>
 {% endblock %}
