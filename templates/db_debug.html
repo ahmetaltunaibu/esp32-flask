@@ -1,13 +1,128 @@
-<h2>Cihazlar</h2>
-<ul>
-  {% for c in cihazlar %}
-    <li>{{ c.cihaz_id }} - {{ c.firmware_version }} - Target: {{ c.target_firmware }}</li>
-  {% endfor %}
-</ul>
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Database Debug</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .section { margin-bottom: 30px; border: 1px solid #ddd; padding: 15px; }
+        .device { background-color: #f0f8ff; margin: 5px 0; padding: 10px; }
+        .firmware { background-color: #f5f5f5; margin: 5px 0; padding: 10px; }
+        .highlight { background-color: yellow; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Database Debug Info</h1>
 
-<h2>Firmware Versiyonları</h2>
-<ul>
-  {% for f in firmwareler %}
-    <li>{{ f.version }} - Aktif: {{ f.is_active }} - Dosya: {{ f.file_path }}</li>
-  {% endfor %}
-</ul>
+    <div class="section">
+        <h2>📱 Cihazlar ({{ cihazlar|length }} adet)</h2>
+        <table>
+            <tr>
+                <th>Cihaz ID</th>
+                <th>Cihaz Adı</th>
+                <th>Mevcut Firmware</th>
+                <th>Hedef Firmware</th>
+                <th>Online</th>
+                <th>Son Görülme</th>
+            </tr>
+            {% for c in cihazlar %}
+            <tr>
+                <td><code>{{ c.cihaz_id }}</code></td>
+                <td>{{ c.cihaz_adi }}</td>
+                <td>
+                    <span style="color: blue;">v{{ c.firmware_version }}</span>
+                </td>
+                <td>
+                    {% if c.target_firmware %}
+                        <span style="color: red; font-weight: bold;">v{{ c.target_firmware }}</span>
+                    {% else %}
+                        <span style="color: gray;">Yok</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if c.online_status %}
+                        <span style="color: green;">●</span> Online
+                    {% else %}
+                        <span style="color: red;">●</span> Offline
+                    {% endif %}
+                </td>
+                <td>{{ c.last_seen }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>💾 Firmware Versiyonları ({{ firmwareler|length }} adet)</h2>
+        <table>
+            <tr>
+                <th>ID</th>
+                <th>Versiyon</th>
+                <th>Aktif</th>
+                <th>Dosya Yolu</th>
+                <th>Dosya Boyutu</th>
+                <th>Oluşturulma</th>
+            </tr>
+            {% for f in firmwareler %}
+            <tr {% if f.is_active %}class="highlight"{% endif %}>
+                <td>{{ f.id }}</td>
+                <td><strong>v{{ f.version }}</strong></td>
+                <td>
+                    {% if f.is_active %}
+                        <span style="color: green;">✅ Aktif</span>
+                    {% else %}
+                        <span style="color: gray;">❌ Pasif</span>
+                    {% endif %}
+                </td>
+                <td><code>{{ f.file_path }}</code></td>
+                <td>
+                    {% if f.file_size %}
+                        {{ "%.2f"|format(f.file_size/1024) }} KB
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+                <td>{{ f.created_at }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>🔗 Test URLs</h2>
+        <ul>
+            {% for c in cihazlar %}
+            <li>
+                <strong>{{ c.cihaz_adi }}:</strong><br>
+                <a href="/firmware/check/{{ c.cihaz_id }}?api_key=GUVENLI_ANAHTAR_123" target="_blank">
+                    Firmware Kontrol
+                </a> | 
+                <a href="/admin/debug_device/{{ c.cihaz_id }}" target="_blank">
+                    Cihaz Debug
+                </a>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>📊 Özet</h2>
+        <ul>
+            <li><strong>Toplam Cihaz:</strong> {{ cihazlar|length }}</li>
+            <li><strong>Online Cihaz:</strong> {{ cihazlar|selectattr('online_status')|list|length }}</li>
+            <li><strong>Firmware Versiyonu:</strong> {{ firmwareler|length }}</li>
+            <li><strong>Aktif Firmware:</strong> {{ firmwareler|selectattr('is_active')|list|length }}</li>
+            <li><strong>Hedef Firmware Atanmış:</strong> {{ cihazlar|selectattr('target_firmware')|list|length }}</li>
+        </ul>
+    </div>
+
+    <script>
+        // Auto refresh every 10 seconds
+        setTimeout(() => {
+            location.reload();
+        }, 10000);
+    </script>
+</body>
+</html>
