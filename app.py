@@ -25,8 +25,6 @@ app.config['FIRMWARE_FOLDER'] = 'firmware'
 app.config['ALLOWED_EXTENSIONS'] = {'bin'}
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
 
-
-
 # Private key oluştur
 private_key = rsa.generate_private_key(
     public_exponent=65537,
@@ -52,11 +50,10 @@ print(private_pem.decode('utf-8'))
 print("\nPublic Key:")
 print(public_pem.decode('utf-8'))
 
-
-# Sabit admin kullanıcısı (app.py'nin en üstüne ekleyin)
+# Sabit admin kullanıcısı
 HARDCODED_ADMIN = {
     "username": "admin",
-    "password": "admin123",  # Gerçek projede asla böyle yapmayın!
+    "password": "admin123",
     "is_admin": True
 }
 
@@ -82,7 +79,7 @@ def init_db():
             )
         ''')
         
-        # Cihazlar tablosu (yeni sütunlar eklendi)
+        # Cihazlar tablosu
         conn.execute('''
             CREATE TABLE IF NOT EXISTS devices (
                 cihaz_id TEXT PRIMARY KEY,
@@ -115,7 +112,7 @@ def init_db():
             )
         ''')
         
-        # Firmware versiyonları tablosu (yeni sütunlar eklendi)
+        # Firmware versiyonları tablosu
         conn.execute('''
             CREATE TABLE IF NOT EXISTS firmware_versions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -133,14 +130,14 @@ def init_db():
             )
         ''')
         
-        # Güncelleme geçmişi tablosu (yeni eklendi)
+        # Güncelleme geçmişi tablosu
         conn.execute('''
             CREATE TABLE IF NOT EXISTS update_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 cihaz_id TEXT NOT NULL,
                 old_version TEXT NOT NULL,
                 new_version TEXT NOT NULL,
-                status TEXT NOT NULL,  -- 'success', 'failed', 'pending'
+                status TEXT NOT NULL,
                 error_message TEXT,
                 initiated_by INTEGER,
                 timestamp INTEGER NOT NULL,
@@ -149,7 +146,7 @@ def init_db():
             )
         ''')
         
-        # Cihaz grupları tablosu (yeni eklendi)
+        # Cihaz grupları tablosu
         conn.execute('''
             CREATE TABLE IF NOT EXISTS device_groups (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -159,7 +156,7 @@ def init_db():
             )
         ''')
         
-        # Cihaz-grup ilişkileri (yeni eklendi)
+        # Cihaz-grup ilişkileri
         conn.execute('''
             CREATE TABLE IF NOT EXISTS device_group_mapping (
                 group_id INTEGER NOT NULL,
@@ -170,7 +167,7 @@ def init_db():
             )
         ''')
         
-        # Varsayılan admin kullanıcısı (güvenli versiyon)
+        # Varsayılan admin kullanıcısı
         try:
             conn.execute('''
                 INSERT INTO users (username, password, name, is_admin)
@@ -182,7 +179,7 @@ def init_db():
                 1
             ))
         except sqlite3.IntegrityError:
-            pass  # Kullanıcı zaten varsa
+            pass
         
         conn.commit()
 
@@ -224,21 +221,12 @@ def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not session.get('is_admin'):
-            # Eğer JSON isteğiyle gelmişse, redirect değil JSON error döndür
             if request.is_json:
                 return jsonify({"error": "Bu işlem için admin yetkisi gerekli"}), 403
             flash('Bu işlem için ADMIN yetkisi gerekiyor!', 'danger')
             return redirect(url_for('index'))
         return f(*args, **kwargs)
     return decorated_function
-
-@app.route('/admin/test_assign')
-def test_assign():
-    return jsonify({
-        "is_admin": session.get('is_admin', False),
-        "username": session.get('username', None)
-    })
-
 
 # Context Processors
 @app.context_processor
@@ -274,63 +262,6 @@ if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
     scheduler.add_job(update_device_status, 'interval', minutes=1)
     scheduler.start()
 
-
-@app.route('/assign_firmware', methods=['POST'])
-@admin_required
-def assign_firmware():
-    data = request.get_json()
-    if not data or 'device_id' not in data or 'version' not in data:
-        return jsonify({"error": "Geçersiz istek"}), 400
-
-    with get_db() as conn:
-        try:
-            # Transaction başlat
-            conn.execute('BEGIN TRANSACTION')
-
-            # 1. Firmware versiyonunu kontrol et
-            firmware = conn.execute('''
-                SELECT version FROM firmware_versions 
-                WHERE version = ? COLLATE NOCASE
-            ''', (data['version'],)).fetchone()
-
-            if not firmware:
-                return jsonify({"error": f"v{data['version']} firmware versiyonu bulunamadı"}), 404
-
-            # 2. Cihazı kontrol et
-            device = conn.execute('''
-                SELECT cihaz_adi FROM devices 
-                WHERE cihaz_id = ? COLLATE NOCASE
-            ''', (data['device_id'],)).fetchone()
-
-            if not device:
-                return jsonify({"error": "Cihaz bulunamadı"}), 404
-
-            # 3. Atama yap
-            conn.execute('''
-                UPDATE devices 
-                SET target_firmware = ?
-                WHERE cihaz_id = ? COLLATE NOCASE
-            ''', (firmware['version'], data['device_id']))
-
-            # 4. Değişiklikleri kaydet
-            conn.commit()
-
-            return jsonify({
-                "success": True,
-                "message": f"{device['cihaz_adi']} cihazına v{firmware['version']} atandı",
-                "device": device['cihaz_adi'],
-                "version": firmware['version']
-            })
-
-        except sqlite3.Error as e:
-            conn.rollback()
-            return jsonify({
-                "error": "Veritabanı hatası",
-                "details": str(e)
-            }), 500
-
-
-
 # Routes
 @app.route('/')
 @login_required
@@ -348,11 +279,11 @@ def login():
         # Sabit kullanıcı kontrolü
         if username == HARDCODED_ADMIN["username"] and password == HARDCODED_ADMIN["password"]:
             session['username'] = username
-            session['is_admin'] = True  # Admin yetkisi ver
+            session['is_admin'] = True
             flash('ADMIN olarak giriş yapıldı!', 'success')
             return redirect(url_for('index'))
         
-        # Eski veritabanı kontrolü (isteğe bağlı)
+        # Veritabanı kontrolü
         with get_db() as conn:
             user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
             if user and check_password_hash(user['password'], password):
@@ -364,52 +295,10 @@ def login():
         flash('Kullanıcı adı/şifre hatalı', 'danger')
     return render_template('login.html')
 
-# app.py'ye bu endpointleri ekleyin
-@app.route('/firmware/set_status', methods=['POST'])
-@admin_required
-def set_firmware_status():
-    data = request.get_json()
-    with get_db() as conn:
-        conn.execute('''
-            UPDATE firmware_versions 
-            SET is_active = ?
-            WHERE version = ?
-        ''', (bool(data['is_active']), data['version']))
-        conn.commit()
-    return jsonify({"success": True})
-
-@app.route('/firmware/delete', methods=['POST'])
-@admin_required
-def delete_firmware():
-    data = request.get_json()
-    with get_db() as conn:
-        # Önce dosyaları sil
-        firmware = conn.execute('''
-            SELECT file_path, signature_path 
-            FROM firmware_versions 
-            WHERE version = ?
-        ''', (data['version'],)).fetchone()
-        
-        if firmware:
-            try:
-                if firmware['file_path'] and os.path.exists(firmware['file_path']):
-                    os.remove(firmware['file_path'])
-                if firmware['signature_path'] and os.path.exists(firmware['signature_path']):
-                    os.remove(firmware['signature_path'])
-            except Exception as e:
-                app.logger.error(f"File deletion error: {str(e)}")
-        
-        # Sonra veritabanından sil
-        conn.execute('DELETE FROM firmware_versions WHERE version = ?', (data['version'],))
-        conn.commit()
-    
-    return jsonify({"success": True})
-
-
-
 @app.route('/logout')
 def logout():
     session.pop('username', None)
+    session.pop('is_admin', None)
     flash('Başarıyla çıkış yapıldı', 'success')
     return redirect(url_for('login'))
 
@@ -648,16 +537,15 @@ def excel_export(cihaz_id):
 def firmware_management():
     with get_db() as conn:
         versions = conn.execute('SELECT * FROM firmware_versions ORDER BY created_at DESC').fetchall()
-        cihazlar = conn.execute('SELECT * FROM devices ORDER BY cihaz_adi').fetchall()  # Cihaz listesini ekleyin
-    return render_template('firmware_management.html', versions=versions, cihazlar=cihazlar)  # cihazlar'ı template'e gönderin
+        cihazlar = conn.execute('SELECT * FROM devices ORDER BY cihaz_adi').fetchall()
+    return render_template('firmware_management.html', versions=versions, cihazlar=cihazlar)
 
 def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
 def sign_firmware(file_path):
-    private_key_pem = """
------BEGIN PRIVATE KEY-----
+    private_key_pem = """-----BEGIN PRIVATE KEY-----
 MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCyX02NRFPfvod4
 YWvHl4eNCA30OYvO4qQVAAakliBzC4inbc/D8OIB5HQ//uMyu1n96872TKUc59ic
 7UDLKUpznBiXl0U2j7CdrK4Fj4brhJWhAPfIaqNsIyAuMQ/nNe6jEounKi6WBMd+
@@ -684,9 +572,7 @@ rY/s+lCXmNn+rMw9l1IYkV35N35oXmQP9TML7YT1AoGBAMqsIF37730UcuAVhi0B
 k4o5JKCcT+GcxtaAKJOgXkI+nAeJQ54IAFbB3rM8WbeObC6KRNsczwLAFMmE4JZo
 7flrv1fZ62DyRcf/qzjT/G+GQb/tS4GrNVnmMZDRMF6/KmRDfeHykAGiDPQl+IWR
 tCn7yg2wEZnfCpxiCB0bBtv2
------END PRIVATE KEY-----
-
-"""
+-----END PRIVATE KEY-----"""
     
     private_key = serialization.load_pem_private_key(
         private_key_pem.encode(),
@@ -739,6 +625,8 @@ def upload_firmware():
         file_path = os.path.join(app.config['FIRMWARE_FOLDER'], filename)
         file.save(file_path)
         
+        file_size = os.path.getsize(file_path)
+        
         # Sign firmware
         signature = sign_firmware(file_path)
         sig_filename = f"firmware_v{version}.sig"
@@ -751,9 +639,9 @@ def upload_firmware():
         with get_db() as conn:
             try:
                 conn.execute('''
-                    INSERT INTO firmware_versions (version, release_notes, file_path, signature_path)
-                    VALUES (?, ?, ?, ?)
-                ''', (version, release_notes, file_path, sig_path))
+                    INSERT INTO firmware_versions (version, release_notes, file_path, file_size, signature_path)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (version, release_notes, file_path, file_size, sig_path))
                 conn.commit()
                 flash('Firmware başarıyla yüklendi', 'success')
             except sqlite3.IntegrityError:
@@ -764,6 +652,138 @@ def upload_firmware():
     except Exception as e:
         flash(f'Firmware yüklenirken hata oluştu: {str(e)}', 'danger')
         return redirect(url_for('firmware_management'))
+
+# DÜZELTME: Firmware atama endpoint'i
+@app.route('/assign_firmware', methods=['POST'])
+@admin_required
+def assign_firmware():
+    data = request.get_json()
+    if not data or 'device_id' not in data or 'version' not in data:
+        return jsonify({"error": "Geçersiz istek"}), 400
+
+    with get_db() as conn:
+        try:
+            # 1. Firmware versiyonunu kontrol et
+            firmware = conn.execute('''
+                SELECT version, file_path FROM firmware_versions 
+                WHERE version = ? AND is_active = 1
+            ''', (data['version'],)).fetchone()
+
+            if not firmware:
+                return jsonify({"error": f"v{data['version']} firmware versiyonu bulunamadı veya aktif değil"}), 404
+
+            # 2. Cihazı kontrol et
+            device = conn.execute('''
+                SELECT cihaz_id, cihaz_adi, firmware_version FROM devices 
+                WHERE cihaz_id = ?
+            ''', (data['device_id'],)).fetchone()
+
+            if not device:
+                return jsonify({"error": "Cihaz bulunamadı"}), 404
+
+            # 3. Firmware atama yap
+            conn.execute('''
+                UPDATE devices 
+                SET target_firmware = ?
+                WHERE cihaz_id = ?
+            ''', (firmware['version'], device['cihaz_id']))
+
+            # 4. Update history kaydet
+            conn.execute('''
+                INSERT INTO update_history (cihaz_id, old_version, new_version, status, timestamp)
+                VALUES (?, ?, ?, 'pending', ?)
+            ''', (device['cihaz_id'], device['firmware_version'], firmware['version'], int(time.time() * 1000)))
+
+            conn.commit()
+
+            print(f"DEBUG: Firmware atandı - Cihaz: {device['cihaz_id']}, Target: {firmware['version']}")
+
+            return jsonify({
+                "success": True,
+                "message": f"{device['cihaz_adi']} cihazına v{firmware['version']} atandı",
+                "device": device['cihaz_adi'],
+                "version": firmware['version'],
+                "current_version": device['firmware_version']
+            })
+
+        except sqlite3.Error as e:
+            conn.rollback()
+            return jsonify({
+                "error": "Veritabanı hatası",
+                "details": str(e)
+            }), 500
+
+# DÜZELTME: Firmware kontrol endpoint'i
+@app.route('/firmware/check/<cihaz_id>')
+def check_firmware(cihaz_id):
+    api_key = request.args.get('api_key')
+    if api_key != "GUVENLI_ANAHTAR_123":
+        return jsonify({"error": "Yetkisiz erişim"}), 401
+
+    try:
+        with get_db() as conn:
+            # Cihaz ve target firmware bilgilerini al
+            device = conn.execute('''
+                SELECT 
+                    d.cihaz_id,
+                    d.firmware_version as current_version, 
+                    d.target_firmware,
+                    f.file_path, 
+                    f.signature_path, 
+                    f.release_notes,
+                    f.file_size
+                FROM devices d
+                LEFT JOIN firmware_versions f ON d.target_firmware = f.version
+                WHERE d.cihaz_id = ?
+            ''', (cihaz_id,)).fetchone()
+
+            print(f"DEBUG: Cihaz sorgulandı - ID: {cihaz_id}")
+            if device:
+                print(f"DEBUG: Current: {device['current_version']}, Target: {device['target_firmware']}")
+            else:
+                print("DEBUG: Cihaz bulunamadı!")
+
+            if not device:
+                return jsonify({
+                    "update_available": False,
+                    "current_version": "1.0.0",
+                    "latest_version": "1.0.0"
+                })
+
+            current_version = device['current_version'] or "1.0.0"
+            target_version = device['target_firmware']
+
+            # Güncelleme gerekiyor mu?
+            if target_version and target_version != current_version and device['file_path']:
+                base_url = request.url_root.rstrip('/')
+                
+                print(f"DEBUG: Güncelleme mevcut - {current_version} -> {target_version}")
+                
+                return jsonify({
+                    "update_available": True,
+                    "current_version": current_version,
+                    "latest_version": target_version,
+                    "version": target_version,
+                    "firmware_url": f"{base_url}/firmware/download/{target_version}?api_key={api_key}",
+                    "signature_url": f"{base_url}/firmware/signature/{target_version}?api_key={api_key}",
+                    "file_size": device['file_size'] or 0,
+                    "release_notes": device['release_notes'] or "Yeni sürüm güncellemesi"
+                })
+
+            print(f"DEBUG: Güncelleme yok - Current: {current_version}, Target: {target_version}")
+            
+            return jsonify({
+                "update_available": False,
+                "current_version": current_version,
+                "latest_version": target_version or current_version
+            })
+
+    except Exception as e:
+        print(f"DEBUG: Hata - {str(e)}")
+        return jsonify({
+            "error": str(e),
+            "update_available": False
+        }), 500
 
 @app.route('/firmware/activate', methods=['POST'])
 @admin_required
@@ -782,108 +802,56 @@ def activate_firmware():
     return jsonify({"success": True, "message": "Firmware aktif edildi"})
 
 @app.route('/firmware/download/<version>')
-@login_required
 def download_firmware(version):
+    api_key = request.args.get('api_key')
+    if api_key != "GUVENLI_ANAHTAR_123":
+        return jsonify({"error": "Yetkisiz erişim"}), 401
+        
     with get_db() as conn:
         firmware = conn.execute('''
             SELECT file_path FROM firmware_versions 
-            WHERE version = ? AND is_active = 1
+            WHERE version = ?
         ''', (version,)).fetchone()
         
-        if not firmware:
-            flash('Firmware bulunamadı', 'danger')
-            return redirect(url_for('index'))
+        if not firmware or not os.path.exists(firmware['file_path']):
+            return jsonify({"error": "Firmware bulunamadı"}), 404
         
         return send_file(firmware['file_path'], as_attachment=True)
 
 @app.route('/firmware/signature/<version>')
-@login_required
 def download_signature(version):
-    with get_db() as conn:
-        firmware = conn.execute('''
-            SELECT signature_path FROM firmware_versions 
-            WHERE version = ? AND is_active = 1
-        ''', (version,)).fetchone()
-        
-        if not firmware:
-            return jsonify({"error": "Signature not found"}), 404
-            
-        return send_file(firmware['signature_path'], as_attachment=True)
-
-@app.route('/firmware/check_unsecured/<cihaz_id>')
-def check_firmware_unsecured(cihaz_id):
-    # Allow CORS for ESP32
-    response = jsonify({
-        "update_required": False,
-        "current_version": "1.0.0",
-        "latest_version": "1.0.0"
-    })
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    return response
-
-# app.py'deki firmware check endpoint'ini değiştirin
-
-SECRET_KEY = b"GUVENLI_ANAHTAR_123"
-
-
-@app.route('/firmware/check/<cihaz_id>')
-def check_firmware(cihaz_id):
     api_key = request.args.get('api_key')
     if api_key != "GUVENLI_ANAHTAR_123":
         return jsonify({"error": "Yetkisiz erişim"}), 401
+        
+    with get_db() as conn:
+        firmware = conn.execute('''
+            SELECT signature_path FROM firmware_versions 
+            WHERE version = ?
+        ''', (version,)).fetchone()
+        
+        if not firmware or not os.path.exists(firmware['signature_path']):
+            return jsonify({"error": "Signature bulunamadı"}), 404
+            
+        return send_file(firmware['signature_path'], as_attachment=True)
 
-    try:
-        with get_db() as conn:
-            # Cihaz ve hedef firmware kontrolü
-            cihaz = conn.execute('''
-                SELECT d.firmware_version, d.target_firmware, 
-                       f.file_path, f.signature_path, f.release_notes
-                FROM devices d
-                LEFT JOIN firmware_versions f ON d.target_firmware = f.version
-                WHERE d.cihaz_id = ?
-            ''', (cihaz_id,)).fetchone()
-
-            if not cihaz:
-                return jsonify({
-                    "update_available": False,
-                    "current_version": "1.0.0",
-                    "latest_version": "1.0.0"
-                })
-
-            current_version = cihaz['firmware_version'] or "1.0.0"
-            target_version = cihaz['target_firmware']
-
-            # Güncelleme kontrolü
-            if target_version and target_version != current_version and cihaz['file_path']:
-                base_url = request.url_root.rstrip('/')
-                return jsonify({
-                    "update_available": True,
-                    "current_version": current_version,
-                    "latest_version": target_version,
-                    "version": target_version,  # ESP32 kodu bunu bekliyor
-                    "firmware_url": f"{base_url}/firmware/download/{target_version}?api_key={api_key}",
-                    "signature_url": f"{base_url}/firmware/signature/{target_version}?api_key={api_key}",
-                    "file_size": os.path.getsize(cihaz['file_path']),
-                    "release_notes": cihaz['release_notes'] or "Yeni sürüm güncellemesi"
-                })
-
-            return jsonify({
-                "update_available": False,
-                "current_version": current_version,
-                "latest_version": target_version or current_version
-            })
-
-    except Exception as e:
+# Debug endpoints
+@app.route('/admin/debug_device/<cihaz_id>')
+@admin_required
+def debug_device(cihaz_id):
+    with get_db() as conn:
+        device = conn.execute('SELECT * FROM devices WHERE cihaz_id = ?', (cihaz_id,)).fetchone()
+        firmwares = conn.execute('SELECT * FROM firmware_versions ORDER BY created_at DESC').fetchall()
+        
         return jsonify({
-            "error": str(e),
-            "update_available": False
-        }), 500
+            "device": dict(device) if device else None,
+            "firmwares": [dict(f) for f in firmwares]
+        })
 
 @app.route('/admin/download_db')
 @admin_required
 def download_db():
     return send_file('sensor_data.db', as_attachment=True)
-
 
 @app.route('/admin/db_dump')
 @admin_required
@@ -893,76 +861,6 @@ def admin_db_dump():
         firmwareler = conn.execute('SELECT * FROM firmware_versions').fetchall()
 
     return render_template('db_debug.html', cihazlar=cihazlar, firmwareler=firmwareler)
-
-
-
-# Alternatif: Daha basit endpoint (güvenlik kontrolü olmadan)
-@app.route('/firmware/check_simple/<cihaz_id>')
-def check_firmware_simple(cihaz_id):
-    """Basit firmware kontrolü - sadece API key ile"""
-    api_key = request.args.get('api_key')
-    if api_key != "GUVENLI_ANAHTAR_123":
-        return jsonify({"error": "Yetkisiz erişim"}), 401
-    
-    try:
-        with get_db() as conn:
-            cihaz = conn.execute('SELECT firmware_version, target_firmware FROM devices WHERE cihaz_id = ?', 
-                               (cihaz_id,)).fetchone()
-            
-            if not cihaz:
-                return jsonify({
-                    "update_required": False,
-                    "current_version": "1.0.0",
-                    "latest_version": "1.0.0"
-                }), 200
-            
-            current_version = cihaz['firmware_version'] or "1.0.0"
-            target_version = cihaz['target_firmware']
-            
-            if target_version and target_version != current_version:
-                return jsonify({
-                    "update_required": True,
-                    "current_version": current_version,
-                    "latest_version": target_version,
-                    "download_url": f"/firmware/download/{target_version}?api_key=GUVENLI_ANAHTAR_123",
-                    "signature_url": f"/firmware/signature/{target_version}?api_key=GUVENLI_ANAHTAR_123"
-                })
-            
-            return jsonify({
-                "update_required": False,
-                "current_version": current_version,
-                "latest_version": current_version
-            })
-            
-    except Exception as e:
-        return jsonify({
-            "update_required": False,
-            "current_version": "1.0.0",
-            "latest_version": "1.0.0"
-        }), 200
-
-@app.route('/firmware/update_stream')
-@login_required
-@admin_required
-def firmware_update_stream():
-    device_id = request.args.get('device_id')
-    version = request.args.get('version')
-    
-    def generate():
-        for i in range(0, 101, 5):
-            time.sleep(0.5)
-            yield f"data: {{\"progress\": {i}}}\n\n"
-        
-        time.sleep(1)
-        yield "data: {\"status\": \"completed\", \"message\": \"Güncelleme başarıyla tamamlandı\"}\n\n"
-    
-    return Response(generate(), mimetype='text/event-stream')
-
-@app.route('/firmware/cancel')
-@login_required
-@admin_required
-def cancel_update():
-    return jsonify({"status": "cancelled", "message": "Güncelleme iptal edildi"})
 
 if __name__ == '__main__':
     os.makedirs(app.config['FIRMWARE_FOLDER'], exist_ok=True)
