@@ -116,7 +116,7 @@ def init_db():
                 sensor_value REAL NOT NULL,
                 sensor_unit TEXT NOT NULL,
                 timestamp INTEGER NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 
             )
         ''')
