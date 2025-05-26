@@ -22,6 +22,14 @@ app.config['FIRMWARE_FOLDER'] = 'firmware'
 app.config['ALLOWED_EXTENSIONS'] = {'bin'}
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
 
+# app.py'nin en üstünde, Flask setup'tan sonra
+app.permanent_session_lifetime = timedelta(hours=24)
+
+@app.before_request
+def make_session_permanent():
+    session.permanent = True
+
+
 # Logging setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -276,11 +284,17 @@ def inject_user():
     if 'username' not in session:
         return dict(current_user=None, is_admin=False)
     
-    with get_db() as conn:
-        user = conn.execute('SELECT name, is_admin FROM users WHERE username = ?',
-                          (session['username'],)).fetchone()
-        return dict(current_user=dict(name=user['name']) if user else None,
-                  is_admin=user['is_admin'] if user else False)
+    # Session kontrol et
+    username = session.get('username')
+    is_admin = session.get('is_admin', False)
+    
+    if not username:
+        return dict(current_user=None, is_admin=False)
+    
+    return dict(
+        current_user=dict(name=username), 
+        is_admin=is_admin
+    )
 
 # Background Tasks
 def update_device_status():
@@ -1257,6 +1271,15 @@ def test_insert():
             
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.after_request
+def after_request(response):
+    # Cache kontrolü
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 if __name__ == '__main__':
     os.makedirs(app.config['FIRMWARE_FOLDER'], exist_ok=True)
