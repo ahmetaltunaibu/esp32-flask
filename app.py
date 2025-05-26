@@ -224,10 +224,21 @@ def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not session.get('is_admin'):
+            # Eğer JSON isteğiyle gelmişse, redirect değil JSON error döndür
+            if request.is_json:
+                return jsonify({"error": "Bu işlem için admin yetkisi gerekli"}), 403
             flash('Bu işlem için ADMIN yetkisi gerekiyor!', 'danger')
             return redirect(url_for('index'))
         return f(*args, **kwargs)
     return decorated_function
+
+@app.route('/admin/test_assign')
+def test_assign():
+    return jsonify({
+        "is_admin": session.get('is_admin', False),
+        "username": session.get('username', None)
+    })
+
 
 # Context Processors
 @app.context_processor
