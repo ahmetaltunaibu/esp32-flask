@@ -8,118 +8,295 @@
         transition: all 0.3s;
         cursor: pointer;
         height: 100%;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        border: none;
     }
     .sensor-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+        transform: translateY(-3px);
+        box-shadow: 0 4px 16px rgba(0,0,0,0.15);
     }
     .sensor-value {
-        font-size: 1.75rem;
+        font-size: 1.4rem;
         font-weight: bold;
+        color: #2c3e50;
+    }
+    .sensor-unit {
+        font-size: 0.9rem;
+        color: #7f8c8d;
+        font-weight: 500;
+    }
+    .sensor-title {
+        font-size: 0.85rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #34495e;
+        margin-bottom: 8px;
     }
     .gauge-container {
-        width: 100%;
-        max-width: 120px;
-        height: 120px;
-        margin: 0 auto;
+        width: 60px;
+        height: 60px;
+        margin: 0 auto 10px;
     }
     .last-update {
-        font-size: 0.85rem;
+        font-size: 0.75rem;
+        color: #95a5a6;
+    }
+    .device-info-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 15px;
+        border: none;
+    }
+    .status-card {
+        border-radius: 15px;
+        border: none;
+    }
+    .status-online {
+        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+    }
+    .status-offline {
+        background: linear-gradient(135deg, #fc4a1a 0%, #f7b733 100%);
+    }
+    .sensor-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: rgba(52, 152, 219, 0.1);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 8px;
+        color: #3498db;
+        font-size: 1.2rem;
+    }
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-bottom: 25px;
+    }
+    .sensor-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 15px;
+    }
+    .page-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 20px;
+        border-radius: 15px;
+        margin-bottom: 25px;
+    }
+    .btn-modern {
+        border-radius: 25px;
+        padding: 8px 20px;
+        font-weight: 500;
+        border: none;
+        transition: all 0.3s;
+    }
+    .btn-modern:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+    .compact-card {
+        padding: 15px;
+        text-align: center;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        border: none;
+        transition: all 0.3s;
+    }
+    .compact-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-    <div>
-        <button class="btn btn-secondary btn-sm" onclick="window.history.back()">
-            <i class="fas fa-arrow-left"></i> Geri
-        </button>
-        <h1 class="h2 ms-2 d-inline-block">{{ cihaz.cihaz_adi }}</h1>
+<!-- Sayfa Başlığı -->
+<div class="page-header">
+    <div class="d-flex justify-content-between align-items-center">
+        <div>
+            <button class="btn btn-light btn-modern me-3" onclick="window.history.back()">
+                <i class="fas fa-arrow-left"></i> Geri
+            </button>
+            <h2 class="d-inline-block mb-0">{{ cihaz.cihaz_adi }}</h2>
+            <span class="badge bg-light text-dark ms-3">{{ cihaz.cihaz_id }}</span>
+        </div>
+        <div>
+            <a href="{{ url_for('gecmis_veriler', cihaz_id=cihaz.cihaz_id) }}" class="btn btn-light btn-modern me-2">
+                <i class="fas fa-history"></i> Geçmiş
+            </a>
+            {% if is_admin %}
+            <button class="btn btn-warning btn-modern" onclick="checkFirmware('{{ cihaz.cihaz_id }}')">
+                <i class="fas fa-sync-alt"></i> Güncelle
+            </button>
+            {% endif %}
+        </div>
     </div>
-    <div class="btn-toolbar mb-2 mb-md-0">
-        <a href="{{ url_for('gecmis_veriler', cihaz_id=cihaz.cihaz_id) }}" class="btn btn-info me-2">
-            <i class="fas fa-history"></i> Geçmiş Veriler
-        </a>
-        {% if is_admin %}
-        <button class="btn btn-warning" onclick="checkFirmware('{{ cihaz.cihaz_id }}')">
-            <i class="fas fa-sync-alt"></i> Güncelle
-        </button>
+</div>
+
+<!-- Cihaz Durumu ve Bilgileri -->
+<div class="stats-grid">
+    <!-- Cihaz Bilgileri -->
+    <div class="card device-info-card">
+        <div class="card-body text-center">
+            <div class="mb-3">
+                <i class="fas fa-microchip fa-2x"></i>
+            </div>
+            <h6 class="card-title">Cihaz Bilgileri</h6>
+            <div class="mt-3">
+                <div class="mb-2"><strong>ID:</strong> {{ cihaz.cihaz_id }}</div>
+                <div class="mb-2"><strong>Konum:</strong> {{ cihaz.konum }}</div>
+                <div class="mb-2"><strong>MAC:</strong> {{ cihaz.mac }}</div>
+                <div><strong>Firmware:</strong> v{{ cihaz.firmware_version }}</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Online Durumu -->
+    <div class="card status-card {% if cihaz.online_status %}status-online{% else %}status-offline{% endif %}">
+        <div class="card-body text-center text-white">
+            <div class="mb-3">
+                <i class="fas fa-{% if cihaz.online_status %}wifi{% else %}times-circle{% endif %} fa-2x"></i>
+            </div>
+            <h6 class="card-title">Bağlantı Durumu</h6>
+            <div class="mt-3">
+                <h4>{% if cihaz.online_status %}Online{% else %}Offline{% endif %}</h4>
+                <div>{{ cihaz.ip_address or 'IP Yok' }}</div>
+                <small>{{ cihaz.last_seen|format_timestamp }}</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- İstatistikler -->
+    <div class="compact-card">
+        <div class="sensor-icon">
+            <i class="fas fa-chart-line"></i>
+        </div>
+        <h6>Aktif Sensörler</h6>
+        <div class="sensor-value">{{ sensor_data|length }}</div>
+        <div class="sensor-unit">adet</div>
+    </div>
+
+    <!-- Son Güncelleme -->
+    <div class="compact-card">
+        <div class="sensor-icon">
+            <i class="fas fa-clock"></i>
+        </div>
+        <h6>Son Güncelleme</h6>
+        <div style="font-size: 0.9rem; font-weight: 500;">
+            {{ cihaz.last_seen|format_time_only }}
+        </div>
+        <div class="sensor-unit">{{ cihaz.last_seen|format_date_only }}</div>
+    </div>
+</div>
+
+<!-- Sensör Verileri -->
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0">
+            <i class="fas fa-tachometer-alt me-2"></i>Anlık Sensör Verileri
+        </h5>
+    </div>
+    <div class="card-body">
+        {% if sensor_data %}
+        <div class="sensor-grid">
+            {% for sensor_id, veri in sensor_data.items() %}
+            <div class="sensor-card card" onclick="location.href='{{ url_for('gecmis_veriler', cihaz_id=cihaz.cihaz_id) }}?sensor_ids={{ sensor_id }}'">
+                <div class="card-body text-center">
+                    <!-- Sensör İkonu -->
+                    <div class="sensor-icon">
+                        {% if 'temp' in sensor_id.lower() %}
+                            <i class="fas fa-thermometer-half"></i>
+                        {% elif 'hum' in sensor_id.lower() or 'nem' in sensor_id.lower() %}
+                            <i class="fas fa-tint"></i>
+                        {% elif 'pressure' in sensor_id.lower() or 'basinc' in sensor_id.lower() %}
+                            <i class="fas fa-gauge-high"></i>
+                        {% elif 'light' in sensor_id.lower() or 'isik' in sensor_id.lower() %}
+                            <i class="fas fa-sun"></i>
+                        {% elif 'co2' in sensor_id.lower() %}
+                            <i class="fas fa-smog"></i>
+                        {% elif 'voltage' in sensor_id.lower() or 'volt' in sensor_id.lower() %}
+                            <i class="fas fa-bolt"></i>
+                        {% else %}
+                            <i class="fas fa-microchip"></i>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Sensör Başlığı -->
+                    <h6 class="sensor-title">{{ sensor_id }}</h6>
+                    
+                    <!-- Gauge Grafik -->
+                    <div class="gauge-container mb-2">
+                        <canvas id="gauge-{{ loop.index }}"></canvas>
+                    </div>
+                    
+                    <!-- Değer -->
+                    <div class="sensor-value">
+                        {{ "%.1f"|format(veri.deger) }}
+                    </div>
+                    <div class="sensor-unit">{{ veri.birim }}</div>
+                    
+                    <!-- Son Güncelleme -->
+                    <div class="last-update mt-2">
+                        <i class="fas fa-clock"></i> {{ veri.timestamp|format_time_only }}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center py-5">
+            <i class="fas fa-exclamation-triangle fa-3x text-muted mb-3"></i>
+            <h5 class="text-muted">Henüz Sensör Verisi Yok</h5>
+            <p class="text-muted">Bu cihazdan henüz veri alınmadı.</p>
+        </div>
         {% endif %}
     </div>
 </div>
 
-<div class="row mb-4">
-    <div class="col-md-6">
-        <div class="card h-100">
-            <div class="card-header bg-primary text-white">
-                <h6 class="m-0 font-weight-bold">Cihaz Bilgileri</h6>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-6">
-                        <p><strong>ID:</strong> {{ cihaz.cihaz_id }}</p>
-                        <p><strong>Konum:</strong> {{ cihaz.konum }}</p>
-                    </div>
-                    <div class="col-md-6">
-                        <p><strong>MAC:</strong> {{ cihaz.mac }}</p>
-                        <p><strong>Firmware:</strong> v{{ cihaz.firmware_version }}</p>
-                    </div>
-                </div>
-            </div>
-            <div class="card-footer bg-transparent">
-                <small class="text-muted">
-                    Son Güncelleme: {{ cihaz.last_seen|format_timestamp }}
-                </small>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-6">
-        <div class="card h-100">
-            <div class="card-header d-flex justify-content-between align-items-center bg-primary text-white">
-                <h6 class="m-0 font-weight-bold">Durum</h6>
-                <span class="badge bg-{% if cihaz.online_status %}success{% else %}danger{% endif %}">
-                    {% if cihaz.online_status %}Online{% else %}Offline{% endif %}
-                </span>
-            </div>
-            <div class="card-body">
-                <div class="text-center py-4">
-                    <i class="fas fa-{% if cihaz.online_status %}check-circle text-success{% else %}times-circle text-danger{% endif %} fa-4x mb-3"></i>
-                    <p class="mb-0">{{ cihaz.ip_address }}</p>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<h4 class="mb-3">Anlık Sensör Verileri</h4>
+<!-- Hızlı İşlemler -->
+{% if sensor_data %}
 <div class="row">
-    {% for sensor_id, veri in sensor_data.items() %}
-    <div class="col-xl-3 col-md-6 mb-4">
-        <div class="card sensor-card">
-            <div class="card-body text-center">
-                <h6 class="card-title text-muted text-uppercase">{{ sensor_id }}</h6>
-                <div class="gauge-container mb-3">
-                    <canvas id="gauge-{{ loop.index }}"></canvas>
-                </div>
-                <div class="sensor-value text-primary mb-1">
-                    {{ "%.2f"|format(veri.deger) }}
-                </div>
-                <small class="text-muted">{{ veri.birim }}</small>
-                <div class="last-update text-muted mt-2">
-                    <i class="fas fa-clock"></i> {{ veri.timestamp|format_time_only }}
-                </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="fas fa-download me-2"></i>Veri İndirme</h6>
             </div>
-            <div class="card-footer bg-transparent text-center">
-                <a href="{{ url_for('gecmis_veriler', cihaz_id=cihaz.cihaz_id) }}?sensor_id={{ sensor_id }}"
-                   class="btn btn-sm btn-outline-primary">
-                    <i class="fas fa-chart-line"></i> Detaylar
+            <div class="card-body">
+                <p class="text-muted mb-3">Son 24 saatlik verileri Excel olarak indirin</p>
+                <a href="{{ url_for('excel_export', cihaz_id=cihaz.cihaz_id) }}?start_date={{ (moment().subtract(1, 'days')).format('YYYY-MM-DD') }}" 
+                   class="btn btn-success btn-modern">
+                    <i class="fas fa-file-excel"></i> Excel İndir
                 </a>
             </div>
         </div>
     </div>
-    {% endfor %}
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="fas fa-chart-line me-2"></i>Hızlı Analiz</h6>
+            </div>
+            <div class="card-body">
+                <p class="text-muted mb-3">Farklı zaman aralıklarında verileri görüntüleyin</p>
+                <div class="btn-group w-100">
+                    <a href="{{ url_for('gecmis_veriler', cihaz_id=cihaz.cihaz_id) }}?days=1" 
+                       class="btn btn-sm btn-outline-primary">24h</a>
+                    <a href="{{ url_for('gecmis_veriler', cihaz_id=cihaz.cihaz_id) }}?days=7" 
+                       class="btn btn-sm btn-outline-primary">7 Gün</a>
+                    <a href="{{ url_for('gecmis_veriler', cihaz_id=cihaz.cihaz_id) }}?days=30" 
+                       class="btn btn-sm btn-outline-primary">30 Gün</a>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
+{% endif %}
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
@@ -128,43 +305,61 @@
     (function() {
         const ctx = document.getElementById('gauge-{{ loop.index }}').getContext('2d');
         const value = {{ veri.deger }};
-        const max = Math.max(value * 1.5, 100);
+        
+        // Sensör tipine göre maksimum değer belirle
+        let maxValue = 100;
+        const sensorType = '{{ sensor_id }}'.toLowerCase();
+        
+        if (sensorType.includes('temp')) {
+            maxValue = Math.max(value * 1.2, 50);
+        } else if (sensorType.includes('hum')) {
+            maxValue = 100;
+        } else if (sensorType.includes('pressure')) {
+            maxValue = Math.max(value * 1.2, 1100);
+        } else {
+            maxValue = Math.max(value * 1.5, 100);
+        }
+        
+        const percentage = (value / maxValue) * 100;
         
         new Chart(ctx, {
             type: 'doughnut',
             data: {
                 datasets: [{
-                    data: [value, max - value],
+                    data: [value, maxValue - value],
                     backgroundColor: [
-                        getColor(value/max*100),
-                        '#f8f9fa'
+                        getColorByValue(percentage),
+                        '#f1f3f4'
                     ],
-                    borderWidth: 0
+                    borderWidth: 0,
+                    cutout: '75%'
                 }]
             },
             options: {
                 circumference: 180,
                 rotation: 270,
-                cutout: '75%',
                 plugins: { 
                     legend: { display: false },
                     tooltip: { enabled: false }
-                }
+                },
+                maintainAspectRatio: true,
+                responsive: true
             }
         });
         
-        function getColor(percent) {
-            if (percent > 80) return '#e74a3b';
-            if (percent > 60) return '#f6c23e';
-            if (percent > 40) return '#36b9cc';
-            return '#1cc88a';
+        function getColorByValue(percent) {
+            if (percent > 80) return '#e74c3c';      // Kırmızı
+            if (percent > 60) return '#f39c12';     // Turuncu  
+            if (percent > 40) return '#f1c40f';     // Sarı
+            if (percent > 20) return '#2ecc71';     // Yeşil
+            return '#3498db';                       // Mavi
         }
     })();
     {% endfor %}
 
     // Firmware güncelleme fonksiyonu
     function checkFirmware(deviceId) {
-        fetch(`/firmware/check/${deviceId}`)
+        fetch(`/firmware/check/${deviceId}?api_key=GUVENLI_ANAHTAR_123`)
             .then(response => response.json())
             .then(data => {
                 if (data.error) {
@@ -173,7 +368,7 @@
                 }
                 
                 if (data.latest_version !== data.current_version) {
-                    if (confirm(`Yeni firmware mevcut (v${data.latest_version}). Güncellemek istiyor musunuz?\n\n${data.release_notes}`)) {
+                    if (confirm(`Yeni firmware mevcut (v${data.latest_version}). Güncellemek istiyor musunuz?\n\n${data.release_notes || 'Güncelleme notları mevcut değil'}`)) {
                         startUpdate(deviceId, data.latest_version);
                     }
                 } else {
@@ -186,7 +381,9 @@
             });
     }
 
-    // Sayfayı her 30 saniyede bir yenile
+    // Otomatik yenileme - sadece online cihazlar için
+    {% if cihaz.online_status %}
     setTimeout(() => location.reload(), 30000);
+    {% endif %}
 </script>
 {% endblock %}
