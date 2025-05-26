@@ -7,97 +7,547 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="https://cdn.datatables.net/1.11.5/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --primary-color: #4e73df;
-            --secondary-color: #858796;
-            --success-color: #1cc88a;
-            --info-color: #36b9cc;
-            --warning-color: #f6c23e;
-            --danger-color: #e74a3b;
+            --primary-color: #667eea;
+            --secondary-color: #764ba2;
+            --success-color: #11998e;
+            --info-color: #74b9ff;
+            --warning-color: #fdcb6e;
+            --danger-color: #e17055;
+            --sidebar-width: 280px;
+            --sidebar-collapsed-width: 70px;
+            --topbar-height: 70px;
         }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
         body {
-            background-color: #f8f9fc;
-            font-family: 'Nunito', sans-serif;
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+            overflow-x: hidden;
         }
+        
+        /* Sidebar */
         .sidebar {
-            background: linear-gradient(180deg, var(--primary-color) 10%, #224abe 100%);
-            min-height: 100vh;
             position: fixed;
-            width: 250px;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            width: var(--sidebar-width);
+            background: linear-gradient(180deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 1000;
+            box-shadow: 4px 0 15px rgba(0,0,0,0.1);
         }
-        .main-content {
-            margin-left: 250px;
+        
+        .sidebar.collapsed {
+            width: var(--sidebar-collapsed-width);
+        }
+        
+        .sidebar-header {
             padding: 20px;
-            width: calc(100% - 250px);
+            text-align: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            transition: all 0.3s ease;
         }
-        .status-indicator {
-            width: 12px;
-            height: 12px;
+        
+        .sidebar.collapsed .sidebar-header {
+            padding: 20px 10px;
+        }
+        
+        .sidebar-logo {
+            color: white;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            transition: all 0.3s ease;
+        }
+        
+        .sidebar.collapsed .sidebar-logo {
+            font-size: 1.8rem;
+            margin-bottom: 5px;
+        }
+        
+        .sidebar-title {
+            color: white;
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 5px;
+            transition: all 0.3s ease;
+        }
+        
+        .sidebar.collapsed .sidebar-title {
+            font-size: 0.8rem;
+            opacity: 0;
+        }
+        
+        .sidebar-subtitle {
+            color: rgba(255,255,255,0.7);
+            font-size: 0.85rem;
+            transition: all 0.3s ease;
+        }
+        
+        .sidebar.collapsed .sidebar-subtitle {
+            opacity: 0;
+        }
+        
+        .sidebar-nav {
+            padding: 20px 0;
+        }
+        
+        .nav-item {
+            margin-bottom: 5px;
+        }
+        
+        .nav-link {
+            display: flex;
+            align-items: center;
+            padding: 12px 20px;
+            color: rgba(255,255,255,0.8);
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .nav-link:hover {
+            color: white;
+            background: rgba(255,255,255,0.1);
+            transform: translateX(5px);
+        }
+        
+        .nav-link.active {
+            color: white;
+            background: rgba(255,255,255,0.15);
+            border-right: 3px solid white;
+        }
+        
+        .nav-link.active::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 100%;
+            width: 4px;
+            background: white;
+        }
+        
+        .nav-icon {
+            font-size: 1.2rem;
+            margin-right: 15px;
+            width: 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+        
+        .sidebar.collapsed .nav-link {
+            padding: 12px 25px;
+            justify-content: center;
+        }
+        
+        .sidebar.collapsed .nav-icon {
+            margin-right: 0;
+            font-size: 1.3rem;
+        }
+        
+        .nav-text {
+            transition: all 0.3s ease;
+        }
+        
+        .sidebar.collapsed .nav-text {
+            opacity: 0;
+            transform: translateX(20px);
+        }
+        
+        /* Topbar */
+        .topbar {
+            position: fixed;
+            top: 0;
+            left: var(--sidebar-width);
+            right: 0;
+            height: var(--topbar-height);
+            background: white;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            align-items: center;
+            justify-content: between;
+            padding: 0 20px;
+            z-index: 999;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        
+        .sidebar.collapsed + .topbar {
+            left: var(--sidebar-collapsed-width);
+        }
+        
+        .topbar-left {
+            display: flex;
+            align-items: center;
+        }
+        
+        .sidebar-toggle {
+            background: none;
+            border: none;
+            font-size: 1.3rem;
+            color: #64748b;
+            cursor: pointer;
+            padding: 10px;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            margin-right: 15px;
+        }
+        
+        .sidebar-toggle:hover {
+            background: #f1f5f9;
+            color: var(--primary-color);
+        }
+        
+        .breadcrumb-nav {
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+        
+        .topbar-right {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .user-avatar {
+            width: 40px;
+            height: 40px;
             border-radius: 50%;
-            display: inline-block;
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
         }
-        .online { background-color: var(--success-color); }
-        .offline { background-color: var(--danger-color); }
-        .cihaz-kart { transition: all 0.3s; }
-        .cihaz-kart:hover { transform: translateY(-5px); box-shadow: 0 0.5rem 1.5rem 0 rgba(0,0,0,0.15); }
+        
+        .user-details {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .user-name {
+            font-weight: 600;
+            color: #1e293b;
+            font-size: 0.9rem;
+        }
+        
+        .user-role {
+            font-size: 0.8rem;
+            color: #64748b;
+        }
+        
+        .logout-btn {
+            background: none;
+            border: none;
+            color: #64748b;
+            font-size: 1.1rem;
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+        }
+        
+        .logout-btn:hover {
+            background: #fef2f2;
+            color: var(--danger-color);
+        }
+        
+        /* Main Content */
+        .main-content {
+            margin-left: var(--sidebar-width);
+            margin-top: var(--topbar-height);
+            padding: 25px;
+            min-height: calc(100vh - var(--topbar-height));
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .sidebar.collapsed ~ .main-content {
+            margin-left: var(--sidebar-collapsed-width);
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .sidebar {
+                transform: translateX(-100%);
+            }
+            
+            .sidebar.mobile-open {
+                transform: translateX(0);
+            }
+            
+            .topbar {
+                left: 0;
+            }
+            
+            .main-content {
+                margin-left: 0;
+            }
+            
+            .mobile-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0,0,0,0.5);
+                z-index: 998;
+                opacity: 0;
+                visibility: hidden;
+                transition: all 0.3s ease;
+            }
+            
+            .mobile-overlay.active {
+                opacity: 1;
+                visibility: visible;
+            }
+        }
+        
+        /* Tooltip for collapsed sidebar */
+        .nav-tooltip {
+            position: absolute;
+            left: calc(100% + 10px);
+            top: 50%;
+            transform: translateY(-50%);
+            background: #1e293b;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            white-space: nowrap;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+            z-index: 1001;
+        }
+        
+        .nav-tooltip::before {
+            content: '';
+            position: absolute;
+            left: -5px;
+            top: 50%;
+            transform: translateY(-50%);
+            border: 5px solid transparent;
+            border-right-color: #1e293b;
+        }
+        
+        .sidebar.collapsed .nav-link:hover .nav-tooltip {
+            opacity: 1;
+            visibility: visible;
+            left: calc(100% + 15px);
+        }
+        
+        /* Scrollbar */
+        .sidebar::-webkit-scrollbar {
+            width: 4px;
+        }
+        
+        .sidebar::-webkit-scrollbar-track {
+            background: rgba(255,255,255,0.1);
+        }
+        
+        .sidebar::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.3);
+            border-radius: 2px;
+        }
+        
+        .sidebar::-webkit-scrollbar-thumb:hover {
+            background: rgba(255,255,255,0.5);
+        }
     </style>
     {% block extra_css %}{% endblock %}
+
     <!-- Debug: Session kontrol -->
-{% if session %}
-<script>console.log('Session:', '{{ session.username }}', '{{ session.is_admin }}');</script>
-{% endif %}
+    {% if session %}
+    <script>console.log('Session:', '{{ session.username }}', '{{ session.is_admin }}');</script>
+    {% endif %}
 </head>
 <body>
-    <div class="container-fluid">
-        <div class="row">
-            <!-- Sidebar -->
-            <nav class="sidebar py-4">
-                <div class="text-center mb-4">
-                    <i class="fas fa-industry fa-3x text-white"></i>
-                    <h4 class="text-white mt-2">Modbus IoT</h4>
-                </div>
-                <ul class="nav flex-column px-3">
-                    <li class="nav-item mb-2">
-                        <a class="nav-link text-white {% if request.path == url_for('index') %}active{% endif %}" 
-                           href="{{ url_for('index') }}">
-                            <i class="fas fa-tachometer-alt me-2"></i> Dashboard
-                        </a>
-                    </li>
-                    <li class="nav-item mb-2">
-                        <a class="nav-link text-white {% if request.path == url_for('firmware_management') %}active{% endif %}" 
-                           href="{{ url_for('firmware_management') }}">
-                            <i class="fas fa-microchip me-2"></i> Firmware Yönetimi
-                        </a>
-                    </li>
-                    {% if current_user %}
-                    <li class="nav-item mt-4">
-                        <div class="text-white">
-                            <i class="fas fa-user-circle me-2"></i> {{ current_user.name }}
-                        </div>
-                    </li>
-                    <li class="nav-item mt-2">
-                        <a class="nav-link text-white" href="{{ url_for('logout') }}">
-                            <i class="fas fa-sign-out-alt me-2"></i> Çıkış Yap
-                        </a>
-                    </li>
-                    {% endif %}
-                </ul>
-            </nav>
+    <!-- Mobile Overlay -->
+    <div class="mobile-overlay" id="mobileOverlay"></div>
 
-            <!-- Main Content -->
-            <main class="main-content">
-                {% include '_flash_messages.html' %}
-                {% block content %}{% endblock %}
-            </main>
+    <!-- Sidebar -->
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo">
+                <i class="fas fa-industry"></i>
+            </div>
+            <div class="sidebar-title">Modbus IoT</div>
+            <div class="sidebar-subtitle">Kontrol Paneli</div>
+        </div>
+        
+        <div class="sidebar-nav">
+            <div class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" 
+                   href="{{ url_for('index') }}">
+                    <i class="fas fa-tachometer-alt nav-icon"></i>
+                    <span class="nav-text">Dashboard</span>
+                    <div class="nav-tooltip">Dashboard</div>
+                </a>
+            </div>
+            
+            {% if is_admin %}
+            <div class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'firmware_management' %}active{% endif %}" 
+                   href="{{ url_for('firmware_management') }}">
+                    <i class="fas fa-microchip nav-icon"></i>
+                    <span class="nav-text">Firmware Yönetimi</span>
+                    <div class="nav-tooltip">Firmware Yönetimi</div>
+                </a>
+            </div>
+            {% endif %}
+            
+            <div class="nav-item">
+                <a class="nav-link" href="#" onclick="showQuickStats()">
+                    <i class="fas fa-chart-bar nav-icon"></i>
+                    <span class="nav-text">İstatistikler</span>
+                    <div class="nav-tooltip">İstatistikler</div>
+                </a>
+            </div>
+            
+            <div class="nav-item">
+                <a class="nav-link" href="#" onclick="showSettings()">
+                    <i class="fas fa-cog nav-icon"></i>
+                    <span class="nav-text">Ayarlar</span>
+                    <div class="nav-tooltip">Ayarlar</div>
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Topbar -->
+    <div class="topbar">
+        <div class="topbar-left">
+            <button class="sidebar-toggle" onclick="toggleSidebar()">
+                <i class="fas fa-bars"></i>
+            </button>
+            <div class="breadcrumb-nav">
+                <i class="fas fa-home"></i>
+                <span class="mx-2">/</span>
+                {% block breadcrumb %}Ana Sayfa{% endblock %}
+            </div>
+        </div>
+        
+        <div class="topbar-right">
+            {% if current_user %}
+            <div class="user-info">
+                <div class="user-avatar">
+                    {{ current_user.name[0].upper() if current_user.name else 'U' }}
+                </div>
+                <div class="user-details">
+                    <div class="user-name">{{ current_user.name }}</div>
+                    <div class="user-role">
+                        {% if is_admin %}
+                            <i class="fas fa-crown"></i> Yönetici
+                        {% else %}
+                            <i class="fas fa-user"></i> Kullanıcı
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <button class="logout-btn" onclick="logout()" title="Çıkış Yap">
+                <i class="fas fa-sign-out-alt"></i>
+            </button>
+            {% endif %}
         </div>
     </div>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        {% include '_flash_messages.html' %}
+        {% block content %}{% endblock %}
+    </main>
 
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.11.5/js/dataTables.bootstrap5.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <script>
+        // Sidebar toggle functionality
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const isCollapsed = sidebar.classList.contains('collapsed');
+            
+            if (window.innerWidth <= 768) {
+                // Mobile behavior
+                sidebar.classList.toggle('mobile-open');
+                document.getElementById('mobileOverlay').classList.toggle('active');
+            } else {
+                // Desktop behavior
+                sidebar.classList.toggle('collapsed');
+                localStorage.setItem('sidebarCollapsed', !isCollapsed);
+            }
+        }
+
+        // Close mobile sidebar when clicking overlay
+        document.getElementById('mobileOverlay').addEventListener('click', function() {
+            document.getElementById('sidebar').classList.remove('mobile-open');
+            this.classList.remove('active');
+        });
+
+        // Remember sidebar state
+        document.addEventListener('DOMContentLoaded', function() {
+            const isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+            if (isCollapsed && window.innerWidth > 768) {
+                document.getElementById('sidebar').classList.add('collapsed');
+            }
+        });
+
+        // Handle window resize
+        window.addEventListener('resize', function() {
+            const sidebar = document.getElementById('sidebar');
+            if (window.innerWidth > 768) {
+                sidebar.classList.remove('mobile-open');
+                document.getElementById('mobileOverlay').classList.remove('active');
+            }
+        });
+
+        // Logout function
+        function logout() {
+            if (confirm('Çıkış yapmak istediğinize emin misiniz?')) {
+                window.location.href = '{{ url_for("logout") }}';
+            }
+        }
+
+        // Quick stats modal (placeholder)
+        function showQuickStats() {
+            alert('İstatistikler özelliği yakında eklenecek!');
+        }
+
+        // Settings modal (placeholder)
+        function showSettings() {
+            alert('Ayarlar özelliği yakında eklenecek!');
+        }
+
+        // Auto-hide flash messages
+        setTimeout(function() {
+            const alerts = document.querySelectorAll('.alert');
+            alerts.forEach(function(alert) {
+                const bsAlert = new bootstrap.Alert(alert);
+                bsAlert.close();
+            });
+        }, 5000);
+    </script>
+    
     {% block scripts %}{% endblock %}
 </body>
 </html>
