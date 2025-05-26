@@ -103,7 +103,6 @@ HARDCODED_ADMIN = {
 def get_db():
     conn = sqlite3.connect('sensor_data.db')
     conn.row_factory = sqlite3.Row
-    conn.execute('PRAGMA foreign_keys = 1')  # Foreign key constraints aktif
     return conn
 
 def init_db():
@@ -118,7 +117,7 @@ def init_db():
                 sensor_unit TEXT NOT NULL,
                 timestamp INTEGER NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (cihaz_id) REFERENCES devices(cihaz_id) ON DELETE CASCADE
+                -- FOREIGN KEY (cihaz_id) REFERENCES devices(cihaz_id) ON DELETE CASCADE
             )
         ''')
         
