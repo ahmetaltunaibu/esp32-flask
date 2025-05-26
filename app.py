@@ -842,6 +842,16 @@ def check_firmware(cihaz_id):
             "update_available": False
         }), 500
 
+@app.route('/admin/db_dump')
+@admin_required
+def admin_db_dump():
+    with get_db() as conn:
+        cihazlar = conn.execute('SELECT * FROM devices').fetchall()
+        firmwareler = conn.execute('SELECT * FROM firmware_versions').fetchall()
+
+    return render_template('db_debug.html', cihazlar=cihazlar, firmwareler=firmwareler)
+
+
 
 # Alternatif: Daha basit endpoint (güvenlik kontrolü olmadan)
 @app.route('/firmware/check_simple/<cihaz_id>')
