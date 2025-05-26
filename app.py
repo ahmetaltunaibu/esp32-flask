@@ -478,6 +478,7 @@ def cihaz_detay(cihaz_id):
         flash(f'Veri alınırken hata oluştu: {str(e)}', 'danger')
         return redirect(url_for('index'))
 
+
 @app.route('/gecmis/<cihaz_id>')
 @login_required
 def gecmis_veriler(cihaz_id):
@@ -493,6 +494,33 @@ def gecmis_veriler(cihaz_id):
             if not cihaz:
                 flash('Cihaz bulunamadı', 'danger')
                 return redirect(url_for('index'))
+            
+            # Veritabanındaki min/max tarihleri al
+            date_range = conn.execute('''
+                SELECT 
+                    MIN(timestamp) as min_timestamp,
+                    MAX(timestamp) as max_timestamp
+                FROM sensor_data 
+                WHERE cihaz_id = ?
+            ''', (cihaz_id,)).fetchone()
+            
+            # Varsayılan tarih aralığını belirle
+            default_start_date = None
+            default_end_date = None
+            
+            if date_range and date_range['min_timestamp'] and date_range['max_timestamp']:
+                # Min tarihi al
+                min_date = datetime.fromtimestamp(date_range['min_timestamp'] / 1000)
+                max_date = datetime.fromtimestamp(date_range['max_timestamp'] / 1000)
+                
+                default_start_date = min_date.strftime('%Y-%m-%d')
+                default_end_date = max_date.strftime('%Y-%m-%d')
+            
+            # Eğer tarih parametresi yoksa varsayılanları kullan
+            if not start_date and default_start_date:
+                start_date = default_start_date
+            if not end_date and default_end_date:
+                end_date = default_end_date
             
             # Base query
             query = 'SELECT * FROM sensor_data WHERE cihaz_id = ?'
@@ -534,6 +562,13 @@ def gecmis_veriler(cihaz_id):
                 ORDER BY sensor_id
             ''', (cihaz_id,)).fetchall()
             
+            # Tarih aralığı bilgilerini template'e gönder
+            date_info = {
+                'min_date': default_start_date,
+                'max_date': default_end_date,
+                'has_data': bool(date_range and date_range['min_timestamp'])
+            }
+            
             return render_template('gecmis_veriler.html',
                                 veriler=veriler,
                                 cihaz_id=cihaz_id,
@@ -541,11 +576,14 @@ def gecmis_veriler(cihaz_id):
                                 sensors=sensors,
                                 start_date=start_date,
                                 end_date=end_date,
-                                selected_sensors=selected_sensors)
+                                selected_sensors=selected_sensors,
+                                date_info=date_info)
     
     except Exception as e:
         flash(f'Geçmiş veriler alınırken hata oluştu: {str(e)}', 'danger')
         return redirect(url_for('index'))
+
+
 
 @app.route('/excel/<cihaz_id>')
 @login_required  
