@@ -553,7 +553,9 @@ def excel_export(cihaz_id):
     try:
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
-        sensor_filter = request.args.get('sensor_id')
+        selected_sensors = request.args.getlist('sensor_ids')  # Çoklu seçim
+        limit = request.args.get('limit', '1000')
+        order = request.args.get('order', 'desc')
         
         query = '''
             SELECT cihaz_id, sensor_id, sensor_value, sensor_unit, timestamp
@@ -562,6 +564,7 @@ def excel_export(cihaz_id):
         '''
         params = [cihaz_id]
         
+        # Tarih filtreleri
         if start_date:
             start_timestamp = int(datetime.strptime(start_date, '%Y-%m-%d').timestamp() * 1000)
             query += ' AND timestamp >= ?'
@@ -572,11 +575,21 @@ def excel_export(cihaz_id):
             query += ' AND timestamp < ?'
             params.append(end_timestamp)
         
-        if sensor_filter:
-            query += ' AND sensor_id = ?'
-            params.append(sensor_filter)
+        # Çoklu sensör filtresi
+        if selected_sensors:
+            placeholders = ','.join(['?'] * len(selected_sensors))
+            query += f' AND sensor_id IN ({placeholders})'
+            params.extend(selected_sensors)
         
-        query += ' ORDER BY timestamp DESC'
+        # Sıralama
+        if order == 'asc':
+            query += ' ORDER BY timestamp ASC'
+        else:
+            query += ' ORDER BY timestamp DESC'
+        
+        # Limit
+        if limit != 'all':
+            query += f' LIMIT {int(limit)}'
         
         with get_db() as conn:
             veriler = conn.execute(query, params).fetchall()
@@ -600,7 +613,16 @@ def excel_export(cihaz_id):
                 df.to_excel(writer, sheet_name='Sensor Data', index=False)
             
             output.seek(0)
-            filename = f"{cihaz_adi}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            
+            # Dosya adını sensör seçimine göre oluştur
+            sensor_suffix = ""
+            if selected_sensors:
+                if len(selected_sensors) == 1:
+                    sensor_suffix = f"_{selected_sensors[0]}"
+                else:
+                    sensor_suffix = f"_{len(selected_sensors)}_sensors"
+            
+            filename = f"{cihaz_adi}{sensor_suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
             
             return send_file(
                 output,
