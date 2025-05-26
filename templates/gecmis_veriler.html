@@ -1,9 +1,148 @@
-{% extends "layout.html" %}
+{% block content %}
+<div class="container-fluid">
+    <!-- Sayfa Başlığı -->
+    <div class="page-header">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <button class="btn btn-light btn-modern me-3" onclick="window.history.back()">
+                    <i class="fas fa-arrow-left"></i> Geri
+                </button>
+                <h2 class="d-inline-block mb-0">{{ cihaz_adi }} - Geçmiş Veriler</h2>
+            </div>
+        </div>
+    </div>
+
+    <!-- Veri Aralığı Bilgisi -->
+    {% if date_info.has_data %}
+    <div class="alert info-banner">
+        <i class="fas fa-info-circle"></i>
+        <strong>Veri Aralığı:</strong> 
+        {{ date_info.min_date }} ile {{ date_info.max_date }} tarihleri arasında 
+        <strong>{{ veriler|length }}</strong> kayıt mevcut.
+        {% if not request.args.get('start_date') and not request.args.get('end_date') %}
+        <span class="badge bg-light text-dark ms-2">Tüm veriler gösteriliyor</span>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Filtreleme Kartı -->
+    <div class="card filter-card">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="fas fa-filter me-2"></i>Veri Filtreleme</h5>
+        </div>
+        <div class="card-body">
+            <form method="GET" id="filterForm" class="row g-3">
+                <!-- Tarih Filtreleri -->
+                <div class="col-md-3">
+                    <label class="form-label"><i class="fas fa-calendar-alt"></i> Başlangıç Tarihi</label>
+                    <input type="date" class="form-control" name="start_date" 
+                           value="{{ start_date or '' }}"
+                           {% if date_info.min_date %}min="{{ date_info.min_date }}"{% endif %}
+                           {% if date_info.max_date %}max="{{ date_info.max_date }}"{% endif %}>
+                    {% if date_info.has_data %}
+                    <div class="form-text">En eski: {{ date_info.min_date }}</div>
+                    {% endif %}
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label"><i class="fas fa-calendar-alt"></i> Bitiş Tarihi</label>
+                    <input type="date" class="form-control" name="end_date" 
+                           value="{{ end_date or '' }}"
+                           {% if date_info.min_date %}min="{{ date_info.min_date }}"{% endif %}
+                           {% if date_info.max_date %}max="{{ date_info.max_date }}"{% endif %}>
+                    {% if date_info.has_data %}
+                    <div class="form-text">En yeni: {{ date_info.max_date }}</div>
+                    {% endif %}
+                </div>
+                
+                <!-- Çoklu Sensör Seçimi -->
+                <div class="col-md-6">
+                    <label class="form-label"><i class="fas fa-microchip"></i> Sensörler</label>
+                    
+                    <!-- Hızlı Seçim Butonları -->
+                    <div class="filter-controls">
+                        <button type="button" class="btn btn-sm btn-outline-primary quick-select btn-modern" onclick="selectAllSensors()">
+                            <i class="fas fa-check-square"></i> Tümünü Seç
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary quick-select btn-modern" onclick="clearAllSensors()">
+                            <i class="fas fa-square"></i> Temizle
+                        </button>
+                        <span class="badge bg-info" id="selectedCount">0 seçili</span>
+                    </div>
+                    
+                    <!-- Çoklu Seçim Dropdown -->
+                    <div class="multiselect-container" id="sensorMultiselect">
+                        <div class="multiselect-input" onclick="toggleDropdown()">
+                            <div id="selectedSensors">Sensör seçin...</div>
+                            <i class="fas fa-chevron-down multiselect-arrow"></i>
+                        </div>
+                        <div class="multiselect-dropdown" id="sensorDropdown">
+                            {% set selected_sensors = request.args.getlist('sensor_ids') %}
+                            {% for sensor in sensors %}
+                            <div class="multiselect-option">
+                                <input type="checkbox" 
+                                       name="sensor_ids" 
+                                       value="{{ sensor.sensor_id }}" 
+                                       id="sensor_{{ loop.index }}"
+                                       {% if sensor.sensor_id in selected_sensors %}checked{% endif %}
+                                       onchange="updateSelection()">
+                                <label for="sensor_{{ loop.index }}">{{ sensor.sensor_id }}</label>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Diğer Filtreler -->
+                <div class="col-md-3">
+                    <label class="form-label"><i class="fas fa-list-ol"></i> Kayıt Limiti</label>
+                    <select class="form-select" name="limit">
+                        <option value="100" {% if request.args.get('limit') == '100' %}selected{% endif %}>100 kayıt</option>
+                        <option value="500" {% if request.args.get('limit') == '500' %}selected{% endif %}>500 kayıt</option>
+                        <option value="1000" {% if request.args.get('limit') == '1000' or not request.args.get('limit') %}selected{% endif %}>1000 kayıt</option>
+                        <option value="5000" {% if request.args.get('limit') == '5000' %}selected{% endif %}>5000 kayıt</option>
+                        <option value="all" {% if request.args.get('limit') == 'all' %}selected{% endif %}>Tümü</option>
+                    </select>
+                </div>
+                
+                <div class="col-md-3">
+                    <label class="form-label"><i class="fas fa-sort"></i> Sıralama</label>
+                    <select class="form-select" name="order">
+                        <option value="desc" {% if request.args.get('order') != 'asc' %}selected{% endif %}>Yeniden Eskiye</option>
+                        <option value="asc" {% if request.args.get('order') == 'asc' %}selected{% endif %}>Eskiden Yeniye</option>
+                    </select>
+                </div>
+                
+                <!-- Hızlı Tarih Seçimi -->
+                <div class="col-md-6">
+                    <label class="form-label"><i class="fas fa-clock"></i> Hızlı Tarih Seçimi</label>
+                    <div class="btn-group w-100" role="group">
+                        <button type="button" class="btn btn-sm btn-outline-info btn-modern" onclick="setQuickDate(1)">Son 1 Gün</button>
+                        <button type="button" class="btn btn-sm btn-outline-info btn-modern" onclick="setQuickDate(7)">7 Gün</button>
+                        <button type="button" class="btn btn-sm btn-outline-info btn-modern" onclick="setQuickDate(30)">30 Gün</button>
+                        {% extends "layout.html" %}
 
 {% block title %}{{ cihaz_adi }} - Geçmiş Veriler{% endblock %}
 
 {% block extra_css %}
 <style>
+    .page-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 15px;
+        border-radius: 15px;
+        margin-bottom: 20px;
+    }
+    .btn-modern {
+        border-radius: 25px;
+        padding: 6px 16px;
+        font-weight: 500;
+        border: none;
+        transition: all 0.3s;
+    }
+    .btn-modern:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
     .multiselect-container {
         position: relative;
         display: inline-block;
@@ -14,10 +153,15 @@
         width: 100%;
         padding: 8px 40px 8px 12px;
         border: 1px solid #ced4da;
-        border-radius: 4px;
+        border-radius: 8px;
         background-color: white;
         cursor: pointer;
         min-height: 38px;
+        transition: all 0.3s;
+    }
+    .multiselect-input:hover {
+        border-color: #667eea;
+        box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
     }
     
     .multiselect-dropdown {
@@ -28,11 +172,12 @@
         background: white;
         border: 1px solid #ced4da;
         border-top: none;
-        border-radius: 0 0 4px 4px;
+        border-radius: 0 0 8px 8px;
         max-height: 300px;
         overflow-y: auto;
         z-index: 1000;
         display: none;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     }
     
     .multiselect-option {
@@ -41,10 +186,12 @@
         border-bottom: 1px solid #f8f9fa;
         display: flex;
         align-items: center;
+        transition: background-color 0.2s;
     }
     
     .multiselect-option:hover {
-        background-color: #f8f9fa;
+        background-color: #667eea;
+        color: white;
     }
     
     .multiselect-option input[type="checkbox"] {
@@ -66,7 +213,7 @@
     
     .selected-tag {
         display: inline-block;
-        background: #007bff;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
         padding: 2px 8px;
         margin: 2px;
@@ -90,7 +237,70 @@
     .quick-select {
         padding: 4px 8px;
         font-size: 0.85em;
-        border-radius: 4px;
+        border-radius: 15px;
+    }
+    
+    .filter-card {
+        background: white;
+        border-radius: 15px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        border: none;
+        margin-bottom: 20px;
+    }
+    
+    .filter-card .card-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 15px 15px 0 0;
+        border: none;
+    }
+    
+    .data-table-card {
+        background: white;
+        border-radius: 15px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        border: none;
+    }
+    
+    .data-table-card .card-header {
+        background: linear-gradient(135deg, #74b9ff 0%, #0984e3 100%);
+        color: white;
+        border-radius: 15px 15px 0 0;
+        border: none;
+    }
+    
+    .info-banner {
+        background: linear-gradient(135deg, #81ecec 0%, #00b894 100%);
+        color: white;
+        border-radius: 12px;
+        border: none;
+        margin-bottom: 20px;
+    }
+    
+    .form-control, .form-select {
+        border-radius: 8px;
+        border: 1px solid #ced4da;
+        transition: all 0.3s;
+    }
+    
+    .form-control:focus, .form-select:focus {
+        border-color: #667eea;
+        box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+    }
+    
+    .table-responsive {
+        border-radius: 0 0 15px 15px;
+    }
+    
+    .quick-date-buttons {
+        text-align: center;
+        margin-top: 20px;
+    }
+    
+    .quick-date-buttons .btn-group {
+        border-radius: 25px;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
 </style>
 {% endblock %}
