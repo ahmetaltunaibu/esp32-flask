@@ -321,9 +321,48 @@ if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
 # Routes
 # Fix for app.py - Updated index route and device status logic
 
+# Index route'unu da güncelleyin
 @app.route('/')
 @login_required
 def index():
+    with get_db() as conn:
+        # Gerçek zamanlı online durum hesaplama
+        current_time_ms = int(time.time() * 1000)
+        threshold = current_time_ms - 120000  # 2 dakika
+        
+        # Tüm cihazları getir ve gerçek zamanlı durumlarını hesapla
+        cihazlar = conn.execute('''
+            SELECT *,
+                CASE 
+                    WHEN last_seen >= ? AND last_seen > 0 THEN 1 
+                    ELSE 0 
+                END as real_online_status
+            FROM devices 
+            ORDER BY 
+                CASE 
+                    WHEN last_seen >= ? AND last_seen > 0 THEN 0 
+                    ELSE 1 
+                END,
+                last_seen DESC
+        ''', (threshold, threshold)).fetchall()
+        
+        # Debug logları
+        logger.info(f"📊 Cihaz Durumu Debug:")
+        logger.info(f"   Şu anki zaman: {current_time_ms}")
+        logger.info(f"   Threshold (2 dk önce): {threshold}")
+        logger.info(f"   Toplam cihaz: {len(cihazlar)}")
+        
+        online_count = 0
+        for cihaz in cihazlar:
+            if cihaz['real_online_status']:
+                online_count += 1
+                logger.info(f"   🟢 {cihaz['cihaz_adi']}: ONLINE (son görülme: {cihaz['last_seen']})")
+            else:
+                logger.info(f"   🔴 {cihaz['cihaz_adi']}: OFFLINE (son görülme: {cihaz['last_seen']})")
+        
+        logger.info(f"   📈 Online: {online_count}, Offline: {len(cihazlar) - online_count}")
+        
+        return render_template('index.html', cihazlar=cihazlar)
     with get_db() as conn:
         # Calculate current threshold (2 minutes ago)
         current_time_ms = int(time.time() * 1000)
@@ -359,13 +398,14 @@ def index():
 
 # Also update the background task to be more robust
 def update_device_status():
+    """Cihazların online/offline durumunu güncelle"""
     with app.app_context():
         try:
             current_time_ms = int(time.time() * 1000)
-            threshold = current_time_ms - 120000  # 2 minutes in milliseconds
+            threshold = current_time_ms - 120000  # 2 dakika (120 saniye = 120000 milisaniye)
             
             with get_db() as conn:
-                # Update online status for all devices
+                # Online durumunu güncelle
                 cursor = conn.execute('''
                     UPDATE devices 
                     SET online_status = CASE 
@@ -374,9 +414,9 @@ def update_device_status():
                     END
                 ''', (threshold,))
                 
-                rows_affected = cursor.rowcount
+                rows_updated = cursor.rowcount
                 
-                # Get current counts for logging
+                # Debug için sayıları al
                 online_count = conn.execute('''
                     SELECT COUNT(*) as count FROM devices 
                     WHERE last_seen >= ? AND last_seen > 0
@@ -386,10 +426,11 @@ def update_device_status():
                 
                 conn.commit()
                 
-                logger.info(f"🔄 Device status updated: {online_count}/{total_count} online (updated {rows_affected} rows)")
+                logger.info(f"🔄 Cihaz durumları güncellendi: {online_count}/{total_count} online ({rows_updated} kayıt güncellendi)")
                 
         except Exception as e:
-            logger.error(f"❌ Error updating device status: {str(e)}")
+            logger.error(f"❌ Cihaz durumu güncelleme hatası: {str(e)}")
+
 
 # Alternative debug route to check device status manually
 @app.route('/debug/device_status')
@@ -1650,6 +1691,45 @@ def after_request(response):
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
+
+# Scheduler başlatma kısmını da kontrol edin - app.py'nin sonlarında
+if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(update_device_status, 'interval', minutes=1)
+    scheduler.start()
+    logger.info("📅 Background scheduler başlatıldı")
+    with app.app_context():
+        try:
+            current_time_ms = int(time.time() * 1000)
+            threshold = current_time_ms - 120000  # 2 minutes in milliseconds
+            
+            with get_db() as conn:
+                # Update online status for all devices
+                cursor = conn.execute('''
+                    UPDATE devices 
+                    SET online_status = CASE 
+                        WHEN last_seen >= ? AND last_seen > 0 THEN 1 
+                        ELSE 0 
+                    END
+                ''', (threshold,))
+                
+                rows_affected = cursor.rowcount
+                
+                # Get current counts for logging
+                online_count = conn.execute('''
+                    SELECT COUNT(*) as count FROM devices 
+                    WHERE last_seen >= ? AND last_seen > 0
+                ''', (threshold,)).fetchone()['count']
+                
+                total_count = conn.execute('SELECT COUNT(*) as count FROM devices').fetchone()['count']
+                
+                conn.commit()
+                
+                logger.info(f"🔄 Device status updated: {online_count}/{total_count} online (updated {rows_affected} rows)")
+                
+        except Exception as e:
+            logger.error(f"❌ Error updating device status: {str(e)}")
+
 
 if __name__ == '__main__':
     os.makedirs(app.config['FIRMWARE_FOLDER'], exist_ok=True)
