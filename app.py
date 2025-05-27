@@ -297,8 +297,7 @@ def inject_user():
         is_admin=is_admin
     )
 
-# Background Tasks
-def update_device_status():
+
     with app.app_context():
         try:
             threshold = int(time.time() * 1000) - 120000  # 2 minutes
@@ -320,9 +319,113 @@ if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
     scheduler.start()
 
 # Routes
+# Fix for app.py - Updated index route and device status logic
+
 @app.route('/')
 @login_required
 def index():
+    with get_db() as conn:
+        # Calculate current threshold (2 minutes ago)
+        current_time_ms = int(time.time() * 1000)
+        threshold = current_time_ms - 120000  # 2 minutes in milliseconds
+        
+        # Get all devices with their real-time online status
+        cihazlar = conn.execute('''
+            SELECT *,
+                CASE 
+                    WHEN last_seen >= ? AND last_seen > 0 THEN 1 
+                    ELSE 0 
+                END as real_online_status
+            FROM devices 
+            ORDER BY 
+                CASE 
+                    WHEN last_seen >= ? AND last_seen > 0 THEN 0 
+                    ELSE 1 
+                END,
+                last_seen DESC
+        ''', (threshold, threshold)).fetchall()
+        
+        # Debug logging
+        logger.info(f"📊 Device Status Debug:")
+        logger.info(f"   Current time: {current_time_ms}")
+        logger.info(f"   Threshold: {threshold}")
+        logger.info(f"   Total devices: {len(cihazlar)}")
+        
+        for cihaz in cihazlar:
+            status = "🟢 ONLINE" if cihaz['real_online_status'] else "🔴 OFFLINE"
+            logger.info(f"   {cihaz['cihaz_adi']}: {status} (last_seen: {cihaz['last_seen']})")
+        
+        return render_template('index.html', cihazlar=cihazlar)
+
+# Also update the background task to be more robust
+def update_device_status():
+    with app.app_context():
+        try:
+            current_time_ms = int(time.time() * 1000)
+            threshold = current_time_ms - 120000  # 2 minutes in milliseconds
+            
+            with get_db() as conn:
+                # Update online status for all devices
+                cursor = conn.execute('''
+                    UPDATE devices 
+                    SET online_status = CASE 
+                        WHEN last_seen >= ? AND last_seen > 0 THEN 1 
+                        ELSE 0 
+                    END
+                ''', (threshold,))
+                
+                rows_affected = cursor.rowcount
+                
+                # Get current counts for logging
+                online_count = conn.execute('''
+                    SELECT COUNT(*) as count FROM devices 
+                    WHERE last_seen >= ? AND last_seen > 0
+                ''', (threshold,)).fetchone()['count']
+                
+                total_count = conn.execute('SELECT COUNT(*) as count FROM devices').fetchone()['count']
+                
+                conn.commit()
+                
+                logger.info(f"🔄 Device status updated: {online_count}/{total_count} online (updated {rows_affected} rows)")
+                
+        except Exception as e:
+            logger.error(f"❌ Error updating device status: {str(e)}")
+
+# Alternative debug route to check device status manually
+@app.route('/debug/device_status')
+@login_required
+@admin_required
+def debug_device_status():
+    """Debug endpoint to check device status calculation"""
+    current_time_ms = int(time.time() * 1000)
+    threshold = current_time_ms - 120000  # 2 minutes
+    
+    with get_db() as conn:
+        devices = conn.execute('''
+            SELECT 
+                cihaz_id,
+                cihaz_adi,
+                last_seen,
+                online_status,
+                CASE 
+                    WHEN last_seen >= ? AND last_seen > 0 THEN 1 
+                    ELSE 0 
+                END as calculated_online_status,
+                CASE 
+                    WHEN last_seen > 0 THEN (? - last_seen) / 1000 
+                    ELSE -1 
+                END as seconds_since_last_seen
+            FROM devices 
+            ORDER BY last_seen DESC
+        ''', (threshold, current_time_ms)).fetchall()
+    
+    debug_info = {
+        'current_time_ms': current_time_ms,
+        'threshold': threshold,
+        'devices': [dict(device) for device in devices]
+    }
+    
+    return jsonify(debug_info)
     with get_db() as conn:
         # Tüm cihazları getir (online ve offline)
         cihazlar = conn.execute('''

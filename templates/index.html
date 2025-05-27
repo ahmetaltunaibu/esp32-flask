@@ -70,6 +70,8 @@
     .device-card.offline {
         background: linear-gradient(135deg, #ffeaa7 0%, #fab1a0 100%);
         border-left: 4px solid #e17055;
+        opacity: 0.8;
+        cursor: default;
     }
     .device-status {
         position: absolute;
@@ -83,10 +85,18 @@
     .device-status.online {
         background: #00b894;
         box-shadow: 0 0 0 2px white, 0 0 10px rgba(0, 184, 148, 0.5);
+        animation: pulse-online 2s infinite;
     }
     .device-status.offline {
         background: #e17055;
     }
+    
+    @keyframes pulse-online {
+        0% { box-shadow: 0 0 0 2px white, 0 0 0 0 rgba(0, 184, 148, 0.7); }
+        70% { box-shadow: 0 0 0 2px white, 0 0 0 10px rgba(0, 184, 148, 0); }
+        100% { box-shadow: 0 0 0 2px white, 0 0 0 0 rgba(0, 184, 148, 0); }
+    }
+    
     .device-title {
         font-size: 1.1rem;
         font-weight: 600;
@@ -137,6 +147,20 @@
         margin-bottom: 20px;
         opacity: 0.3;
     }
+    .offline-overlay {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(231, 112, 85, 0.9);
+        color: white;
+        padding: 4px 8px;
+        border-radius: 8px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
 </style>
 {% endblock %}
 
@@ -171,7 +195,8 @@
             <i class="fas fa-wifi fa-lg mb-2"></i>
             <h6 style="font-size: 0.9rem; margin-bottom: 4px;">Online</h6>
             <h3 style="font-size: 1.5rem; margin: 0;">
-                {{ cihazlar|selectattr('online_status')|list|length }}
+                {% set online_devices = cihazlar|selectattr('real_online_status')|list %}
+                {{ online_devices|length }}
             </h3>
         </div>
     </div>
@@ -181,7 +206,8 @@
             <i class="fas fa-times-circle fa-lg mb-2"></i>
             <h6 style="font-size: 0.9rem; margin-bottom: 4px;">Offline</h6>
             <h3 style="font-size: 1.5rem; margin: 0;">
-                {{ cihazlar|rejectattr('online_status')|list|length }}
+                {% set offline_devices = cihazlar|rejectattr('real_online_status')|list %}
+                {{ offline_devices|length }}
             </h3>
         </div>
     </div>
@@ -192,7 +218,8 @@
             <h6 style="font-size: 0.9rem; margin-bottom: 4px;">Uptime</h6>
             <h3 style="font-size: 1.5rem; margin: 0;">
                 {% if cihazlar|length > 0 %}
-                    {{ "%.0f"|format((cihazlar|selectattr('online_status')|list|length / cihazlar|length) * 100) }}%
+                    {% set online_count = cihazlar|selectattr('real_online_status')|list|length %}
+                    {{ "%.0f"|format((online_count / cihazlar|length) * 100) }}%
                 {% else %}
                     0%
                 {% endif %}
@@ -208,10 +235,10 @@
             <i class="fas fa-list"></i> Tümü ({{ cihazlar|length }})
         </button>
         <button type="button" class="btn btn-outline-success btn-modern" id="filterOnline">
-            <i class="fas fa-wifi"></i> Online ({{ cihazlar|selectattr('online_status')|list|length }})
+            <i class="fas fa-wifi"></i> Online ({{ cihazlar|selectattr('real_online_status')|list|length }})
         </button>
         <button type="button" class="btn btn-outline-danger btn-modern" id="filterOffline">
-            <i class="fas fa-times-circle"></i> Offline ({{ cihazlar|rejectattr('online_status')|list|length }})
+            <i class="fas fa-times-circle"></i> Offline ({{ cihazlar|rejectattr('real_online_status')|list|length }})
         </button>
     </div>
 </div>
@@ -220,11 +247,19 @@
 {% if cihazlar %}
 <div class="device-grid" id="deviceContainer">
     {% for cihaz in cihazlar %}
-    <div class="device-card card {% if cihaz.online_status %}online online-device{% else %}offline offline-device{% endif %}" 
-         onclick="{% if cihaz.online_status %}window.location.href='{{ url_for('cihaz_detay', cihaz_id=cihaz.cihaz_id) }}'{% endif %}">
+    {% set is_online = cihaz.real_online_status %}
+    <div class="device-card card {% if is_online %}online online-device{% else %}offline offline-device{% endif %}" 
+         onclick="{% if is_online %}window.location.href='{{ url_for('cihaz_detay', cihaz_id=cihaz.cihaz_id) }}'{% else %}showOfflineMessage('{{ cihaz.cihaz_adi }}'){% endif %}">
         
         <!-- Online/Offline Indicator -->
-        <div class="device-status {% if cihaz.online_status %}online{% else %}offline{% endif %}"></div>
+        <div class="device-status {% if is_online %}online{% else %}offline{% endif %}"></div>
+        
+        <!-- Offline Overlay -->
+        {% if not is_online %}
+        <div class="offline-overlay">
+            <i class="fas fa-times-circle"></i> Offline
+        </div>
+        {% endif %}
         
         <div class="card-body">
             <!-- Cihaz Başlığı -->
@@ -251,7 +286,7 @@
                         Hiç bağlanmadı
                     {% endif %}
                 </div>
-                {% if cihaz.online_status and cihaz.ip_address %}
+                {% if is_online and cihaz.ip_address %}
                 <div>
                     <i class="fas fa-globe"></i> {{ cihaz.ip_address }}
                 </div>
@@ -316,11 +351,16 @@ function setActiveFilter(activeButton) {
     activeButton.classList.add('active');
 }
 
-// Offline cihazların tıklanabilir olmaması için
-document.querySelectorAll('.offline-device').forEach(card => {
-    card.style.cursor = 'default';
-    card.style.opacity = '0.8';
-});
+// Offline cihaz tıklama mesajı
+function showOfflineMessage(deviceName) {
+    alert(`${deviceName} cihazı şu anda offline durumda.\n\nCihaz detaylarını görmek için cihazın online olması gerekiyor.`);
+}
+
+// Console'da debug bilgisi
+console.log('🔍 Device Status Debug:');
+{% for cihaz in cihazlar %}
+console.log('📱 {{ cihaz.cihaz_adi }}: {% if cihaz.real_online_status %}🟢 ONLINE{% else %}🔴 OFFLINE{% endif %} (last_seen: {{ cihaz.last_seen }})');
+{% endfor %}
 
 // Auto refresh - 30 saniyede bir
 setTimeout(() => {
