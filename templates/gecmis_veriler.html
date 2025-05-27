@@ -73,6 +73,12 @@ Geçmiş Veriler
 
 {% block content %}
 <div class="container-fluid">
+    <!-- Hidden inputs for JavaScript -->
+    <input type="hidden" id="defaultStartDate" value="{{ default_start_date or '' }}">
+    <input type="hidden" id="defaultEndDate" value="{{ default_end_date or '' }}">
+    <input type="hidden" id="currentStartDate" value="{{ start_date or '' }}">
+    <input type="hidden" id="currentEndDate" value="{{ end_date or '' }}">
+
     <!-- Sayfa Başlığı -->
     <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
         <div class="d-flex align-items-center">
@@ -230,23 +236,25 @@ Geçmiş Veriler
         initializeDates();
     });
 
-    // Tarihleri otomatik doldur
+    // Tarihleri otomatik doldur - DÜZELTİLMİŞ VERSİYON
     function initializeDates() {
         const startDateInput = document.querySelector('input[name="start_date"]');
         const endDateInput = document.querySelector('input[name="end_date"]');
         
-        // Eğer tarihler boşsa ve varsayılan değerler varsa otomatik doldur
-        {% if default_start_date and not start_date %}
-        if (!startDateInput.value) {
-            startDateInput.value = '{{ default_start_date }}';
-        }
-        {% endif %}
+        // Hidden input'lardan değerleri al
+        const defaultStartDate = document.getElementById('defaultStartDate').value;
+        const defaultEndDate = document.getElementById('defaultEndDate').value;
+        const currentStartDate = document.getElementById('currentStartDate').value;
+        const currentEndDate = document.getElementById('currentEndDate').value;
         
-        {% if default_end_date and not end_date %}
-        if (!endDateInput.value) {
-            endDateInput.value = '{{ default_end_date }}';
+        // Eğer mevcut tarihler boşsa ve varsayılan değerler varsa otomatik doldur
+        if (!currentStartDate && defaultStartDate && startDateInput && !startDateInput.value) {
+            startDateInput.value = defaultStartDate;
         }
-        {% endif %}
+        
+        if (!currentEndDate && defaultEndDate && endDateInput && !endDateInput.value) {
+            endDateInput.value = defaultEndDate;
+        }
     }
 
     // Filtreleri temizle
@@ -270,6 +278,9 @@ Geçmiş Veriler
             startDate.toISOString().split('T')[0];
         document.querySelector('input[name="end_date"]').value = 
             endDate.toISOString().split('T')[0];
+        
+        // Formu otomatik gönder
+        document.querySelector('form').submit();
     }
 </script>
 {% endblock %}

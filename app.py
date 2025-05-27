@@ -298,28 +298,30 @@ def inject_user():
     )
 
 
+# Routes
+# Background Tasks - fonksiyon tanımlaması
+def update_device_status():
     with app.app_context():
         try:
-            threshold = int(time.time() * 1000) - 120000  # 2 minutes
+            current_time_ms = int(time.time() * 1000)
+            threshold = current_time_ms - 120000  # 2 minutes
+            
             with get_db() as conn:
-                conn.execute('''
+                cursor = conn.execute('''
                     UPDATE devices 
                     SET online_status = CASE 
-                        WHEN last_seen >= ? THEN 1 
+                        WHEN last_seen >= ? AND last_seen > 0 THEN 1 
                         ELSE 0 
                     END
                 ''', (threshold,))
+                
+                rows_affected = cursor.rowcount
                 conn.commit()
+                
+                logger.info(f"🔄 Device status updated: {rows_affected} devices")
+                
         except Exception as e:
-            logger.error(f"Error updating device status: {str(e)}")
-
-if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(update_device_status, 'interval', minutes=1)
-    scheduler.start()
-
-# Routes
-# Fix for app.py - Updated index route and device status logic
+            logger.error(f"❌ Error updating device status: {str(e)}")
 
 # Index route'unu da güncelleyin
 @app.route('/')
@@ -1692,13 +1694,7 @@ def after_request(response):
     response.headers["Expires"] = "0"
     return response
 
-# Scheduler başlatma kısmını da kontrol edin - app.py'nin sonlarında
-if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(update_device_status, 'interval', minutes=1)
-    scheduler.start()
-    logger.info("📅 Background scheduler başlatıldı")
-    with app.app_context():
+with app.app_context():
         try:
             current_time_ms = int(time.time() * 1000)
             threshold = current_time_ms - 120000  # 2 minutes in milliseconds
