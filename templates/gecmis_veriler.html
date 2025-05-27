@@ -1,6 +1,65 @@
 {% extends "layout.html" %}
 
-{% block title %}{{ cihaz_adi }} - Geçmiş Veriler{% endblock %}
+{% block extra_css %}
+<style>
+    /* Responsive filtre alanları */
+    .form-control, .form-select {
+        font-size: 0.9rem;
+    }
+    
+    .btn {
+        white-space: nowrap;
+    }
+    
+    /* Mobile responsive */
+    @media (max-width: 768px) {
+        .btn {
+            font-size: 0.85rem;
+            padding: 0.375rem 0.75rem;
+        }
+        
+        .btn i {
+            margin-right: 4px;
+        }
+        
+        .card-header h5 {
+            font-size: 1rem;
+        }
+        
+        .badge {
+            font-size: 0.75rem;
+        }
+    }
+    
+    /* Tablo responsive */
+    .table-responsive {
+        font-size: 0.9rem;
+    }
+    
+    @media (max-width: 576px) {
+        .table-responsive {
+            font-size: 0.8rem;
+        }
+        
+        .table th,
+        .table td {
+            padding: 0.5rem 0.25rem;
+        }
+    }
+    
+    /* Buton grubu responsive */
+    .d-flex.gap-2 {
+        flex-wrap: wrap;
+    }
+    
+    @media (max-width: 576px) {
+        .d-flex.gap-2 .btn {
+            flex: 1;
+            min-width: 100px;
+        }
+    }
+</style>
+{% endblock %}
 
 {% block breadcrumb %}
 <i class="fas fa-tachometer-alt"></i>
@@ -14,9 +73,16 @@ Geçmiş Veriler
 
 {% block content %}
 <div class="container-fluid">
+    <!-- Sayfa Başlığı -->
     <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+        <div class="d-flex align-items-center">
+            <button class="btn btn-outline-primary me-3" onclick="window.history.back()">
+                <i class="fas fa-arrow-left"></i> Geri
+            </button>
+            <h2 class="mb-0">{{ cihaz_adi }} - Geçmiş Veriler</h2>
+        </div>
         <div>
-            <h2 class="d-inline ms-3">{{ cihaz_adi }} - Geçmiş Veriler</h2>
+            <span class="badge bg-info">{{ veriler|length }} kayıt</span>
         </div>
     </div>
 
@@ -24,15 +90,16 @@ Geçmiş Veriler
     <div class="card mb-4">
         <div class="card-body">
             <form method="GET" class="row g-3">
-                <div class="col-md-3">
+                <!-- İlk Satır -->
+                <div class="col-xl-3 col-lg-4 col-md-6">
                     <label class="form-label">Başlangıç Tarihi</label>
                     <input type="date" class="form-control" name="start_date" value="{{ start_date or '' }}">
                 </div>
-                <div class="col-md-3">
+                <div class="col-xl-3 col-lg-4 col-md-6">
                     <label class="form-label">Bitiş Tarihi</label>
                     <input type="date" class="form-control" name="end_date" value="{{ end_date or '' }}">
                 </div>
-                <div class="col-md-3">
+                <div class="col-xl-3 col-lg-4 col-md-6">
                     <label class="form-label">Sensör</label>
                     <select class="form-select" name="sensor_id">
                         <option value="">Tüm Sensörler</option>
@@ -43,7 +110,7 @@ Geçmiş Veriler
                         {% endfor %}
                     </select>
                 </div>
-                <div class="col-md-2">
+                <div class="col-xl-3 col-lg-4 col-md-6">
                     <label class="form-label">Kayıt Limiti</label>
                     <select class="form-select" name="limit">
                         <option value="all" {% if current_limit == 'all' or not current_limit %}selected{% endif %}>Tümü</option>
@@ -53,14 +120,21 @@ Geçmiş Veriler
                         <option value="5000" {% if current_limit == '5000' %}selected{% endif %}>5000</option>
                     </select>
                 </div>
-                <div class="col-md-1 d-flex align-items-end">
-                    <button type="submit" class="btn btn-primary me-2">
-                        <i class="fas fa-search"></i> Filtrele
-                    </button>
-                    <a href="{{ url_for('excel_export', cihaz_id=cihaz_id) }}?{{ request.query_string.decode() }}" 
-                       class="btn btn-success">
-                        <i class="fas fa-file-excel"></i> Excel
-                    </a>
+                
+                <!-- İkinci Satır - Butonlar -->
+                <div class="col-12">
+                    <div class="d-flex flex-wrap gap-2 justify-content-start">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-search"></i> Filtrele
+                        </button>
+                        <a href="{{ url_for('excel_export', cihaz_id=cihaz_id) }}?{{ request.query_string.decode() }}" 
+                           class="btn btn-success">
+                            <i class="fas fa-file-excel"></i> Excel
+                        </a>
+                        <button type="button" class="btn btn-secondary" onclick="clearFilters()">
+                            <i class="fas fa-eraser"></i> Temizle
+                        </button>
+                    </div>
                 </div>
             </form>
         </div>
@@ -130,8 +204,21 @@ Geçmiş Veriler
             pageLength: 25,
             language: {
                 url: '//cdn.datatables.net/plug-ins/1.11.5/i18n/tr.json'
-            }
+            },
+            responsive: true,
+            scrollX: true
         });
     });
+
+    // Filtreleri temizle
+    function clearFilters() {
+        document.querySelector('input[name="start_date"]').value = '';
+        document.querySelector('input[name="end_date"]').value = '';
+        document.querySelector('select[name="sensor_id"]').value = '';
+        document.querySelector('select[name="limit"]').value = 'all';
+        
+        // Formu gönder
+        document.querySelector('form').submit();
+    }
 </script>
 {% endblock %}
