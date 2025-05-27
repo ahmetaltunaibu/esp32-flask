@@ -495,6 +495,101 @@ def gecmis_veriler(cihaz_id):
                 flash('Cihaz bulunamadı', 'danger')
                 return redirect(url_for('index'))
             
+            # Veritabanındaki min/max tarihleri al
+            date_range = conn.execute('''
+                SELECT 
+                    MIN(timestamp) as min_timestamp,
+                    MAX(timestamp) as max_timestamp
+                FROM sensor_data 
+                WHERE cihaz_id = ?
+            ''', (cihaz_id,)).fetchone()
+            
+            # Varsayılan tarih aralığını belirle
+            default_start_date = None
+            default_end_date = None
+            
+            if date_range and date_range['min_timestamp'] and date_range['max_timestamp']:
+                # Min tarihi al
+                min_date = datetime.fromtimestamp(date_range['min_timestamp'] / 1000)
+                max_date = datetime.fromtimestamp(date_range['max_timestamp'] / 1000)
+                
+                default_start_date = min_date.strftime('%Y-%m-%d')
+                default_end_date = max_date.strftime('%Y-%m-%d')
+            
+            # Eğer tarih parametresi yoksa varsayılanları kullan
+            if not start_date and default_start_date:
+                start_date = default_start_date
+            if not end_date and default_end_date:
+                end_date = default_end_date
+            
+            # Base query
+            query = 'SELECT * FROM sensor_data WHERE cihaz_id = ?'
+            params = [cihaz_id]
+            
+            # Tarih filtreleri
+            if start_date:
+                start_timestamp = int(datetime.strptime(start_date, '%Y-%m-%d').timestamp() * 1000)
+                query += ' AND timestamp >= ?'
+                params.append(start_timestamp)
+            
+            if end_date:
+                end_timestamp = int((datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)).timestamp() * 1000)
+                query += ' AND timestamp < ?'
+                params.append(end_timestamp)
+            
+            # Sensör filtresi
+            if sensor_filter:
+                query += ' AND sensor_id = ?'
+                params.append(sensor_filter)
+            
+            # Sıralama
+            query += ' ORDER BY timestamp DESC'
+            
+            # Limit (sadece gerekirse)
+            if limit and limit != 'all':
+                try:
+                    limit_num = int(limit)
+                    query += f' LIMIT {limit_num}'
+                except ValueError:
+                    pass  # Geçersiz limit değeri, sınır koyma
+            
+            veriler = conn.execute(query, params).fetchall()
+            
+            # Tüm mevcut sensörleri al
+            sensors = conn.execute('''
+                SELECT DISTINCT sensor_id FROM sensor_data 
+                WHERE cihaz_id = ? 
+                ORDER BY sensor_id
+            ''', (cihaz_id,)).fetchall()
+            
+            return render_template('gecmis_veriler.html',
+                                veriler=veriler,
+                                cihaz_id=cihaz_id,
+                                cihaz_adi=cihaz['cihaz_adi'],
+                                cihaz=cihaz,
+                                sensors=sensors,
+                                start_date=start_date,
+                                end_date=end_date,
+                                sensor_filter=sensor_filter,
+                                current_limit=limit,
+                                default_start_date=default_start_date,
+                                default_end_date=default_end_date)
+    
+    except Exception as e:
+        flash(f'Geçmiş veriler alınırken hata oluştu: {str(e)}', 'danger')
+        return redirect(url_for('index'))
+    try:
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        sensor_filter = request.args.get('sensor_id')
+        limit = request.args.get('limit', 'all')  # Varsayılan: tümü
+        
+        with get_db() as conn:
+            cihaz = conn.execute('SELECT * FROM devices WHERE cihaz_id = ?', (cihaz_id,)).fetchone()
+            if not cihaz:
+                flash('Cihaz bulunamadı', 'danger')
+                return redirect(url_for('index'))
+            
             # Base query
             query = 'SELECT * FROM sensor_data WHERE cihaz_id = ?'
             params = [cihaz_id]
