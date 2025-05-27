@@ -15,6 +15,10 @@ from cryptography.hazmat.primitives import serialization
 from werkzeug.utils import secure_filename
 from cryptography.hazmat.backends import default_backend
 from apscheduler.schedulers.background import BackgroundScheduler
+import shutil
+import zipfile
+from werkzeug.utils import secure_filename
+import json
 
 # Flask app setup
 app = Flask(__name__)
@@ -299,6 +303,297 @@ def inject_user():
 
 
 # Routes
+# Yedekleme ve geri yükleme route'ları
+
+@app.route('/admin/database')
+@login_required
+@admin_required
+def database_management():
+    """Veritabanı yönetim sayfası"""
+    try:
+        with get_db() as conn:
+            # Veritabanı istatistikleri
+            stats = {
+                'devices': conn.execute('SELECT COUNT(*) as count FROM devices').fetchone()['count'],
+                'sensor_data': conn.execute('SELECT COUNT(*) as count FROM sensor_data').fetchone()['count'],
+                'users': conn.execute('SELECT COUNT(*) as count FROM users').fetchone()['count'],
+                'firmware_versions': conn.execute('SELECT COUNT(*) as count FROM firmware_versions').fetchone()['count'],
+                'update_history': conn.execute('SELECT COUNT(*) as count FROM update_history').fetchone()['count']
+            }
+            
+            # Veritabanı boyutu
+            db_size = os.path.getsize('sensor_data.db') if os.path.exists('sensor_data.db') else 0
+            stats['db_size'] = db_size
+            
+            # Son yedekleme tarihi (eğer varsa)
+            backup_dir = 'backups'
+            last_backup = None
+            if os.path.exists(backup_dir):
+                backups = [f for f in os.listdir(backup_dir) if f.endswith('.zip')]
+                if backups:
+                    backups.sort(reverse=True)
+                    last_backup = backups[0]
+            
+            return render_template('database_management.html', stats=stats, last_backup=last_backup)
+            
+    except Exception as e:
+        flash(f'Veritabanı bilgileri alınırken hata: {str(e)}', 'danger')
+        return redirect(url_for('index'))
+
+@app.route('/admin/backup', methods=['POST'])
+@login_required
+@admin_required
+def create_backup():
+    """Tam veritabanı yedeği oluştur"""
+    try:
+        # Yedek klasörü oluştur
+        backup_dir = 'backups'
+        os.makedirs(backup_dir, exist_ok=True)
+        
+        # Firmware klasörü de var mı kontrol et
+        firmware_dir = app.config['FIRMWARE_FOLDER']
+        
+        # Zaman damgası ile dosya adı oluştur
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_filename = f"database_backup_{timestamp}.zip"
+        backup_path = os.path.join(backup_dir, backup_filename)
+        
+        with zipfile.ZipFile(backup_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            # Veritabanı dosyasını ekle
+            if os.path.exists('sensor_data.db'):
+                zipf.write('sensor_data.db', 'sensor_data.db')
+                logger.info("✅ Database file added to backup")
+            
+            # Firmware dosyalarını ekle
+            if os.path.exists(firmware_dir):
+                for root, dirs, files in os.walk(firmware_dir):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        arc_path = os.path.relpath(file_path, '.')
+                        zipf.write(file_path, arc_path)
+                logger.info(f"✅ Firmware files added to backup")
+            
+            # Yedekleme bilgilerini JSON olarak ekle
+            backup_info = {
+                'backup_date': timestamp,
+                'backup_type': 'full_backup',
+                'created_by': session.get('username'),
+                'database_size': os.path.getsize('sensor_data.db') if os.path.exists('sensor_data.db') else 0,
+                'firmware_count': len([f for f in os.listdir(firmware_dir) if f.endswith('.bin')]) if os.path.exists(firmware_dir) else 0
+            }
+            
+            zipf.writestr('backup_info.json', json.dumps(backup_info, indent=2))
+        
+        file_size = os.path.getsize(backup_path)
+        
+        flash(f'Yedekleme başarılı! Dosya: {backup_filename} ({file_size/1024/1024:.1f} MB)', 'success')
+        logger.info(f"✅ Backup created: {backup_filename} ({file_size} bytes)")
+        
+        return jsonify({
+            'success': True,
+            'filename': backup_filename,
+            'size': file_size,
+            'message': 'Yedekleme başarıyla oluşturuldu'
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Backup creation error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/admin/download_backup/<filename>')
+@login_required
+@admin_required
+def download_backup(filename):
+    """Yedek dosyasını indir"""
+    try:
+        backup_dir = 'backups'
+        file_path = os.path.join(backup_dir, secure_filename(filename))
+        
+        if not os.path.exists(file_path):
+            flash('Yedek dosyası bulunamadı', 'danger')
+            return redirect(url_for('database_management'))
+        
+        logger.info(f"📥 Backup download: {filename} by {session.get('username')}")
+        
+        return send_file(
+            file_path,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/zip'
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Backup download error: {str(e)}")
+        flash(f'Dosya indirilemedi: {str(e)}', 'danger')
+        return redirect(url_for('database_management'))
+
+@app.route('/admin/restore', methods=['POST'])
+@login_required
+@admin_required
+def restore_database():
+    """Veritabanını yedekten geri yükle"""
+    if 'backup_file' not in request.files:
+        return jsonify({'success': False, 'error': 'Dosya seçilmedi'}), 400
+    
+    file = request.files['backup_file']
+    
+    if file.filename == '' or not file.filename.endswith('.zip'):
+        return jsonify({'success': False, 'error': 'Geçerli bir ZIP dosyası seçin'}), 400
+    
+    try:
+        # Geçici dosya adı oluştur
+        temp_filename = secure_filename(file.filename)
+        temp_path = os.path.join('temp', temp_filename)
+        
+        # Temp klasörü oluştur
+        os.makedirs('temp', exist_ok=True)
+        
+        # Dosyayı kaydet
+        file.save(temp_path)
+        
+        # ZIP dosyasını kontrol et ve çıkart
+        with zipfile.ZipFile(temp_path, 'r') as zipf:
+            # ZIP içeriğini kontrol et
+            file_list = zipf.namelist()
+            
+            if 'sensor_data.db' not in file_list:
+                os.remove(temp_path)
+                return jsonify({'success': False, 'error': 'Geçersiz yedek dosyası (sensor_data.db bulunamadı)'}), 400
+            
+            # Backup info varsa oku
+            backup_info = {}
+            if 'backup_info.json' in file_list:
+                with zipf.open('backup_info.json') as info_file:
+                    backup_info = json.loads(info_file.read().decode('utf-8'))
+            
+            # Mevcut veritabanını yedekle (güvenlik için)
+            if os.path.exists('sensor_data.db'):
+                safety_backup = f"sensor_data_before_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+                shutil.copy2('sensor_data.db', safety_backup)
+                logger.info(f"🛡️ Safety backup created: {safety_backup}")
+            
+            # Scheduler'ı durdur (veritabanı işlemleri için)
+            try:
+                if 'scheduler' in globals():
+                    scheduler.shutdown(wait=False)
+                    logger.info("⏸️ Scheduler stopped for restore")
+            except:
+                pass
+            
+            # Veritabanını geri yükle
+            zipf.extract('sensor_data.db', '.')
+            logger.info("✅ Database restored")
+            
+            # Firmware dosyalarını geri yükle
+            firmware_files = [f for f in file_list if f.startswith('firmware/')]
+            if firmware_files:
+                for firmware_file in firmware_files:
+                    zipf.extract(firmware_file, '.')
+                logger.info(f"✅ {len(firmware_files)} firmware files restored")
+        
+        # Geçici dosyayı temizle
+        os.remove(temp_path)
+        
+        # Scheduler'ı yeniden başlat
+        try:
+            if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+                scheduler = BackgroundScheduler()
+                scheduler.add_job(update_device_status, 'interval', minutes=1)
+                scheduler.start()
+                logger.info("▶️ Scheduler restarted after restore")
+        except:
+            pass
+        
+        logger.info(f"✅ Database restore completed by {session.get('username')}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Veritabanı başarıyla geri yüklendi',
+            'backup_info': backup_info
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Database restore error: {str(e)}")
+        
+        # Geçici dosyayı temizle
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        
+        return jsonify({
+            'success': False,
+            'error': f'Geri yükleme hatası: {str(e)}'
+        }), 500
+
+@app.route('/admin/list_backups')
+@login_required
+@admin_required
+def list_backups():
+    """Mevcut yedekleri listele"""
+    try:
+        backup_dir = 'backups'
+        backups = []
+        
+        if os.path.exists(backup_dir):
+            for filename in os.listdir(backup_dir):
+                if filename.endswith('.zip'):
+                    file_path = os.path.join(backup_dir, filename)
+                    stat = os.stat(file_path)
+                    
+                    # Backup info'yu oku (varsa)
+                    backup_info = {}
+                    try:
+                        with zipfile.ZipFile(file_path, 'r') as zipf:
+                            if 'backup_info.json' in zipf.namelist():
+                                with zipf.open('backup_info.json') as info_file:
+                                    backup_info = json.loads(info_file.read().decode('utf-8'))
+                    except:
+                        pass
+                    
+                    backups.append({
+                        'filename': filename,
+                        'size': stat.st_size,
+                        'created': datetime.fromtimestamp(stat.st_ctime).strftime('%d.%m.%Y %H:%M:%S'),
+                        'info': backup_info
+                    })
+        
+        # Tarihe göre sırala (en yeni önce)
+        backups.sort(key=lambda x: x['created'], reverse=True)
+        
+        return jsonify({'backups': backups})
+        
+    except Exception as e:
+        logger.error(f"❌ List backups error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/delete_backup/<filename>', methods=['DELETE'])
+@login_required
+@admin_required
+def delete_backup(filename):
+    """Yedek dosyasını sil"""
+    try:
+        backup_dir = 'backups'
+        file_path = os.path.join(backup_dir, secure_filename(filename))
+        
+        if not os.path.exists(file_path):
+            return jsonify({'success': False, 'error': 'Dosya bulunamadı'}), 404
+        
+        os.remove(file_path)
+        logger.info(f"🗑️ Backup deleted: {filename} by {session.get('username')}")
+        
+        return jsonify({
+            'success': True,
+            'message': f'{filename} başarıyla silindi'
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Delete backup error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+
 # Background Tasks - fonksiyon tanımlaması
 def update_device_status():
     with app.app_context():

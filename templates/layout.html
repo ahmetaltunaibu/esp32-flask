@@ -427,6 +427,15 @@
                     <div class="nav-tooltip">Firmware Yönetimi</div>
                 </a>
             </div>
+            
+            <div class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'database_management' %}active{% endif %}" 
+                   href="{{ url_for('database_management') }}">
+                    <i class="fas fa-database nav-icon"></i>
+                    <span class="nav-text">Veritabanı</span>
+                    <div class="nav-tooltip">Veritabanı Yönetimi</div>
+                </a>
+            </div>
             {% endif %}
             
             <div class="nav-item">
@@ -497,7 +506,33 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <script>
-        // Sidebar toggle functionality
+        // 🛡️ Safe localStorage wrapper - GÜVENLİ ÇÖZÜM
+        const SafeStorage = {
+            setItem: function(key, value) {
+                try {
+                    if (typeof(Storage) !== "undefined" && window.localStorage) {
+                        localStorage.setItem(key, value);
+                        return true;
+                    }
+                } catch (e) {
+                    console.warn('localStorage not available:', e.message);
+                }
+                return false;
+            },
+            
+            getItem: function(key) {
+                try {
+                    if (typeof(Storage) !== "undefined" && window.localStorage) {
+                        return localStorage.getItem(key);
+                    }
+                } catch (e) {
+                    console.warn('localStorage not available:', e.message);
+                }
+                return null;
+            }
+        };
+
+        // Sidebar toggle functionality - GÜVENLİ VERSİYON
         function toggleSidebar() {
             const sidebar = document.getElementById('sidebar');
             const isCollapsed = sidebar.classList.contains('collapsed');
@@ -509,7 +544,8 @@
             } else {
                 // Desktop behavior
                 sidebar.classList.toggle('collapsed');
-                localStorage.setItem('sidebarCollapsed', !isCollapsed);
+                // Safe localStorage usage - hata vermez
+                SafeStorage.setItem('sidebarCollapsed', !isCollapsed);
             }
         }
 
@@ -519,9 +555,9 @@
             this.classList.remove('active');
         });
 
-        // Remember sidebar state
+        // Remember sidebar state - GÜVENLİ VERSİYON
         document.addEventListener('DOMContentLoaded', function() {
-            const isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+            const isCollapsed = SafeStorage.getItem('sidebarCollapsed') === 'true';
             if (isCollapsed && window.innerWidth > 768) {
                 document.getElementById('sidebar').classList.add('collapsed');
             }
@@ -553,12 +589,31 @@
             alert('Ayarlar özelliği yakında eklenecek!');
         }
 
-        // Auto-hide flash messages
+        // Auto-hide flash messages - GÜVENLİ VERSİYON
         setTimeout(function() {
             const alerts = document.querySelectorAll('.alert');
             alerts.forEach(function(alert) {
-                const bsAlert = new bootstrap.Alert(alert);
-                bsAlert.close();
+                try {
+                    // Bootstrap Alert kullanmayı dene
+                    if (typeof bootstrap !== 'undefined' && bootstrap.Alert) {
+                        const bsAlert = new bootstrap.Alert(alert);
+                        bsAlert.close();
+                    } else {
+                        // Bootstrap yoksa manuel olarak kaldır
+                        throw new Error('Bootstrap not available');
+                    }
+                } catch (e) {
+                    // Güvenli manuel kaldırma
+                    if (alert && alert.parentNode) {
+                        alert.style.opacity = '0';
+                        alert.style.transform = 'translateY(-20px)';
+                        setTimeout(() => {
+                            if (alert.parentNode) {
+                                alert.parentNode.removeChild(alert);
+                            }
+                        }, 300);
+                    }
+                }
             });
         }, 5000);
     </script>
