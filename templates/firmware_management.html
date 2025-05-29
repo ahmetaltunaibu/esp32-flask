@@ -24,6 +24,23 @@
     .table td {
         vertical-align: middle;
     }
+    
+    .file-info {
+        font-size: 0.85rem;
+        color: #6c757d;
+    }
+    
+    .version-cell {
+        font-weight: 600;
+    }
+    
+    .file-name {
+        font-family: 'Courier New', monospace;
+        font-size: 0.8rem;
+        color: #495057;
+        display: block;
+        margin-top: 2px;
+    }
 </style>
 {% endblock %}
 
@@ -82,31 +99,61 @@
             <table class="table table-striped" id="firmwareTable">
                 <thead>
                     <tr>
-                        <th>Versiyon</th>
+                        <th>Versiyon & Dosya</th>
                         <th>Yükleme Tarihi</th>
                         <th>Dosya Boyutu</th>
                         <th>Durum</th>
+                        <th>Sürüm Notları</th>
                         <th>İşlemler</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for version in versions %}
                     <tr>
-                        <td>v{{ version.version }}</td>
-                        <td>{{ version.created_at }}</td>
+                        <td>
+                            <div class="version-cell">
+                                <i class="fas fa-microchip text-primary me-2"></i>
+                                v{{ version.version }}
+                            </div>
+                            {% if version.file_path %}
+                                <small class="file-name">
+                                    <i class="fas fa-file me-1"></i>
+                                    {{ version.file_path.split('/')[-1] if '/' in version.file_path else version.file_path.split('\\')[-1] }}
+                                </small>
+                            {% else %}
+                                <small class="file-name text-muted">
+                                    <i class="fas fa-exclamation-triangle me-1"></i>
+                                    Dosya yolu bulunamadı
+                                </small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="text-muted">{{ version.created_at }}</span>
+                        </td>
                         <td>
                             {% if version.file_size %}
-                                {{ "%0.2f"|format(version.file_size/1024) }} KB
+                                <span class="badge bg-light text-dark">
+                                    {{ "%0.2f"|format(version.file_size/1024) }} KB
+                                </span>
                             {% else %}
-                                Bilinmiyor
+                                <span class="text-muted">Bilinmiyor</span>
                             {% endif %}
                         </td>
                         <td>
                             {% if version.is_active %}
-                            <span class="badge bg-success">Aktif</span>
+                            <span class="badge bg-success">
+                                <i class="fas fa-check me-1"></i>Aktif
+                            </span>
                             {% else %}
-                            <span class="badge bg-secondary">Pasif</span>
+                            <span class="badge bg-secondary">
+                                <i class="fas fa-pause me-1"></i>Pasif
+                            </span>
                             {% endif %}
+                        </td>
+                        <td>
+                            <small class="text-muted">
+                                {{ version.release_notes[:50] + '...' if version.release_notes and version.release_notes|length > 50 else version.release_notes or 'Belirtilmemiş' }}
+                            </small>
                         </td>
                         <td>
                             <div class="btn-group-actions">
@@ -186,7 +233,8 @@
                     {% for firmware in versions %}
                     <option value="{{ firmware.version }}" 
                             data-active="{{ firmware.is_active }}"
-                            data-notes="{{ firmware.release_notes }}">
+                            data-notes="{{ firmware.release_notes }}"
+                            data-filename="{{ firmware.file_path.split('/')[-1] if firmware.file_path and '/' in firmware.file_path else firmware.file_path.split('\\')[-1] if firmware.file_path else 'Bilinmiyor' }}">
                         v{{ firmware.version }}
                         {% if firmware.is_active %}
                         <span class="badge bg-success">Aktif</span>
@@ -264,9 +312,10 @@ $(document).ready(function() {
         `;
         $('#deviceDetails').html(deviceDetails);
         
-        // Firmware details
+        // Firmware details - Dosya adı eklendi
         const firmwareDetails = `
             <strong>Versiyon:</strong> v${firmwareOption.val()}<br>
+            <strong>Dosya:</strong> <code class="small">${firmwareOption.data('filename')}</code><br>
             <strong>Durum:</strong> ${firmwareOption.data('active') ? '<span class="badge bg-success">Aktif</span>' : '<span class="badge bg-secondary">Pasif</span>'}<br>
             <strong>Notlar:</strong> ${firmwareOption.data('notes') || 'Belirtilmemiş'}
         `;
