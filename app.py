@@ -117,10 +117,8 @@ HARDCODED_ADMIN = {
 
 # Database Setup
 def get_db():
-    conn = sqlite3.connect('sensor_data.db', isolation_level=None)  # ← Bu kısmı ekle
+    conn = sqlite3.connect('sensor_data.db')
     conn.row_factory = sqlite3.Row
-    conn.execute('PRAGMA synchronous = FULL')  # ← Bu satırı ekle
-    conn.execute('PRAGMA journal_mode = WAL')   # ← Bu satırı ekle
     return conn
 
 def init_db():
@@ -1945,7 +1943,7 @@ def admin_force_assign(cihaz_id, version):
             ''', (version, cihaz_id))
             
             conn.commit()
-            conn.close() 
+            
             
             # Kontrol et
             updated_device = conn.execute('SELECT target_firmware FROM devices WHERE cihaz_id = ?', (cihaz_id,)).fetchone()
