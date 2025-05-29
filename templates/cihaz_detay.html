@@ -16,6 +16,10 @@
         transform: translateY(-3px);
         box-shadow: 0 4px 16px rgba(0,0,0,0.15);
     }
+    .sensor-card.selected {
+        border: 2px solid #007bff;
+        background: #f8f9ff;
+    }
     .sensor-value {
         font-size: 1.4rem;
         font-weight: bold;
@@ -113,6 +117,96 @@
         transform: translateY(-2px);
         box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     }
+
+    /* Grafik Bölümü Stilleri */
+    .chart-container {
+        background: white;
+        border-radius: 15px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        padding: 20px;
+        margin: 25px 0;
+    }
+    
+    .chart-controls {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+        gap: 15px;
+    }
+    
+    .time-period-buttons {
+        display: flex;
+        gap: 5px;
+    }
+    
+    .time-period-buttons .btn {
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        border: 1px solid #dee2e6;
+        background: white;
+        color: #6c757d;
+        transition: all 0.3s;
+    }
+    
+    .time-period-buttons .btn.active {
+        background: #007bff;
+        color: white;
+        border-color: #007bff;
+    }
+    
+    .chart-type-buttons {
+        display: flex;
+        gap: 5px;
+    }
+    
+    .chart-type-buttons .btn {
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-size: 0.85rem;
+    }
+    
+    .sensor-selector {
+        min-width: 200px;
+        border-radius: 10px;
+    }
+    
+    .chart-canvas {
+        position: relative;
+        height: 400px;
+        width: 100%;
+    }
+    
+    .loading-spinner {
+        display: none;
+        text-align: center;
+        padding: 50px;
+    }
+    
+    .no-data {
+        display: none;
+        text-align: center;
+        padding: 50px;
+        color: #6c757d;
+    }
+
+    @media (max-width: 768px) {
+        .chart-controls {
+            flex-direction: column;
+            align-items: stretch;
+        }
+        
+        .time-period-buttons,
+        .chart-type-buttons {
+            justify-content: center;
+        }
+        
+        .sensor-selector {
+            min-width: 100%;
+        }
+    }
 </style>
 {% endblock %}
 
@@ -196,6 +290,64 @@
     </div>
 </div>
 
+<!-- GRAFİK BÖLÜMÜ - YENİ! -->
+<div class="chart-container">
+    <div class="chart-controls">
+        <div class="d-flex align-items-center gap-3">
+            <h5 class="mb-0">
+                <i class="fas fa-chart-line me-2"></i>Sensör Grafikleri
+            </h5>
+            <select class="form-select sensor-selector" id="sensorSelect">
+                <option value="">-- Sensör Seçin --</option>
+                {% for sensor_id, veri in sensor_data.items() %}
+                <option value="{{ sensor_id }}">{{ sensor_id }} ({{ veri.birim }})</option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <div class="d-flex gap-3">
+            <!-- Zaman Periyodu -->
+            <div class="time-period-buttons">
+                <button class="btn active" data-period="hour">Saatlik</button>
+                <button class="btn" data-period="day">Günlük</button>
+                <button class="btn" data-period="week">Haftalık</button>
+                <button class="btn" data-period="month">Aylık</button>
+                <button class="btn" data-period="year">Yıllık</button>
+            </div>
+            
+            <!-- Grafik Tipi -->
+            <div class="chart-type-buttons">
+                <button class="btn btn-outline-primary active" data-type="line">
+                    <i class="fas fa-chart-line"></i> Çizgi
+                </button>
+                <button class="btn btn-outline-primary" data-type="bar">
+                    <i class="fas fa-chart-bar"></i> Bar
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Loading Spinner -->
+    <div class="loading-spinner" id="loadingSpinner">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Yükleniyor...</span>
+        </div>
+        <p class="mt-2">Grafik verileri yükleniyor...</p>
+    </div>
+    
+    <!-- Veri Yok Mesajı -->
+    <div class="no-data" id="noDataMessage">
+        <i class="fas fa-chart-line fa-3x text-muted mb-3"></i>
+        <h5 class="text-muted">Veri Bulunamadı</h5>
+        <p class="text-muted">Seçilen sensör ve zaman aralığı için veri bulunmamaktadır.</p>
+    </div>
+    
+    <!-- Grafik Canvas -->
+    <div class="chart-canvas">
+        <canvas id="sensorChart"></canvas>
+    </div>
+</div>
+
 <!-- Sensör Verileri -->
 <div class="card mb-4">
     <div class="card-header bg-primary text-white">
@@ -207,7 +359,7 @@
         {% if sensor_data %}
         <div class="sensor-grid">
             {% for sensor_id, veri in sensor_data.items() %}
-            <div class="sensor-card card" onclick="location.href='{{ url_for('gecmis_veriler', cihaz_id=cihaz.cihaz_id) }}?sensor_ids={{ sensor_id }}'">
+            <div class="sensor-card card" onclick="selectSensor('{{ sensor_id }}')">
                 <div class="card-body text-center">
                     <!-- Sensör İkonu -->
                     <div class="sensor-icon">
@@ -300,7 +452,196 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-    // Gauge grafikleri oluştur
+// Global değişkenler
+let currentChart = null;
+let currentSensor = '';
+let currentPeriod = 'hour';
+let currentChartType = 'line';
+const deviceId = '{{ cihaz.cihaz_id }}';
+
+// Sayfa yüklendiğinde
+document.addEventListener('DOMContentLoaded', function() {
+    initializeChart();
+    setupEventListeners();
+    createGaugeCharts();
+});
+
+// Event listener'ları ayarla
+function setupEventListeners() {
+    // Zaman periyodu butonları
+    document.querySelectorAll('.time-period-buttons .btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.time-period-buttons .btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            currentPeriod = this.dataset.period;
+            updateChart();
+        });
+    });
+    
+    // Grafik tipi butonları
+    document.querySelectorAll('.chart-type-buttons .btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.chart-type-buttons .btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            currentChartType = this.dataset.type;
+            updateChart();
+        });
+    });
+    
+    // Sensör seçimi
+    document.getElementById('sensorSelect').addEventListener('change', function() {
+        currentSensor = this.value;
+        updateChart();
+    });
+}
+
+// Grafik başlatma
+function initializeChart() {
+    const ctx = document.getElementById('sensorChart').getContext('2d');
+    currentChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: []
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Sensör Verileri'
+                },
+                legend: {
+                    display: true
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: false,
+                    title: {
+                        display: true,
+                        text: 'Değer'
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Zaman'
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Grafik güncelleme
+function updateChart() {
+    if (!currentSensor) {
+        showNoData();
+        return;
+    }
+    
+    showLoading();
+    
+    // AJAX ile veri çek
+    fetch(`/api/chart_data/${deviceId}?sensor=${currentSensor}&period=${currentPeriod}`)
+        .then(response => response.json())
+        .then(data => {
+            hideLoading();
+            
+            if (data.error) {
+                showNoData();
+                return;
+            }
+            
+            if (data.labels.length === 0) {
+                showNoData();
+                return;
+            }
+            
+            // Grafik tipini güncelle
+            currentChart.config.type = currentChartType;
+            
+            // Verileri güncelle
+            currentChart.data.labels = data.labels;
+            currentChart.data.datasets = [{
+                label: `${currentSensor} (${data.unit})`,
+                data: data.values,
+                borderColor: '#007bff',
+                backgroundColor: currentChartType === 'bar' ? 'rgba(0, 123, 255, 0.1)' : 'rgba(0, 123, 255, 0.05)',
+                borderWidth: 2,
+                fill: currentChartType === 'line',
+                tension: 0.4
+            }];
+            
+            // Y eksen başlığını güncelle
+            currentChart.options.scales.y.title.text = `${currentSensor} (${data.unit})`;
+            
+            // Başlığı güncelle
+            currentChart.options.plugins.title.text = `${currentSensor} - ${getPeriodText(currentPeriod)}`;
+            
+            currentChart.update();
+            showChart();
+        })
+        .catch(error => {
+            console.error('Chart data error:', error);
+            hideLoading();
+            showNoData();
+        });
+}
+
+// Sensör seçme (karttan)
+function selectSensor(sensorId) {
+    currentSensor = sensorId;
+    document.getElementById('sensorSelect').value = sensorId;
+    
+    // Tüm sensör kartlarından seçimi kaldır
+    document.querySelectorAll('.sensor-card').forEach(card => {
+        card.classList.remove('selected');
+    });
+    
+    // Seçilen kartı işaretle
+    event.currentTarget.classList.add('selected');
+    
+    updateChart();
+}
+
+// UI durum fonksiyonları
+function showLoading() {
+    document.getElementById('loadingSpinner').style.display = 'block';
+    document.getElementById('noDataMessage').style.display = 'none';
+    document.querySelector('.chart-canvas').style.display = 'none';
+}
+
+function hideLoading() {
+    document.getElementById('loadingSpinner').style.display = 'none';
+}
+
+function showNoData() {
+    document.getElementById('noDataMessage').style.display = 'block';
+    document.querySelector('.chart-canvas').style.display = 'none';
+}
+
+function showChart() {
+    document.getElementById('noDataMessage').style.display = 'none';
+    document.querySelector('.chart-canvas').style.display = 'block';
+}
+
+// Periyod metni
+function getPeriodText(period) {
+    const texts = {
+        'hour': 'Saatlik Veriler',
+        'day': 'Günlük Veriler', 
+        'week': 'Haftalık Veriler',
+        'month': 'Aylık Veriler',
+        'year': 'Yıllık Veriler'
+    };
+    return texts[period] || 'Veriler';
+}
+
+// Gauge grafikleri oluştur
+function createGaugeCharts() {
     {% for sensor_id, veri in sensor_data.items() %}
     (function() {
         const ctx = document.getElementById('gauge-{{ loop.index }}').getContext('2d');
@@ -356,51 +697,52 @@
         }
     })();
     {% endfor %}
+}
 
-    // Firmware güncelleme fonksiyonu
-    function checkFirmware(deviceId) {
-        fetch(`/firmware/check/${deviceId}?api_key=GUVENLI_ANAHTAR_123`)
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    alert(data.error);
-                    return;
+// Firmware güncelleme fonksiyonu
+function checkFirmware(deviceId) {
+    fetch(`/firmware/check/${deviceId}?api_key=GUVENLI_ANAHTAR_123`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+            
+            if (data.latest_version !== data.current_version) {
+                if (confirm(`Yeni firmware mevcut (v${data.latest_version}). Güncellemek istiyor musunuz?\n\n${data.release_notes || 'Güncelleme notları mevcut değil'}`)) {
+                    startUpdate(deviceId, data.latest_version);
                 }
-                
-                if (data.latest_version !== data.current_version) {
-                    if (confirm(`Yeni firmware mevcut (v${data.latest_version}). Güncellemek istiyor musunuz?\n\n${data.release_notes || 'Güncelleme notları mevcut değil'}`)) {
-                        startUpdate(deviceId, data.latest_version);
-                    }
-                } else {
-                    alert('Cihaz zaten güncel!');
-                }
-            })
-            .catch(error => {
-                console.error('Hata:', error);
-                alert('Güncelleme kontrolü başarısız');
-            });
-    }
+            } else {
+                alert('Cihaz zaten güncel!');
+            }
+        })
+        .catch(error => {
+            console.error('Hata:', error);
+            alert('Güncelleme kontrolü başarısız');
+        });
+}
 
-    // Hızlı tarih seçimi için
-    function setQuickDate(element, days) {
-        event.preventDefault();
-        
-        const endDate = new Date();
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - days);
-        
-        const startDateStr = startDate.toISOString().split('T')[0];
-        const endDateStr = endDate.toISOString().split('T')[0];
-        
-        const baseUrl = element.href;
-        const newUrl = `${baseUrl}?start_date=${startDateStr}&end_date=${endDateStr}`;
-        
-        window.location.href = newUrl;
-    }
+// Hızlı tarih seçimi için
+function setQuickDate(element, days) {
+    event.preventDefault();
+    
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    
+    const startDateStr = startDate.toISOString().split('T')[0];
+    const endDateStr = endDate.toISOString().split('T')[0];
+    
+    const baseUrl = element.href;
+    const newUrl = `${baseUrl}?start_date=${startDateStr}&end_date=${endDateStr}`;
+    
+    window.location.href = newUrl;
+}
 
-    // Otomatik yenileme - sadece online cihazlar için
-    {% if cihaz.online_status %}
-    setTimeout(() => location.reload(), 30000);
-    {% endif %}
+// Otomatik yenileme - sadece online cihazlar için
+{% if cihaz.online_status %}
+setTimeout(() => location.reload(), 30000);
+{% endif %}
 </script>
 {% endblock %}
