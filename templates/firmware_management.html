@@ -200,18 +200,12 @@
                                     </button>
                                 {% endif %}
                                 
-                                <!-- Delete Button -->
-                                {% if not version.is_active %}
-                                    <button class="btn btn-sm btn-outline-danger" 
-                                            onclick="deleteFirmware('{{ version.version }}')"
-                                            title="Kalıcı Olarak Sil">
-                                        <i class="fas fa-trash"></i>
-                                    </button>
-                                {% else %}
-                                    <button class="btn btn-sm btn-secondary" disabled title="Aktif firmware silinemez">
-                                        <i class="fas fa-lock"></i>
-                                    </button>
-                                {% endif %}
+                                <!-- Delete Button - Artık aktif firmware'ler için de çalışır -->
+                                <button class="btn btn-sm btn-outline-danger" 
+                                        onclick="deleteFirmware('{{ version.version }}', {{ version.is_active|lower }})"
+                                        title="{% if version.is_active %}Aktif Firmware'i Sil (Otomatik Pasif Edilir){% else %}Kalıcı Olarak Sil{% endif %}">
+                                    <i class="fas fa-trash"></i>
+                                </button>
                             </div>
                         </td>
                     </tr>
@@ -474,9 +468,13 @@ function setFirmwareStatus(version, isActive) {
     }
 }
 
-// 🗑️ Firmware sil
-function deleteFirmware(version) {
-    const confirmMsg = `⚠️ DİKKAT ⚠️\n\nv${version} firmware'ini kalıcı olarak silmek istediğinize emin misiniz?\n\n• Binary dosyası silinecek\n• İmza dosyası silinecek\n• Database kaydı silinecek\n\nBu işlem GERİ ALINAMAZ!`;
+// 🗑️ Firmware sil - Aktif firmware'ler için otomatik pasif etme
+function deleteFirmware(version, isActive) {
+    const activeWarning = isActive ? 
+        `\n\n⚠️ BU AKTİF FIRMWARE!\n• Otomatik olarak pasif edilecek\n• Başka firmware aktif edilecek\n• Sonra silinecek\n` : 
+        `\n\n`;
+    
+    const confirmMsg = `⚠️ DİKKAT ⚠️\n\nv${version} firmware'ini kalıcı olarak silmek istediğinize emin misiniz?${activeWarning}\n• Binary dosyası silinecek\n• İmza dosyası silinecek\n• Database kaydı silinecek\n\nBu işlem GERİ ALINAMAZ!`;
     
     if (confirm(confirmMsg)) {
         // İkinci onay
@@ -487,7 +485,10 @@ function deleteFirmware(version) {
         }
         
         // Loading state
-        showNotification('info', `v${version} siliniyor...`);
+        const loadingMsg = isActive ? 
+            `v${version} pasif ediliyor ve siliniyor...` : 
+            `v${version} siliniyor...`;
+        showNotification('info', loadingMsg);
         
         fetch('/firmware/delete', {
             method: 'POST',
@@ -499,7 +500,11 @@ function deleteFirmware(version) {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                showNotification('success', data.message);
+                let successMsg = data.message;
+                if (data.was_active) {
+                    successMsg += '\n🔄 Başka firmware otomatik aktif edildi';
+                }
+                showNotification('success', successMsg);
                 
                 // Dosya silme sonuçlarını göster
                 if (data.files_deleted && data.files_deleted.length > 0) {
