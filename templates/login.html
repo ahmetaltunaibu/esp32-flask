@@ -80,23 +80,6 @@
         color: white;
     }
     
-    .btn-signup {
-        background: transparent;
-        border: 2px solid #667eea;
-        border-radius: 25px;
-        padding: 10px 30px;
-        font-weight: 500;
-        color: #667eea;
-        width: 100%;
-        transition: all 0.3s;
-    }
-    
-    .btn-signup:hover {
-        background: #667eea;
-        color: white;
-        transform: translateY(-2px);
-    }
-    
     .alert {
         border-radius: 12px;
         margin-bottom: 20px;
@@ -111,13 +94,6 @@
     .brand-subtitle {
         font-size: 0.9rem;
         opacity: 0.8;
-    }
-    
-    .divider {
-        text-align: center;
-        margin: 20px 0;
-        color: #6c757d;
-        font-size: 0.9rem;
     }
     
     .floating-shapes {
@@ -165,6 +141,16 @@
         0%, 100% { transform: translateY(0px); }
         50% { transform: translateY(-20px); }
     }
+
+    .security-notice {
+        background: rgba(52, 58, 64, 0.1);
+        border-radius: 12px;
+        padding: 15px;
+        margin-top: 20px;
+        font-size: 0.85rem;
+        color: #6c757d;
+        text-align: center;
+    }
 </style>
 {% endblock %}
 
@@ -209,10 +195,10 @@
             {% endwith %}
             
             <!-- Login Form -->
-            <form method="POST">
+            <form method="POST" id="loginForm">
                 <div class="form-floating">
                     <input type="text" class="form-control" id="username" name="username" 
-                           placeholder="Kullanıcı Adı" required>
+                           placeholder="Kullanıcı Adı" required autocomplete="username">
                     <label for="username">
                         <i class="fas fa-user me-2"></i>Kullanıcı Adı
                     </label>
@@ -220,28 +206,21 @@
                 
                 <div class="form-floating">
                     <input type="password" class="form-control" id="password" name="password" 
-                           placeholder="Şifre" required>
+                           placeholder="Şifre" required autocomplete="current-password">
                     <label for="password">
                         <i class="fas fa-lock me-2"></i>Şifre
                     </label>
                 </div>
                 
-                <button type="submit" class="btn btn-login">
+                <button type="submit" class="btn btn-login" id="loginBtn">
                     <i class="fas fa-sign-in-alt me-2"></i>Giriş Yap
                 </button>
             </form>
             
-            <div class="divider">veya</div>
-            
-            <a href="{{ url_for('signup') }}" class="btn btn-signup">
-                <i class="fas fa-user-plus me-2"></i>Hesap Oluştur
-            </a>
-            
-            <!-- Demo Bilgileri -->
-            <div class="mt-4 p-3" style="background: #f8f9fa; border-radius: 12px; font-size: 0.85rem;">
-                <div class="fw-bold mb-2">Demo Giriş:</div>
-                <div><strong>Kullanıcı:</strong> admin</div>
-                <div><strong>Şifre:</strong> admin123</div>
+            <!-- Güvenlik Bildirimi -->
+            <div class="security-notice">
+                <i class="fas fa-shield-alt me-2"></i>
+                Güvenli bağlantı ile korunmaktasınız
             </div>
         </div>
     </div>
@@ -254,7 +233,56 @@ document.getElementById('username').focus();
 // Enter key navigation
 document.getElementById('username').addEventListener('keypress', function(e) {
     if (e.key === 'Enter') {
+        e.preventDefault();
         document.getElementById('password').focus();
+    }
+});
+
+document.getElementById('password').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        document.getElementById('loginForm').submit();
+    }
+});
+
+// Form submit handling
+document.getElementById('loginForm').addEventListener('submit', function(e) {
+    const loginBtn = document.getElementById('loginBtn');
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value;
+    
+    // Basic validation
+    if (!username || !password) {
+        e.preventDefault();
+        alert('Lütfen tüm alanları doldurun');
+        return;
+    }
+    
+    // Show loading state
+    loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Giriş yapılıyor...';
+    loginBtn.disabled = true;
+    
+    // Form will submit normally, this is just for UX
+});
+
+// Security: Clear form on page load (prevent browser caching)
+window.addEventListener('load', function() {
+    document.getElementById('username').value = '';
+    document.getElementById('password').value = '';
+});
+
+// Security: Disable right-click context menu
+document.addEventListener('contextmenu', function(e) {
+    e.preventDefault();
+});
+
+// Security: Disable F12, Ctrl+Shift+I, Ctrl+U
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'F12' || 
+        (e.ctrlKey && e.shiftKey && e.key === 'I') ||
+        (e.ctrlKey && e.key === 'u')) {
+        e.preventDefault();
+        return false;
     }
 });
 </script>
