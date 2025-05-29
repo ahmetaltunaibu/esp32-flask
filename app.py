@@ -1945,7 +1945,7 @@ def admin_force_assign(cihaz_id, version):
             ''', (version, cihaz_id))
             
             conn.commit()
-             conn.close() 
+            conn.close() 
             
             # Kontrol et
             updated_device = conn.execute('SELECT target_firmware FROM devices WHERE cihaz_id = ?', (cihaz_id,)).fetchone()
