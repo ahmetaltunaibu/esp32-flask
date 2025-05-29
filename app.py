@@ -627,8 +627,8 @@ def index():
         current_time_ms = int(time.time() * 1000)
         threshold = current_time_ms - 120000  # 2 dakika
         
-        # Tüm cihazları getir ve gerçek zamanlı durumlarını hesapla
-        cihazlar = conn.execute('''
+        # Tüm cihazları getir
+        cihazlar_raw = conn.execute('''
             SELECT *,
                 CASE 
                     WHEN last_seen >= ? AND last_seen > 0 THEN 1 
@@ -642,6 +642,46 @@ def index():
                 END,
                 last_seen DESC
         ''', (threshold, threshold)).fetchall()
+        
+        # Her cihaz için sensor verilerini al
+        cihazlar = []
+        for cihaz in cihazlar_raw:
+            cihaz_dict = dict(cihaz)
+            
+            # En son sensor değerlerini getir (cihaz detayındaki gibi)
+            veriler = conn.execute('''
+                SELECT s1.* FROM sensor_data s1
+                JOIN (
+                    SELECT sensor_id, MAX(timestamp) as max_timestamp
+                    FROM sensor_data
+                    WHERE cihaz_id = ?
+                    GROUP BY sensor_id
+                ) s2 ON s1.sensor_id = s2.sensor_id AND s1.timestamp = s2.max_timestamp
+                ORDER BY s1.sensor_id
+            ''', (cihaz['cihaz_id'],)).fetchall()
+            
+            # Sensor verilerini dictionary'ye çevir
+            for veri in veriler:
+                sensor_key = f"sensor_{veri['sensor_id']}"
+                cihaz_dict[sensor_key] = veri['sensor_value']
+            
+            # Özel sensor değerleri için kontrol et
+            cihaz_dict['sensor_oee'] = None
+            cihaz_dict['sensor_active_time'] = None  
+            cihaz_dict['sensor_total_time'] = None
+            cihaz_dict['sensor_total_products'] = None
+            
+            for veri in veriler:
+                if 'oee' in veri['sensor_id'].lower():
+                    cihaz_dict['sensor_oee'] = veri['sensor_value']
+                elif 'active' in veri['sensor_id'].lower() and 'time' in veri['sensor_id'].lower():
+                    cihaz_dict['sensor_active_time'] = veri['sensor_value']
+                elif 'total' in veri['sensor_id'].lower() and 'time' in veri['sensor_id'].lower():
+                    cihaz_dict['sensor_total_time'] = veri['sensor_value'] 
+                elif 'product' in veri['sensor_id'].lower() or 'urun' in veri['sensor_id'].lower():
+                    cihaz_dict['sensor_total_products'] = veri['sensor_value']
+            
+            cihazlar.append(cihaz_dict)
         
         # Debug logları
         logger.info(f"📊 Cihaz Durumu Debug:")
@@ -653,43 +693,11 @@ def index():
         for cihaz in cihazlar:
             if cihaz['real_online_status']:
                 online_count += 1
-                logger.info(f"   🟢 {cihaz['cihaz_adi']}: ONLINE (son görülme: {cihaz['last_seen']})")
+                logger.info(f"   🟢 {cihaz['cihaz_adi']}: ONLINE (OEE: {cihaz.get('sensor_oee', 'N/A')})")
             else:
-                logger.info(f"   🔴 {cihaz['cihaz_adi']}: OFFLINE (son görülme: {cihaz['last_seen']})")
+                logger.info(f"   🔴 {cihaz['cihaz_adi']}: OFFLINE")
         
         logger.info(f"   📈 Online: {online_count}, Offline: {len(cihazlar) - online_count}")
-        
-        return render_template('index.html', cihazlar=cihazlar)
-    with get_db() as conn:
-        # Calculate current threshold (2 minutes ago)
-        current_time_ms = int(time.time() * 1000)
-        threshold = current_time_ms - 120000  # 2 minutes in milliseconds
-        
-        # Get all devices with their real-time online status
-        cihazlar = conn.execute('''
-            SELECT *,
-                CASE 
-                    WHEN last_seen >= ? AND last_seen > 0 THEN 1 
-                    ELSE 0 
-                END as real_online_status
-            FROM devices 
-            ORDER BY 
-                CASE 
-                    WHEN last_seen >= ? AND last_seen > 0 THEN 0 
-                    ELSE 1 
-                END,
-                last_seen DESC
-        ''', (threshold, threshold)).fetchall()
-        
-        # Debug logging
-        logger.info(f"📊 Device Status Debug:")
-        logger.info(f"   Current time: {current_time_ms}")
-        logger.info(f"   Threshold: {threshold}")
-        logger.info(f"   Total devices: {len(cihazlar)}")
-        
-        for cihaz in cihazlar:
-            status = "🟢 ONLINE" if cihaz['real_online_status'] else "🔴 OFFLINE"
-            logger.info(f"   {cihaz['cihaz_adi']}: {status} (last_seen: {cihaz['last_seen']})")
         
         return render_template('index.html', cihazlar=cihazlar)
 
