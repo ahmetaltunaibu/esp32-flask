@@ -21,11 +21,26 @@ from werkzeug.utils import secure_filename
 import json
 from datetime import datetime, timedelta
 import pytz
+import secrets
+# Brute force koruması için basit rate limiting
+from collections import defaultdict
+from datetime import datetime, timedelta
+
+# 🔐 Environment Variables Yükleme - BU SATIRLARI EKLE
+from dotenv import load_dotenv
+load_dotenv()  # .env dosyasını yükle
+
+# Login attempt tracking
+login_attempts = defaultdict(list)
+MAX_LOGIN_ATTEMPTS = 5
+LOCKOUT_DURATION = timedelta(minutes=15)
 
 
 # Flask app setup
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'default-secret-key')
+# Güvenli secret key - mevcut app.secret_key satırının yerine
+app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
+
 app.config['FIRMWARE_FOLDER'] = 'firmware'
 app.config['ALLOWED_EXTENSIONS'] = {'bin'}
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
@@ -108,12 +123,14 @@ logger.info(public_pem.decode('utf-8'))
 logger.info("=" * 50)
 logger.info("Bu Public Key'i ESP32 koduna kopyala!")
 
-# 🔧 FİX: Sabit admin kullanıcısı - role ile
-HARDCODED_ADMIN = {
+
+
+# 🔐 GÜVENLİ ADMIN KONFİGÜRASYONU - Eski HARDCODED_ADMIN yerine
+SECURE_ADMIN_CONFIG = {
     "username": "admin",
-    "password": "admin123",
-    "role": "admin",        # YENİ: role ekle
-    "is_admin": True        # Geriye uyumluluk için tut
+    "password": os.environ.get('ADMIN_PASSWORD', 'IoT@dmin2024#Secure!'),  # Güçlü varsayılan şifre
+    "role": "admin",
+    "is_admin": True
 }
 
 # Database Setup
@@ -121,6 +138,7 @@ def get_db():
     conn = sqlite3.connect('sensor_data.db')
     conn.row_factory = sqlite3.Row
     return conn
+
 
 def init_db():
     with get_db() as conn:
@@ -136,7 +154,7 @@ def init_db():
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-        
+
         # Cihazlar tablosu - FABRİKA EKLENDİ
         conn.execute('''
             CREATE TABLE IF NOT EXISTS devices (
@@ -156,36 +174,36 @@ def init_db():
                 last_update DATETIME
             )
         ''')
-        
+
         # Fabrika sütunu ekleme (güvenli)
         try:
             conn.execute('ALTER TABLE devices ADD COLUMN fabrika_adi TEXT')
             logger.info("✅ fabrika_adi sütunu eklendi")
         except sqlite3.OperationalError:
             logger.info("ℹ️ fabrika_adi sütunu zaten mevcut")
-        
+
         # 🔧 FİX: Kullanıcılar tablosunu yeniden oluştur - GÜVENLİ VERSİYON
         # Önce mevcut users tablosunun yapısını kontrol et
         try:
             columns = conn.execute("PRAGMA table_info(users)").fetchall()
             column_names = [col[1] for col in columns]
             logger.info(f"🔍 Mevcut users tablosu sütunları: {column_names}")
-            
+
             # Yeni sütunları ekle (eğer yoksa)
             missing_columns = []
-            
+
             if 'email' not in column_names:
                 conn.execute('ALTER TABLE users ADD COLUMN email TEXT')
                 missing_columns.append('email')
-                
+
             if 'role' not in column_names:
                 conn.execute('ALTER TABLE users ADD COLUMN role TEXT DEFAULT "user"')
                 missing_columns.append('role')
-                
+
             if 'created_by' not in column_names:
                 conn.execute('ALTER TABLE users ADD COLUMN created_by INTEGER')
                 missing_columns.append('created_by')
-            
+
             # is_admin sütununu role'e dönüştür
             if 'is_admin' in column_names and 'role' not in column_names:
                 # is_admin varsa ama role yoksa, role ekle ve verileri migrate et
@@ -199,7 +217,7 @@ def init_db():
                 ''')
                 logger.info("✅ is_admin → role migration completed")
                 missing_columns.append('role (migrated from is_admin)')
-            
+
             # Eksik sütunlar varsa role'leri güncelle
             if 'role' in column_names:
                 # Mevcut admin kullanıcılarının role'ünü ayarla
@@ -208,16 +226,16 @@ def init_db():
                     SET role = 'admin' 
                     WHERE username = 'admin' AND (role IS NULL OR role = '')
                 ''')
-            
+
             if missing_columns:
                 logger.info(f"✅ Eklenen sütunlar: {missing_columns}")
             else:
                 logger.info("ℹ️ Tüm users sütunları mevcut")
-                
+
         except sqlite3.OperationalError as e:
             # Users tablosu yoksa yenisini oluştur
             logger.info(f"⚠️ Users tablosu hatası: {e}, yeniden oluşturuluyor...")
-            
+
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -234,7 +252,7 @@ def init_db():
                 )
             ''')
             logger.info("✅ Users tablosu yeniden oluşturuldu")
-        
+
         # Aktivite logları tablosu
         conn.execute('''
             CREATE TABLE IF NOT EXISTS user_activities (
@@ -248,7 +266,7 @@ def init_db():
                 FOREIGN KEY (user_id) REFERENCES users(id)
             )
         ''')
-        
+
         # Firmware versiyonları tablosu
         conn.execute('''
             CREATE TABLE IF NOT EXISTS firmware_versions (
@@ -266,7 +284,7 @@ def init_db():
                 FOREIGN KEY (uploader_id) REFERENCES users(id)
             )
         ''')
-        
+
         # Güncelleme geçmişi tablosu
         conn.execute('''
             CREATE TABLE IF NOT EXISTS update_history (
@@ -282,7 +300,7 @@ def init_db():
                 FOREIGN KEY (initiated_by) REFERENCES users(id)
             )
         ''')
-        
+
         # Cihaz grupları tablosu
         conn.execute('''
             CREATE TABLE IF NOT EXISTS device_groups (
@@ -292,7 +310,7 @@ def init_db():
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-        
+
         # Cihaz-grup ilişkileri
         conn.execute('''
             CREATE TABLE IF NOT EXISTS device_group_mapping (
@@ -303,43 +321,81 @@ def init_db():
                 FOREIGN KEY (cihaz_id) REFERENCES devices(cihaz_id) ON DELETE CASCADE
             )
         ''')
-        
-        # 🔧 FİX: Varsayılan admin kullanıcısı - ROLE ile
+
+        # 🔐 GÜVENLİ ADMIN KULLANICISI OLUŞTURMA
         try:
             # Admin kullanıcı var mı kontrol et
             admin_user = conn.execute('SELECT * FROM users WHERE username = ?', ('admin',)).fetchone()
-            
+
             if not admin_user:
-                # Admin kullanıcı yoksa oluştur
+                # Güvenli şifre ile admin oluştur
+                secure_password = os.environ.get('ADMIN_PASSWORD', 'IoT@dmin2024#Secure!')
+
                 conn.execute('''
                     INSERT INTO users (username, password, name, role, is_active)
                     VALUES (?, ?, ?, ?, ?)
                 ''', (
                     'admin',
-                    generate_password_hash(os.environ.get('ADMIN_PASSWORD', 'securepassword123')),
-                    'System Admin',
-                    'admin',  # is_admin yerine role
+                    generate_password_hash(secure_password),
+                    'System Administrator',
+                    'admin',
                     1
                 ))
-                logger.info("✅ Admin kullanıcısı oluşturuldu")
+                logger.info("✅ Secure admin user created")
+                logger.warning(f"🔐 Admin password: {secure_password}")
+                logger.warning("⚠️ ÖNEMLI: Production'da ADMIN_PASSWORD environment variable'ını kullanın!")
             else:
-                # Mevcut admin kullanıcının role'ünü güncelle
-                conn.execute('''
-                    UPDATE users 
-                    SET role = 'admin', is_active = 1 
-                    WHERE username = 'admin'
-                ''', )
-                logger.info("✅ Admin kullanıcısı role güncellendi")
-                
+                # Mevcut admin'in şifresini güncelle (sadece varsayılan zayıf şifre ise)
+                if check_password_hash(admin_user['password'], 'admin123'):
+                    new_secure_password = os.environ.get('ADMIN_PASSWORD', 'IoT@dmin2024#Secure!')
+                    conn.execute('''
+                        UPDATE users 
+                        SET password = ?, role = 'admin', is_active = 1 
+                        WHERE username = 'admin'
+                    ''', (generate_password_hash(new_secure_password),))
+                    logger.warning("🔐 Admin password updated to secure version!")
+                    logger.warning(f"🔑 New admin password: {new_secure_password}")
+                else:
+                    # Mevcut admin kullanıcının role'ünü güncelle
+                    conn.execute('''
+                        UPDATE users 
+                        SET role = 'admin', is_active = 1 
+                        WHERE username = 'admin'
+                    ''', )
+                    logger.info("✅ Admin kullanıcısı role güncellendi")
+
         except sqlite3.IntegrityError as e:
             logger.info(f"ℹ️ Admin kullanıcısı zaten mevcut: {e}")
         except Exception as e:
             logger.error(f"❌ Admin kullanıcısı hatası: {e}")
-        
+
         conn.commit()
-        logger.info("✅ Database initialized with user management support")
+        logger.info("✅ Database initialized with enhanced security")
 
 init_db()
+
+
+def is_ip_locked(ip_address):
+    """IP adresinin kilitli olup olmadığını kontrol et"""
+    now = datetime.now()
+    attempts = login_attempts[ip_address]
+
+    # Eski denemeleri temizle
+    login_attempts[ip_address] = [attempt for attempt in attempts
+                                  if now - attempt < LOCKOUT_DURATION]
+
+    return len(login_attempts[ip_address]) >= MAX_LOGIN_ATTEMPTS
+
+
+def record_failed_login(ip_address):
+    """Başarısız login denemesini kaydet"""
+    login_attempts[ip_address].append(datetime.now())
+
+
+def clear_login_attempts(ip_address):
+    """Başarılı login sonrası denemeleri temizle"""
+    if ip_address in login_attempts:
+        del login_attempts[ip_address]
 
 # Template Filters
 @app.template_filter('format_timestamp')
@@ -943,78 +999,103 @@ def debug_device_status():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        
-        # Sabit kullanıcı kontrolü
-        if username == HARDCODED_ADMIN["username"] and password == HARDCODED_ADMIN["password"]:
+        client_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr)
+
+        # IP kilitli mi kontrol et
+        if is_ip_locked(client_ip):
+            flash('Çok fazla başarısız deneme. 15 dakika sonra tekrar deneyin.', 'danger')
+            return render_template('login.html')
+
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+
+        # Input validation
+        if not username or not password:
+            flash('Kullanıcı adı ve şifre gereklidir', 'danger')
+            record_failed_login(client_ip)
+            return render_template('login.html')
+
+        # Sabit admin kullanıcı kontrolü - güvenli şifre ile
+        if username == SECURE_ADMIN_CONFIG["username"] and password == SECURE_ADMIN_CONFIG["password"]:
+            session.permanent = True
             session['username'] = username
             session['user_id'] = 1
             session['is_admin'] = True
-            session['role'] = 'admin'  # Yeni: role ekle
-            flash('ADMIN olarak giriş yapıldı!', 'success')
+            session['role'] = 'admin'
+            session['login_time'] = datetime.now().isoformat()
+
+            clear_login_attempts(client_ip)
+
+            # Güvenlik logu
+            logger.info(f"Admin login successful from IP: {client_ip}")
+
+            flash('ADMIN olarak güvenli giriş yapıldı!', 'success')
             return redirect(url_for('index'))
-        
-        # Veritabanı kontrolü
+
+        # Veritabanı kullanıcı kontrolü
         with get_db() as conn:
-            # 🔧 FİX: is_admin yerine role kontrolü
             user = conn.execute('''
                 SELECT id, username, password, name, role, 
                        COALESCE(role = 'admin', 0) as is_admin_calc,
                        COALESCE(is_active, 1) as is_active
                 FROM users 
-                WHERE username = ?
+                WHERE username = ? AND is_active = 1
             ''', (username,)).fetchone()
-            
-            if user and user['is_active'] and check_password_hash(user['password'], password):
+
+            if user and check_password_hash(user['password'], password):
+                session.permanent = True
                 session['username'] = username
                 session['user_id'] = user['id']
                 session['role'] = user['role'] or 'user'
                 session['is_admin'] = user['role'] == 'admin'
-                
+                session['login_time'] = datetime.now().isoformat()
+
                 # Last login güncelle
                 conn.execute('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?', (user['id'],))
                 conn.commit()
-                
-                flash('Giriş başarılı!', 'success')
-                return redirect(url_for('index'))
-        
-        flash('Kullanıcı adı/şifre hatalı veya hesap pasif', 'danger')
-    return render_template('login.html')
 
+                clear_login_attempts(client_ip)
+
+                # Güvenlik logu
+                logger.info(f"User login successful: {username} from IP: {client_ip}")
+
+                flash('Güvenli giriş başarılı!', 'success')
+                return redirect(url_for('index'))
+
+        # Başarısız giriş
+        record_failed_login(client_ip)
+        logger.warning(f"Failed login attempt for username: {username} from IP: {client_ip}")
+        flash('Kullanıcı adı/şifre hatalı veya hesap pasif', 'danger')
+
+    return render_template('login.html')
 
 
 @app.route('/logout')
 def logout():
-    session.pop('username', None)
-    session.pop('is_admin', None)
-    flash('Başarıyla çıkış yapıldı', 'success')
-    return redirect(url_for('login'))
+    # Session temizliği
+    client_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr)
+    username = session.get('username', 'Unknown')
+
+    # Güvenlik logu
+    logger.info(f"User logout: {username} from IP: {client_ip}")
+
+    # Session'ı tamamen temizle
+    session.clear()
+
+    # Cache temizleme headers'ları
+    response = redirect(url_for('login'))
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+
+    flash('Güvenli çıkış yapıldı', 'success')
+    return response
 
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        name = request.form.get('name')
-        
-        if not all([username, password, name]):
-            flash('Tüm alanları doldurun', 'danger')
-            return redirect(url_for('signup'))
-        
-        try:
-            with get_db() as conn:
-                conn.execute('''
-                    INSERT INTO users (username, password, name)
-                    VALUES (?, ?, ?)
-                ''', (username, generate_password_hash(password), name))
-                conn.commit()
-                flash('Hesap oluşturuldu. Giriş yapabilirsiniz.', 'success')
-                return redirect(url_for('login'))
-        except sqlite3.IntegrityError:
-            flash('Bu kullanıcı adı zaten alınmış', 'danger')
-    
-    return render_template('signup.html')
+    # Güvenlik: Signup'ı tamamen kapat
+    flash('Yeni hesap oluşturma kapatılmıştır. Lütfen yöneticinizle iletişime geçin.', 'warning')
+    return redirect(url_for('login'))
 
 @app.route('/data', methods=['POST'])
 def receive_data():
@@ -2428,11 +2509,21 @@ def get_chart_data(cihaz_id):
 
 
 @app.after_request
-def after_request(response):
-    # Cache kontrolü
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
+def add_security_headers(response):
+    """Güvenlik başlıklarını ekle"""
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    response.headers[
+        'Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data:; connect-src 'self';"
+
+    # Cache kontrolü - güvenli olmayan sayfalarda
+    if request.endpoint in ['login', 'signup']:
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, private"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+
     return response
 
 # Kullanıcı yönetimi route'ları
@@ -2885,8 +2976,33 @@ with app.app_context():
         except Exception as e:
             logger.error(f"❌ Error updating device status: {str(e)}")
 
-
 if __name__ == '__main__':
+    # Güvenlik kontrolleri
+    if not os.environ.get('SECRET_KEY'):
+        logger.warning("⚠️ SECRET_KEY environment variable tanımlanmamış!")
+
+    if not os.environ.get('ADMIN_PASSWORD'):
+        logger.warning("⚠️ ADMIN_PASSWORD environment variable tanımlanmamış!")
+        logger.warning("🔑 Varsayılan güvenli şifre kullanılıyor: IoT@dmin2024#Secure!")
+
+    # SSL kontrolü (production için)
+    if os.environ.get('FLASK_ENV') == 'production':
+        if not os.environ.get('SSL_REQUIRED'):
+            logger.warning("⚠️ Production ortamında SSL kullanılması önerilir!")
+
+    # Firmware klasörü güvenliği
     os.makedirs(app.config['FIRMWARE_FOLDER'], exist_ok=True)
-    logger.info("🚀 Flask server starting...")
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=True)
+    os.chmod(app.config['FIRMWARE_FOLDER'], 0o755)  # Güvenli dosya izinleri
+
+    logger.info("🚀 Flask server starting with enhanced security...")
+
+    # Development vs Production
+    debug_mode = os.environ.get('DEBUG', 'True').lower() == 'true'
+    port = int(os.environ.get('PORT', 5000))
+
+    app.run(
+        host='0.0.0.0',
+        port=port,
+        debug=debug_mode,
+        threaded=True
+    )
