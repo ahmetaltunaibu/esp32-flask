@@ -298,6 +298,13 @@
                 <option value="{{ location }}">{{ location }}</option>
                 {% endfor %}
             </select>
+            <select class="form-select" id="factoryFilter">
+                <option value="">Tüm Fabrikalar</option>
+                {% set factories = cihazlar|map(attribute='fabrika_adi')|select|unique|sort %}
+                {% for factory in factories %}
+                <option value="{{ factory }}">{{ factory }}</option>
+                {% endfor %}
+            </select>
             <input type="text" class="form-control" id="searchInput" placeholder="Cihaz ara...">
         </div>
     </div>
@@ -325,9 +332,12 @@
             <!-- Cihaz Başlığı -->
             <h5 class="device-title">{{ cihaz.cihaz_adi }}</h5>
             
-            <!-- Konum -->
+            <!-- Konum ve Fabrika -->
             <div class="device-location">
-                <i class="fas fa-map-marker-alt"></i> {{ cihaz.konum }}
+                {% if cihaz.fabrika_adi %}
+                <div><i class="fas fa-industry"></i> {{ cihaz.fabrika_adi }}</div>
+                {% endif %}
+                <div><i class="fas fa-map-marker-alt"></i> {{ cihaz.konum }}</div>
             </div>
             
             <!-- OEE ve Üretim Metrikleri - ÜSTTE -->
