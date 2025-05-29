@@ -157,24 +157,11 @@
     }
     
     .metric-value {
-    font-size: 22px;           /* 16px → 22px */
-    font-weight: 700;
-    font-family: Verdana, sans-serif;
-    color: white;
-}
-
-/* Responsive ayarları da ekleyin: */
-@media (max-width: 768px) {
-    .metric-value {
-        font-size: 20px;      /* Tablet boyutu */
+        font-size: 22px;
+        font-weight: 700;
+        font-family: Verdana, sans-serif;
+        color: white;
     }
-}
-
-@media (max-width: 576px) {
-    .metric-value {
-        font-size: 18px;      /* Mobil boyutu */
-    }
-}
     
     .oee-high { color: #27ae60; }
     .oee-medium { color: #f39c12; }
@@ -217,6 +204,66 @@
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.5px;
+    }
+
+    /* Combobox genişlik ayarları - BÜYÜTÜLMÜŞ */
+    .form-select {
+        min-width: 280px;
+        width: 100%;
+        padding: 8px 12px;
+        font-size: 0.95rem;
+    }
+
+    #locationFilter {
+        min-width: 300px;
+    }
+
+    #factoryFilter {
+        min-width: 300px;
+    }
+
+    #searchInput {
+        min-width: 320px;
+        padding: 8px 12px;
+        font-size: 0.95rem;
+    }
+
+    .d-flex.gap-3 select,
+    .d-flex.gap-3 input {
+        flex: 1;
+        min-width: 280px;
+    }
+
+    /* Responsive ayarlar */
+    @media (max-width: 768px) {
+        .metric-value {
+            font-size: 20px;
+        }
+        
+        .form-select, #locationFilter, #factoryFilter, #searchInput {
+            min-width: 200px;
+            width: 100%;
+        }
+        
+        .d-flex.gap-3 {
+            flex-direction: column;
+        }
+        
+        .d-flex.gap-3 select,
+        .d-flex.gap-3 input {
+            width: 100%;
+            margin-bottom: 10px;
+        }
+    }
+
+    @media (max-width: 576px) {
+        .metric-value {
+            font-size: 18px;
+        }
+        
+        .form-select, #locationFilter, #factoryFilter, #searchInput {
+            min-width: 160px;
+        }
     }
 </style>
 {% endblock %}
@@ -287,7 +334,7 @@
 
 <!-- Filtreleme ve Arama -->
 <div class="row mb-3">
-    <div class="col-md-8">
+    <div class="col-md-6">
         <div class="filter-buttons">
             <div class="btn-group" role="group">
                 <button type="button" class="btn btn-outline-primary active btn-modern" id="filterAll">
@@ -302,8 +349,8 @@
             </div>
         </div>
     </div>
-    <div class="col-md-4">
-        <div class="d-flex gap-2">
+    <div class="col-md-6">
+        <div class="d-flex gap-3">
             <select class="form-select" id="locationFilter">
                 <option value="">Tüm Bölümler</option>
                 {% set locations = cihazlar|map(attribute='konum')|unique|sort %}
