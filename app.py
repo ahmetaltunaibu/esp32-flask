@@ -170,11 +170,45 @@ def init_db():
                 username TEXT UNIQUE NOT NULL,
                 password TEXT NOT NULL,
                 name TEXT NOT NULL,
-                is_admin BOOLEAN DEFAULT 0,
+                email TEXT,
+                role TEXT DEFAULT 'user' CHECK (role IN ('admin', 'user', 'viewer')),
+                is_active BOOLEAN DEFAULT 1,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                last_login DATETIME
+                last_login DATETIME,
+                created_by INTEGER,
+                FOREIGN KEY (created_by) REFERENCES users(id)
             )
         ''')
+
+        # Aktivite logları tablosu
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS user_activities (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                activity_type TEXT NOT NULL,
+                description TEXT NOT NULL,
+                ip_address TEXT,
+                user_agent TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        ''')
+        
+        # Mevcut users tablosuna yeni sütunları ekle (eğer yoksa)
+        try:
+            conn.execute('ALTER TABLE users ADD COLUMN email TEXT')
+        except sqlite3.OperationalError:
+            pass
+        
+        try:
+            conn.execute('ALTER TABLE users ADD COLUMN role TEXT DEFAULT "user"')
+        except sqlite3.OperationalError:
+            pass
+        
+        try:
+            conn.execute('ALTER TABLE users ADD COLUMN created_by INTEGER')
+        except sqlite3.OperationalError:
+            pass
         
         # Firmware versiyonları tablosu
         conn.execute('''
@@ -840,6 +874,7 @@ def debug_device_status():
         
         return render_template('index.html', cihazlar=cihazlar)
 
+# Login route'unu güncelle - aktivite loglaması için
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -849,21 +884,52 @@ def login():
         # Sabit kullanıcı kontrolü
         if username == HARDCODED_ADMIN["username"] and password == HARDCODED_ADMIN["password"]:
             session['username'] = username
+            session['user_id'] = 1  # Sabit admin ID
             session['is_admin'] = True
+            
+            # Aktivite logu
+            with get_db() as conn:
+                conn.execute('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = 1')
+                log_user_activity(
+                    user_id=1,
+                    activity_type='login',
+                    description=f'Sistem girişi yapıldı',
+                    conn=conn,
+                    ip_address=request.remote_addr,
+                    user_agent=request.headers.get('User-Agent')
+                )
+                conn.commit()
+            
             flash('ADMIN olarak giriş yapıldı!', 'success')
             return redirect(url_for('index'))
         
         # Veritabanı kontrolü
         with get_db() as conn:
-            user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+            user = conn.execute('SELECT * FROM users WHERE username = ? AND is_active = 1', (username,)).fetchone()
             if user and check_password_hash(user['password'], password):
                 session['username'] = username
-                session['is_admin'] = bool(user['is_admin'])
+                session['user_id'] = user['id']
+                session['is_admin'] = user['role'] == 'admin'
+                
+                # Last login güncelle ve aktivite logla
+                conn.execute('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?', (user['id'],))
+                log_user_activity(
+                    user_id=user['id'],
+                    activity_type='login',
+                    description=f'Sistem girişi yapıldı',
+                    conn=conn,
+                    ip_address=request.remote_addr,
+                    user_agent=request.headers.get('User-Agent')
+                )
+                conn.commit()
+                
                 flash('Giriş başarılı!', 'success')
                 return redirect(url_for('index'))
         
-        flash('Kullanıcı adı/şifre hatalı', 'danger')
+        flash('Kullanıcı adı/şifre hatalı veya hesap pasif', 'danger')
     return render_template('login.html')
+
+
 
 @app.route('/logout')
 def logout():
@@ -2315,6 +2381,423 @@ def after_request(response):
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
+
+# Kullanıcı yönetimi route'ları
+
+@app.route('/admin/users')
+@login_required
+@admin_required
+def user_management():
+    """Kullanıcı yönetimi sayfası"""
+    return render_template('user_management.html')
+
+@app.route('/admin/users', methods=['GET'])
+@login_required
+@admin_required
+def get_users():
+    """Kullanıcı listesi API"""
+    try:
+        with get_db() as conn:
+            users = conn.execute('''
+                SELECT u.*, creator.username as created_by_username
+                FROM users u
+                LEFT JOIN users creator ON u.created_by = creator.id
+                ORDER BY u.created_at DESC
+            ''').fetchall()
+            
+            user_list = []
+            for user in users:
+                user_dict = dict(user)
+                # Şifreyi gizle
+                user_dict.pop('password', None)
+                user_list.append(user_dict)
+            
+            return jsonify({
+                'success': True,
+                'users': user_list
+            })
+            
+    except Exception as e:
+        logger.error(f"❌ Get users error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/admin/users', methods=['POST'])
+@login_required
+@admin_required
+def create_user():
+    """Yeni kullanıcı oluştur"""
+    try:
+        data = request.get_json()
+        
+        # Validation
+        required_fields = ['username', 'password', 'name', 'role']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({'success': False, 'error': f'{field} alanı gerekli'}), 400
+        
+        # Kullanıcı adı kontrolü
+        username = data['username'].strip()
+        if len(username) < 3:
+            return jsonify({'success': False, 'error': 'Kullanıcı adı en az 3 karakter olmalı'}), 400
+        
+        # Şifre kontrolü
+        password = data['password']
+        if len(password) < 6:
+            return jsonify({'success': False, 'error': 'Şifre en az 6 karakter olmalı'}), 400
+        
+        # Rol kontrolü
+        if data['role'] not in ['admin', 'user', 'viewer']:
+            return jsonify({'success': False, 'error': 'Geçersiz rol'}), 400
+        
+        with get_db() as conn:
+            # Kullanıcı adı benzersizlik kontrolü
+            existing = conn.execute('SELECT id FROM users WHERE username = ?', (username,)).fetchone()
+            if existing:
+                return jsonify({'success': False, 'error': 'Bu kullanıcı adı zaten kullanılıyor'}), 400
+            
+            # Email benzersizlik kontrolü (eğer verilmişse)
+            email = data.get('email', '').strip()
+            if email:
+                existing_email = conn.execute('SELECT id FROM users WHERE email = ?', (email,)).fetchone()
+                if existing_email:
+                    return jsonify({'success': False, 'error': 'Bu email adresi zaten kullanılıyor'}), 400
+            
+            # Kullanıcı oluştur
+            cursor = conn.execute('''
+                INSERT INTO users (username, password, name, email, role, is_active, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                username,
+                generate_password_hash(password),
+                data['name'].strip(),
+                email if email else None,
+                data['role'],
+                data.get('is_active', True),
+                session.get('user_id', 1)  # Şimdilik 1, gerçekte session'dan alınmalı
+            ))
+            
+            new_user_id = cursor.lastrowid
+            conn.commit()
+            
+            # Aktivite logu
+            log_user_activity(
+                user_id=session.get('user_id', 1),
+                activity_type='user_created',
+                description=f"Yeni kullanıcı oluşturuldu: {data['name']} (@{username})",
+                conn=conn
+            )
+            
+            logger.info(f"✅ New user created: {username} by {session.get('username')}")
+            
+            return jsonify({
+                'success': True,
+                'message': 'Kullanıcı başarıyla oluşturuldu',
+                'user_id': new_user_id
+            })
+            
+    except sqlite3.IntegrityError as e:
+        return jsonify({'success': False, 'error': 'Kullanıcı adı zaten kullanılıyor'}), 400
+    except Exception as e:
+        logger.error(f"❌ Create user error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/admin/users/<int:user_id>', methods=['PUT'])
+@login_required
+@admin_required
+def update_user(user_id):
+    """Kullanıcı güncelle"""
+    try:
+        data = request.get_json()
+        
+        with get_db() as conn:
+            # Kullanıcı var mı kontrol et
+            user = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+            if not user:
+                return jsonify({'success': False, 'error': 'Kullanıcı bulunamadı'}), 404
+            
+            # Kendi kendini admin'den çıkarmasını engelle
+            current_user_id = session.get('user_id', 1)
+            if user_id == current_user_id and data.get('role') != 'admin':
+                return jsonify({'success': False, 'error': 'Kendi rolünüzü değiştiremezsiniz'}), 400
+            
+            # Güncelleme alanları
+            update_fields = []
+            params = []
+            
+            if 'name' in data:
+                update_fields.append('name = ?')
+                params.append(data['name'].strip())
+            
+            if 'username' in data:
+                username = data['username'].strip()
+                # Kullanıcı adı benzersizlik kontrolü
+                existing = conn.execute('SELECT id FROM users WHERE username = ? AND id != ?', 
+                                      (username, user_id)).fetchone()
+                if existing:
+                    return jsonify({'success': False, 'error': 'Bu kullanıcı adı zaten kullanılıyor'}), 400
+                
+                update_fields.append('username = ?')
+                params.append(username)
+            
+            if 'email' in data:
+                email = data['email'].strip() if data['email'] else None
+                if email:
+                    # Email benzersizlik kontrolü
+                    existing = conn.execute('SELECT id FROM users WHERE email = ? AND id != ?', 
+                                          (email, user_id)).fetchone()
+                    if existing:
+                        return jsonify({'success': False, 'error': 'Bu email adresi zaten kullanılıyor'}), 400
+                
+                update_fields.append('email = ?')
+                params.append(email)
+            
+            if 'role' in data and data['role'] in ['admin', 'user', 'viewer']:
+                update_fields.append('role = ?')
+                params.append(data['role'])
+            
+            if 'is_active' in data:
+                update_fields.append('is_active = ?')
+                params.append(data['is_active'])
+            
+            if 'password' in data and data['password']:
+                if len(data['password']) < 6:
+                    return jsonify({'success': False, 'error': 'Şifre en az 6 karakter olmalı'}), 400
+                update_fields.append('password = ?')
+                params.append(generate_password_hash(data['password']))
+            
+            if not update_fields:
+                return jsonify({'success': False, 'error': 'Güncellenecek alan bulunamadı'}), 400
+            
+            # Güncelleme yap
+            params.append(user_id)
+            query = f"UPDATE users SET {', '.join(update_fields)} WHERE id = ?"
+            conn.execute(query, params)
+            conn.commit()
+            
+            # Aktivite logu
+            log_user_activity(
+                user_id=current_user_id,
+                activity_type='user_updated',
+                description=f"Kullanıcı güncellendi: {data.get('name', user['name'])}",
+                conn=conn
+            )
+            
+            logger.info(f"✅ User updated: {user_id} by {session.get('username')}")
+            
+            return jsonify({
+                'success': True,
+                'message': 'Kullanıcı başarıyla güncellendi'
+            })
+            
+    except Exception as e:
+        logger.error(f"❌ Update user error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/admin/users/<int:user_id>', methods=['DELETE'])
+@login_required
+@admin_required
+def delete_user(user_id):
+    """Kullanıcı sil"""
+    try:
+        current_user_id = session.get('user_id', 1)
+        
+        # Kendi kendini silmeyi engelle
+        if user_id == current_user_id:
+            return jsonify({'success': False, 'error': 'Kendi hesabınızı silemezsiniz'}), 400
+        
+        with get_db() as conn:
+            # Kullanıcı var mı kontrol et
+            user = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+            if not user:
+                return jsonify({'success': False, 'error': 'Kullanıcı bulunamadı'}), 404
+            
+            # Kullanıcıyı sil
+            conn.execute('DELETE FROM users WHERE id = ?', (user_id,))
+            
+            # Aktivite logunu sil (isteğe bağlı, tutmak da mantıklı)
+            # conn.execute('DELETE FROM user_activities WHERE user_id = ?', (user_id,))
+            
+            conn.commit()
+            
+            # Aktivite logu
+            log_user_activity(
+                user_id=current_user_id,
+                activity_type='user_deleted',
+                description=f"Kullanıcı silindi: {user['name']} (@{user['username']})",
+                conn=conn
+            )
+            
+            logger.info(f"✅ User deleted: {user_id} by {session.get('username')}")
+            
+            return jsonify({
+                'success': True,
+                'message': 'Kullanıcı başarıyla silindi'
+            })
+            
+    except Exception as e:
+        logger.error(f"❌ Delete user error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/admin/users/<int:user_id>/activate', methods=['POST'])
+@login_required
+@admin_required
+def activate_user(user_id):
+    """Kullanıcıyı aktif et"""
+    return toggle_user_status(user_id, True)
+
+@app.route('/admin/users/<int:user_id>/deactivate', methods=['POST'])
+@login_required
+@admin_required
+def deactivate_user(user_id):
+    """Kullanıcıyı pasif et"""
+    return toggle_user_status(user_id, False)
+
+def toggle_user_status(user_id, is_active):
+    """Kullanıcı durumunu değiştir"""
+    try:
+        with get_db() as conn:
+            # Kullanıcı var mı kontrol et
+            user = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+            if not user:
+                return jsonify({'success': False, 'error': 'Kullanıcı bulunamadı'}), 404
+            
+            # Durumu güncelle
+            conn.execute('UPDATE users SET is_active = ? WHERE id = ?', (is_active, user_id))
+            conn.commit()
+            
+            # Aktivite logu
+            status_text = 'aktif' if is_active else 'pasif'
+            log_user_activity(
+                user_id=session.get('user_id', 1),
+                activity_type='user_status_changed',
+                description=f"Kullanıcı {status_text} yapıldı: {user['name']}",
+                conn=conn
+            )
+            
+            return jsonify({
+                'success': True,
+                'message': f'Kullanıcı {status_text} yapıldı'
+            })
+            
+    except Exception as e:
+        logger.error(f"❌ Toggle user status error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/admin/users/stats')
+@login_required
+@admin_required
+def user_stats():
+    """Kullanıcı istatistikleri"""
+    try:
+        with get_db() as conn:
+            stats = {
+                'total': conn.execute('SELECT COUNT(*) as count FROM users').fetchone()['count'],
+                'active': conn.execute('SELECT COUNT(*) as count FROM users WHERE is_active = 1').fetchone()['count'],
+                'admins': conn.execute('SELECT COUNT(*) as count FROM users WHERE role = "admin"').fetchone()['count'],
+                'recent_logins': conn.execute('''
+                    SELECT COUNT(*) as count FROM users 
+                    WHERE last_login >= datetime('now', '-1 day')
+                ''').fetchone()['count']
+            }
+            
+            return jsonify({'success': True, 'stats': stats})
+            
+    except Exception as e:
+        logger.error(f"❌ User stats error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/admin/activities')
+@login_required
+@admin_required
+def get_activities():
+    """Aktivite logları"""
+    try:
+        with get_db() as conn:
+            activities = conn.execute('''
+                SELECT ua.*, u.username
+                FROM user_activities ua
+                LEFT JOIN users u ON ua.user_id = u.id
+                ORDER BY ua.created_at DESC
+                LIMIT 50
+            ''').fetchall()
+            
+            activity_list = [dict(activity) for activity in activities]
+            
+            return jsonify({
+                'success': True,
+                'activities': activity_list
+            })
+            
+    except Exception as e:
+        logger.error(f"❌ Get activities error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/admin/activities', methods=['POST'])
+@login_required
+@admin_required
+def create_activity():
+    """Aktivite logu oluştur"""
+    try:
+        data = request.get_json()
+        
+        with get_db() as conn:
+            log_user_activity(
+                user_id=session.get('user_id', 1),
+                activity_type=data.get('type', 'manual'),
+                description=data.get('description', ''),
+                conn=conn
+            )
+            
+            return jsonify({'success': True})
+            
+    except Exception as e:
+        logger.error(f"❌ Create activity error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/admin/users/<int:user_id>/activities')
+@login_required
+@admin_required
+def get_user_activities(user_id):
+    """Kullanıcı aktiviteleri"""
+    try:
+        with get_db() as conn:
+            activities = conn.execute('''
+                SELECT * FROM user_activities
+                WHERE user_id = ?
+                ORDER BY created_at DESC
+                LIMIT 100
+            ''', (user_id,)).fetchall()
+            
+            activity_list = [dict(activity) for activity in activities]
+            
+            return jsonify({
+                'success': True,
+                'activities': activity_list
+            })
+            
+    except Exception as e:
+        logger.error(f"❌ Get user activities error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# Yardımcı fonksiyon
+def log_user_activity(user_id, activity_type, description, conn=None, ip_address=None, user_agent=None):
+    """Kullanıcı aktivitesi logla"""
+    try:
+        if conn is None:
+            with get_db() as conn:
+                conn.execute('''
+                    INSERT INTO user_activities (user_id, activity_type, description, ip_address, user_agent)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (user_id, activity_type, description, ip_address, user_agent))
+                conn.commit()
+        else:
+            conn.execute('''
+                INSERT INTO user_activities (user_id, activity_type, description, ip_address, user_agent)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (user_id, activity_type, description, ip_address, user_agent))
+            
+    except Exception as e:
+        logger.error(f"❌ Log activity error: {str(e)}")
     
 
 with app.app_context():
