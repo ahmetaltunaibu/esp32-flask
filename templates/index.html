@@ -46,13 +46,14 @@
     }
     .device-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
         gap: 15px;
     }
     .device-card {
         transition: all 0.3s;
         cursor: pointer;
-        height: 180px;
+        height: auto;
+        min-height: 320px;
         border-radius: 15px;
         box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         border: none;
@@ -112,6 +113,7 @@
         font-size: 0.75rem;
         color: #636e72;
         line-height: 1.4;
+        margin-bottom: 10px;
     }
     .device-firmware {
         display: inline-block;
@@ -123,6 +125,45 @@
         color: #2d3436;
         margin-top: 8px;
     }
+    
+    /* YENİ: OEE ve Üretim Metrikleri */
+    .device-metrics {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin: 10px 0;
+        padding: 10px;
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 10px;
+        backdrop-filter: blur(5px);
+    }
+    
+    .metric-item {
+        text-align: center;
+        padding: 6px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.2);
+    }
+    
+    .metric-label {
+        font-size: 0.7rem;
+        color: #636e72;
+        font-weight: 500;
+        margin-bottom: 2px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    .metric-value {
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: #2d3436;
+    }
+    
+    .oee-high { color: #27ae60; }
+    .oee-medium { color: #f39c12; }
+    .oee-low { color: #e74c3c; }
+    
     .btn-modern {
         border-radius: 25px;
         padding: 6px 16px;
@@ -248,6 +289,7 @@
 <div class="device-grid" id="deviceContainer">
     {% for cihaz in cihazlar %}
     {% set is_online = cihaz.real_online_status %}
+    {% set loop_index = loop.index %}
     <div class="device-card card {% if is_online %}online online-device{% else %}offline offline-device{% endif %}" 
          onclick="{% if is_online %}window.location.href='{{ url_for('cihaz_detay', cihaz_id=cihaz.cihaz_id) }}'{% else %}showOfflineMessage('{{ cihaz.cihaz_adi }}'){% endif %}">
         
@@ -291,6 +333,54 @@
                     <i class="fas fa-globe"></i> {{ cihaz.ip_address }}
                 </div>
                 {% endif %}
+            </div>
+            
+            <!-- YENİ: OEE ve Üretim Metrikleri - SABIT DEĞERLER -->
+            <div class="device-metrics">
+                <div class="metric-item">
+                    <div class="metric-label">OEE</div>
+                    <div class="metric-value {% if is_online %}{% set oee_val = (loop_index * 7 + 65) % 40 + 60 %}{% if oee_val >= 80 %}oee-high{% elif oee_val >= 60 %}oee-medium{% else %}oee-low{% endif %}{% else %}oee-low{% endif %}">
+                        {% if is_online %}
+                            {% set oee_val = (loop_index * 7 + 65) % 40 + 60 %}
+                            {{ oee_val }}%
+                        {% else %}
+                            --
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <div class="metric-item">
+                    <div class="metric-label">Aktif Çalışma</div>
+                    <div class="metric-value">
+                        {% if is_online %}
+                            {{ "%.1f"|format((loop_index * 3.2 + 12) % 8 + 2) }}h
+                        {% else %}
+                            --
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <div class="metric-item">
+                    <div class="metric-label">Toplam Çalışma</div>
+                    <div class="metric-value">
+                        {% if is_online %}
+                            {{ "%.1f"|format((loop_index * 4.1 + 15) % 6 + 6) }}h
+                        {% else %}
+                            --
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <div class="metric-item">
+                    <div class="metric-label">Toplam Ürün</div>
+                    <div class="metric-value">
+                        {% if is_online %}
+                            {{ "{:,}".format((loop_index * 127 + 450) % 2000 + 800) }}
+                        {% else %}
+                            {{ "{:,}".format((loop_index * 89 + 200) % 1500 + 300) }}
+                        {% endif %}
+                    </div>
+                </div>
             </div>
             
             <!-- Firmware Badge -->
@@ -355,12 +445,6 @@ function setActiveFilter(activeButton) {
 function showOfflineMessage(deviceName) {
     alert(`${deviceName} cihazı şu anda offline durumda.\n\nCihaz detaylarını görmek için cihazın online olması gerekiyor.`);
 }
-
-// Console'da debug bilgisi
-console.log('🔍 Device Status Debug:');
-{% for cihaz in cihazlar %}
-console.log('📱 {{ cihaz.cihaz_adi }}: {% if cihaz.real_online_status %}🟢 ONLINE{% else %}🔴 OFFLINE{% endif %} (last_seen: {{ cihaz.last_seen }})');
-{% endfor %}
 
 // Auto refresh - 30 saniyede bir
 setTimeout(() => {
