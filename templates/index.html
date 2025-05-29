@@ -65,14 +65,16 @@
         box-shadow: 0 6px 20px rgba(0,0,0,0.15);
     }
     .device-card.online {
-        background: #e3f2fd;
+        background: #2196f3;
         border-left: 4px solid #00b894;
+        color: white;
     }
     .device-card.offline {
-        background: #fff3e0;
+        background: #2196f3;
         border-left: 4px solid #e17055;
         opacity: 0.8;
         cursor: default;
+        color: white;
     }
     .device-status {
         position: absolute;
@@ -101,17 +103,17 @@
     .device-title {
         font-size: 1.2rem;
         font-weight: 600;
-        color: #2d3436;
+        color: white;
         margin-bottom: 8px;
     }
     .device-location {
         font-size: 0.9rem;
-        color: #636e72;
+        color: rgba(255, 255, 255, 0.9);
         margin-bottom: 12px;
     }
     .device-info {
         font-size: 0.8rem;
-        color: #636e72;
+        color: rgba(255, 255, 255, 0.8);
         line-height: 1.4;
         margin-bottom: 10px;
     }
@@ -147,7 +149,7 @@
     
     .metric-label {
         font-size: 0.75rem;
-        color: #636e72;
+        color: rgba(255, 255, 255, 0.8);
         font-weight: 500;
         margin-bottom: 2px;
         text-transform: uppercase;
@@ -157,7 +159,7 @@
     .metric-value {
         font-size: 0.9rem;
         font-weight: 700;
-        color: #2d3436;
+        color: white;
     }
     
     .oee-high { color: #27ae60; }
@@ -328,7 +330,7 @@
                 <i class="fas fa-map-marker-alt"></i> {{ cihaz.konum }}
             </div>
             
-            <!-- Cihaz Bilgileri -->
+            <!-- Cihaz Bilgileri - YENİ SIRALAMA -->
             <div class="device-info">
                 <div class="mb-1">
                     <i class="fas fa-fingerprint"></i> {{ cihaz.cihaz_id }}
@@ -344,14 +346,9 @@
                         Hiç bağlanmadı
                     {% endif %}
                 </div>
-                {% if is_online and cihaz.ip_address %}
-                <div>
-                    <i class="fas fa-globe"></i> {{ cihaz.ip_address }}
-                </div>
-                {% endif %}
             </div>
             
-            <!-- YENİ: OEE ve Üretim Metrikleri - SENSOR VERİLERİNDEN -->
+            <!-- YENİ: OEE ve Üretim Metrikleri - ÜSTTE -->
             <div class="device-metrics">
                 <div class="metric-item">
                     <div class="metric-label">OEE</div>
@@ -365,12 +362,25 @@
                 </div>
                 
                 <div class="metric-item">
+                    <div class="metric-label">Toplam Ürün</div>
+                    <div class="metric-value">
+                        {% if cihaz.sensor_total_products %}
+                            {{ "{:,}".format(cihaz.sensor_total_products|int) }}
+                        {% else %}
+                            0
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <div class="metric-item">
                     <div class="metric-label">Aktif Çalışma</div>
                     <div class="metric-value">
                         {% if cihaz.sensor_active_time %}
-                            {{ "%.1f"|format(cihaz.sensor_active_time) }}h
+                            {% set hours = (cihaz.sensor_active_time // 60)|int %}
+                            {% set minutes = (cihaz.sensor_active_time % 60)|int %}
+                            {{ "%02d:%02d"|format(hours, minutes) }}
                         {% else %}
-                            --
+                            --:--
                         {% endif %}
                     </div>
                 </div>
@@ -379,20 +389,11 @@
                     <div class="metric-label">Toplam Çalışma</div>
                     <div class="metric-value">
                         {% if cihaz.sensor_total_time %}
-                            {{ "%.1f"|format(cihaz.sensor_total_time) }}h
+                            {% set hours = (cihaz.sensor_total_time // 60)|int %}
+                            {% set minutes = (cihaz.sensor_total_time % 60)|int %}
+                            {{ "%02d:%02d"|format(hours, minutes) }}
                         {% else %}
-                            --
-                        {% endif %}
-                    </div>
-                </div>
-                
-                <div class="metric-item">
-                    <div class="metric-label">Toplam Ürün</div>
-                    <div class="metric-value">
-                        {% if cihaz.sensor_total_products %}
-                            {{ "{:,}".format(cihaz.sensor_total_products|int) }}
-                        {% else %}
-                            0
+                            --:--
                         {% endif %}
                     </div>
                 </div>
