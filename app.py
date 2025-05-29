@@ -4,6 +4,7 @@ import os
 import sqlite3
 import logging
 import secrets
+from collections import defaultdict
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash, send_file, Response
 from datetime import datetime, timedelta
 import time
@@ -24,7 +25,6 @@ import json
 from datetime import datetime, timedelta
 import pytz
 # Brute force koruması için basit rate limiting
-from collections import defaultdict
 from datetime import datetime, timedelta
 
 # 🔐 Environment Variables Yükleme - BU SATIRLARI EKLE
