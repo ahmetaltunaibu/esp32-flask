@@ -87,7 +87,7 @@ k4o5JKCcT+GcxtaAKJOgXkI+nAeJQ54IAFbB3rM8WbeObC6KRNsczwLAFMmE4JZo
 7flrv1fZ62DyRcf/qzjT/G+GQb/tS4GrNVnmMZDRMF6/KmRDfeHykAGiDPQl+IWR
 tCn7yg2wEZnfCpxiCB0bBtv2
 -----END PRIVATE KEY-----"""
-
+ 
 # Private key'i sabit PEM'den yükle
 try:
     private_key = serialization.load_pem_private_key(
