@@ -1753,7 +1753,7 @@ def check_firmware(cihaz_id):
 @admin_required
 def delete_firmware():
     """
-    🗑️ Firmware versiyonunu sil (dosya + database)
+    🗑️ Firmware versiyonunu sil (otomatik pasif etme ile)
     """
     data = request.get_json()
     if not data or 'version' not in data:
@@ -1774,9 +1774,34 @@ def delete_firmware():
             if not firmware:
                 return jsonify({"error": f"Firmware v{version} bulunamadı"}), 404
             
-            # Aktif firmware silinmesin
+            # Eğer aktif firmware ise otomatik pasif et
             if firmware['is_active']:
-                return jsonify({"error": "Aktif firmware silinemez. Önce başka bir firmware'i aktif edin"}), 400
+                logger.info(f"⚠️ Aktif firmware siliniyor, otomatik pasif ediliyor: v{version}")
+                
+                # Aktif firmware'i pasif yap
+                conn.execute('''
+                    UPDATE firmware_versions 
+                    SET is_active = 0 
+                    WHERE version = ?
+                ''', (version,))
+                
+                # Başka bir firmware'i aktif et (en son yüklenen)
+                other_firmware = conn.execute('''
+                    SELECT version FROM firmware_versions 
+                    WHERE version != ? 
+                    ORDER BY created_at DESC 
+                    LIMIT 1
+                ''', (version,)).fetchone()
+                
+                if other_firmware:
+                    conn.execute('''
+                        UPDATE firmware_versions 
+                        SET is_active = 1 
+                        WHERE version = ?
+                    ''', (other_firmware['version'],))
+                    logger.info(f"✅ v{other_firmware['version']} otomatik aktif edildi")
+                else:
+                    logger.warning("⚠️ Aktif edilecek başka firmware bulunamadı")
             
             # Cihazlarda kullanılıyor mu kontrol et
             devices_using = conn.execute('''
@@ -1819,9 +1844,11 @@ def delete_firmware():
             
             return jsonify({
                 "success": True,
-                "message": f"Firmware v{version} başarıyla silindi",
+                "message": f"Firmware v{version} başarıyla silindi" + 
+                          (" (otomatik pasif edildi)" if firmware['is_active'] else ""),
                 "files_deleted": files_deleted,
-                "files_failed": files_failed
+                "files_failed": files_failed,
+                "was_active": firmware['is_active']
             })
             
     except Exception as e:
