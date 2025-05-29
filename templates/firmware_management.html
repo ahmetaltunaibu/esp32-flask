@@ -57,9 +57,13 @@
         margin-bottom: 5px;
     }
     
-    .table td:first-child {
-        min-width: 250px;
-        max-width: 350px;
+    .form-select {
+        font-family: 'Inter', sans-serif;
+    }
+    
+    .form-select option {
+        padding: 8px;
+        font-size: 0.9rem;
     }
 </style>
 {% endblock %}
@@ -132,7 +136,7 @@
                         <td>
                             <div class="version-cell">
                                 <i class="fas fa-microchip text-primary me-2"></i>
-                                v{{ version.version }}
+                                {{ version.version }}
                             </div>
                             {% if version.file_path %}
                                 <small class="file-name">
@@ -252,10 +256,11 @@
                     <option value="{{ firmware.version }}" 
                             data-active="{{ firmware.is_active }}"
                             data-notes="{{ firmware.release_notes }}"
-                            data-filename="{{ firmware.file_path.split('/')[-1] if firmware.file_path and '/' in firmware.file_path else firmware.file_path.split('\\')[-1] if firmware.file_path else 'Bilinmiyor' }}">
-                        v{{ firmware.version }}
+                            data-filename="{{ firmware.file_path.split('/')[-1] if firmware.file_path and '/' in firmware.file_path else firmware.file_path.split('\\')[-1] if firmware.file_path else 'Bilinmiyor' }}"
+                            data-original="{{ firmware.release_notes.split('Orijinal dosya: ')[1].split(' |')[0] if firmware.release_notes and 'Orijinal dosya: ' in firmware.release_notes else 'Belirtilmemiş' }}">
+                        {{ firmware.version }}
                         {% if firmware.is_active %}
-                        <span class="badge bg-success">Aktif</span>
+                            ⭐ (Aktif)
                         {% endif %}
                     </option>
                     {% endfor %}
@@ -338,11 +343,12 @@ $(document).ready(function() {
         `;
         $('#deviceDetails').html(deviceDetails);
         
-        // Firmware details - Dosya adı ve açıklama eklendi
+        // Firmware details - Versiyon artık full text olarak görünür
         const firmwareDetails = `
-            <strong>Versiyon:</strong> v${firmwareOption.val()}<br>
-            <strong>Dosya:</strong> <code class="small">${firmwareOption.data('filename')}</code><br>
-            <strong>Durum:</strong> ${firmwareOption.data('active') ? '<span class="badge bg-success">Aktif</span>' : '<span class="badge bg-secondary">Pasif</span>'}<br>
+            <strong>Firmware:</strong> ${firmwareOption.val()}<br>
+            <strong>Orijinal Dosya:</strong> <code class="small text-primary">${firmwareOption.data('original')}</code><br>
+            <strong>Sistem Dosyası:</strong> <code class="small">${firmwareOption.data('filename')}</code><br>
+            <strong>Durum:</strong> ${firmwareOption.data('active') ? '<span class="badge bg-success">⭐ Aktif</span>' : '<span class="badge bg-secondary">Pasif</span>'}<br>
             <strong>Açıklama:</strong> <em class="text-muted">${firmwareOption.data('notes') || 'Belirtilmemiş'}</em>
         `;
         $('#firmwareDetails').html(firmwareDetails);
