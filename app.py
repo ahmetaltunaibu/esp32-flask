@@ -2106,6 +2106,207 @@ def test_insert():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# Bu kodu app.py dosyasına ekleyin
+
+@app.route('/api/chart_data/<cihaz_id>')
+@login_required
+def get_chart_data(cihaz_id):
+    """
+    📊 Grafik verileri API endpoint'i
+    Saatlik, günlük, haftalık, aylık, yıllık veri aggregation
+    """
+    sensor_id = request.args.get('sensor', '')
+    period = request.args.get('period', 'hour')  # hour, day, week, month, year
+    
+    if not sensor_id:
+        return jsonify({'error': 'Sensör ID gerekli'}), 400
+    
+    try:
+        with get_db() as conn:
+            # Cihaz kontrolü
+            cihaz = conn.execute('SELECT * FROM devices WHERE cihaz_id = ?', (cihaz_id,)).fetchone()
+            if not cihaz:
+                return jsonify({'error': 'Cihaz bulunamadı'}), 404
+            
+            # Zaman aralığını hesapla
+            end_time = datetime.now()
+            
+            if period == 'hour':
+                start_time = end_time - timedelta(hours=24)
+                date_format = "%H:00"
+                group_format = "strftime('%Y-%m-%d %H', datetime(timestamp/1000, 'unixepoch'))"
+                interval_minutes = 60
+            elif period == 'day':
+                start_time = end_time - timedelta(days=30)
+                date_format = "%d.%m"
+                group_format = "strftime('%Y-%m-%d', datetime(timestamp/1000, 'unixepoch'))"
+                interval_minutes = 1440  # 24 saat
+            elif period == 'week':
+                start_time = end_time - timedelta(weeks=12)
+                date_format = "%d.%m"
+                group_format = "strftime('%Y-W%W', datetime(timestamp/1000, 'unixepoch'))"
+                interval_minutes = 10080  # 7 gün
+            elif period == 'month':
+                start_time = end_time - timedelta(days=365)
+                date_format = "%m.%Y"
+                group_format = "strftime('%Y-%m', datetime(timestamp/1000, 'unixepoch'))"
+                interval_minutes = 43200  # 30 gün
+            elif period == 'year':
+                start_time = end_time - timedelta(days=1825)  # 5 yıl
+                date_format = "%Y"
+                group_format = "strftime('%Y', datetime(timestamp/1000, 'unixepoch'))"
+                interval_minutes = 525600  # 1 yıl
+            else:
+                return jsonify({'error': 'Geçersiz periyod'}), 400
+            
+            # Timestamp'leri milisaniye olarak hesapla
+            start_timestamp = int(start_time.timestamp() * 1000)
+            end_timestamp = int(end_time.timestamp() * 1000)
+            
+            # Sensör birimi al
+            unit_query = conn.execute('''
+                SELECT sensor_unit FROM sensor_data 
+                WHERE cihaz_id = ? AND sensor_id = ? 
+                LIMIT 1
+            ''', (cihaz_id, sensor_id)).fetchone()
+            
+            unit = unit_query['sensor_unit'] if unit_query else ''
+            
+            # Veri aggregation stratejisi
+            if period == 'hour':
+                # Saatlik: Son değeri al (OEE gibi değerler için mantıklı)
+                query = '''
+                    SELECT 
+                        {group_format} as time_group,
+                        sensor_value,
+                        timestamp,
+                        ROW_NUMBER() OVER (PARTITION BY {group_format} ORDER BY timestamp DESC) as rn
+                    FROM sensor_data 
+                    WHERE cihaz_id = ? AND sensor_id = ? 
+                    AND timestamp >= ? AND timestamp <= ?
+                '''.format(group_format=group_format)
+                
+                all_data = conn.execute(query, (cihaz_id, sensor_id, start_timestamp, end_timestamp)).fetchall()
+                
+                # Her grup için son değeri al
+                aggregated_data = {}
+                for row in all_data:
+                    if row['rn'] == 1:  # Son değer
+                        time_key = row['time_group']
+                        aggregated_data[time_key] = row['sensor_value']
+                
+            else:
+                # Günlük/haftalık/aylık/yıllık: Ortalama değer al
+                query = '''
+                    SELECT 
+                        {group_format} as time_group,
+                        AVG(sensor_value) as avg_value,
+                        COUNT(*) as count,
+                        MIN(timestamp) as min_time
+                    FROM sensor_data 
+                    WHERE cihaz_id = ? AND sensor_id = ? 
+                    AND timestamp >= ? AND timestamp <= ?
+                    GROUP BY {group_format}
+                    ORDER BY min_time
+                '''.format(group_format=group_format)
+                
+                raw_data = conn.execute(query, (cihaz_id, sensor_id, start_timestamp, end_timestamp)).fetchall()
+                
+                aggregated_data = {}
+                for row in raw_data:
+                    time_key = row['time_group']
+                    aggregated_data[time_key] = round(row['avg_value'], 2)
+            
+            if not aggregated_data:
+                return jsonify({
+                    'labels': [],
+                    'values': [],
+                    'unit': unit,
+                    'period': period,
+                    'sensor': sensor_id
+                })
+            
+            # Zaman etiketlerini formatla
+            labels = []
+            values = []
+            
+            # Zaman sıralı döngü oluştur
+            if period == 'hour':
+                current_time = start_time
+                while current_time <= end_time:
+                    time_key = current_time.strftime('%Y-%m-%d %H')
+                    label = current_time.strftime('%H:00')
+                    
+                    if time_key in aggregated_data:
+                        labels.append(label)
+                        values.append(aggregated_data[time_key])
+                    
+                    current_time += timedelta(hours=1)
+                    
+            elif period == 'day':
+                current_time = start_time.replace(hour=0, minute=0, second=0, microsecond=0)
+                while current_time <= end_time:
+                    time_key = current_time.strftime('%Y-%m-%d')
+                    label = current_time.strftime('%d.%m')
+                    
+                    if time_key in aggregated_data:
+                        labels.append(label)
+                        values.append(aggregated_data[time_key])
+                    
+                    current_time += timedelta(days=1)
+                    
+            elif period == 'week':
+                # Haftalık için mevcut veriyi kullan
+                sorted_keys = sorted(aggregated_data.keys())
+                for key in sorted_keys:
+                    # Hafta formatını dönüştür (2024-W01 -> 01.01)
+                    try:
+                        year, week = key.split('-W')
+                        week_num = int(week)
+                        # Haftanın ilk gününü hesapla
+                        jan_1 = datetime(int(year), 1, 1)
+                        week_start = jan_1 + timedelta(weeks=week_num-1)
+                        label = week_start.strftime('%d.%m')
+                    except:
+                        label = key
+                    
+                    labels.append(label)
+                    values.append(aggregated_data[key])
+                    
+            elif period == 'month':
+                sorted_keys = sorted(aggregated_data.keys())
+                for key in sorted_keys:
+                    # Ay formatını dönüştür (2024-01 -> 01.2024)
+                    try:
+                        year, month = key.split('-')
+                        label = f"{month}.{year}"
+                    except:
+                        label = key
+                    
+                    labels.append(label)
+                    values.append(aggregated_data[key])
+                    
+            elif period == 'year':
+                sorted_keys = sorted(aggregated_data.keys())
+                for key in sorted_keys:
+                    labels.append(key)  # Yıl zaten doğru formatta
+                    values.append(aggregated_data[key])
+            
+            logger.info(f"📊 Chart data: {cihaz_id} - {sensor_id} - {period} - {len(labels)} points")
+            
+            return jsonify({
+                'labels': labels,
+                'values': values,
+                'unit': unit,
+                'period': period,
+                'sensor': sensor_id,
+                'device': cihaz['cihaz_adi']
+            })
+            
+    except Exception as e:
+        logger.error(f"❌ Chart data error: {str(e)}")
+        return jsonify({'error': f'Veri alınırken hata: {str(e)}'}), 500
+
 
 @app.after_request
 def after_request(response):
@@ -2114,6 +2315,7 @@ def after_request(response):
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
+    
 
 with app.app_context():
         try:
