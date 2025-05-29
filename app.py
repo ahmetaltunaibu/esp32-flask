@@ -123,7 +123,7 @@ def get_db():
 
 def init_db():
     with get_db() as conn:
-        # Sensor verileri tablosu
+        # Mevcut sensor verileri tablosu
         conn.execute('''
             CREATE TABLE IF NOT EXISTS sensor_data (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -133,15 +133,15 @@ def init_db():
                 sensor_unit TEXT NOT NULL,
                 timestamp INTEGER NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                
             )
         ''')
         
-        # Cihazlar tablosu
+        # Cihazlar tablosu - FABRİKA EKLENDİ
         conn.execute('''
             CREATE TABLE IF NOT EXISTS devices (
                 cihaz_id TEXT PRIMARY KEY,
                 cihaz_adi TEXT NOT NULL,
+                fabrika_adi TEXT,                    -- 🏭 YENİ ALAN
                 konum TEXT NOT NULL,
                 mac TEXT NOT NULL,
                 firmware_version TEXT NOT NULL,
@@ -155,6 +155,13 @@ def init_db():
                 last_update DATETIME
             )
         ''')
+        
+        # Mevcut tabloya sütun ekleme (eğer yoksa)
+        try:
+            conn.execute('ALTER TABLE devices ADD COLUMN fabrika_adi TEXT')
+            logger.info("✅ fabrika_adi sütunu eklendi")
+        except sqlite3.OperationalError:
+            logger.info("ℹ️ fabrika_adi sütunu zaten mevcut")
         
         # Kullanıcılar tablosu
         conn.execute('''
@@ -239,7 +246,7 @@ def init_db():
             pass
         
         conn.commit()
-        logger.info("✅ Database initialized successfully")
+        logger.info("✅ Database initialized with factory support")
 
 init_db()
 
@@ -738,9 +745,11 @@ def index():
         for cihaz in cihazlar:
             if cihaz['real_online_status']:
                 online_count += 1
-                logger.info(f"   🟢 {cihaz['cihaz_adi']}: ONLINE (OEE: {cihaz.get('sensor_oee', 'N/A')})")
+                fabrika_info = f" - {cihaz.get('fabrika_adi', 'Bilinmeyen Fabrika')}" if cihaz.get('fabrika_adi') else ""
+                logger.info(f"   🟢 {cihaz['cihaz_adi']}{fabrika_info}: ONLINE (OEE: {cihaz.get('sensor_oee', 'N/A')})")
             else:
-                logger.info(f"   🔴 {cihaz['cihaz_adi']}: OFFLINE")
+                fabrika_info = f" - {cihaz.get('fabrika_adi', 'Bilinmeyen Fabrika')}" if cihaz.get('fabrika_adi') else ""
+                logger.info(f"   🔴 {cihaz['cihaz_adi']}{fabrika_info}: OFFLINE")
         
         logger.info(f"   📈 Online: {online_count}, Offline: {len(cihazlar) - online_count}")
         
@@ -900,14 +909,15 @@ def receive_data():
     
     try:
         with get_db() as conn:
-            # Update device info
+            # Update device info - FABRİKA EKLENDİ
             conn.execute('''
                 INSERT OR REPLACE INTO devices 
-                (cihaz_id, cihaz_adi, konum, mac, firmware_version, last_seen, online_status, ip_address)
-                VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+                (cihaz_id, cihaz_adi, fabrika_adi, konum, mac, firmware_version, last_seen, online_status, ip_address)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
             ''', (
                 data['cihaz_id'],
                 data.get('cihaz_adi', 'Bilinmeyen'),
+                data.get('fabrika_adi', 'Belirtilmemiş'),  # 🏭 YENİ ALAN
                 data.get('konum', 'Bilinmeyen'),
                 data.get('mac', ''),
                 data['firmware_version'],
