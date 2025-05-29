@@ -19,6 +19,9 @@ import shutil
 import zipfile
 from werkzeug.utils import secure_filename
 import json
+from datetime import datetime, timedelta
+import pytz
+
 
 # Flask app setup
 app = Flask(__name__)
@@ -244,21 +247,44 @@ init_db()
 @app.template_filter('format_timestamp')
 def format_timestamp(timestamp):
     try:
-        return datetime.fromtimestamp(timestamp / 1000).strftime('%d.%m.%Y %H:%M:%S')
+        # Türkiye saat dilimini ayarla
+        turkey_tz = pytz.timezone('Europe/Istanbul')
+        
+        # Unix timestamp'i datetime'a çevir (milisaniye varsa böl)
+        if timestamp > 1000000000000:  # Milisaniye formatında
+            dt = datetime.fromtimestamp(timestamp / 1000, tz=turkey_tz)
+        else:  # Saniye formatında
+            dt = datetime.fromtimestamp(timestamp, tz=turkey_tz)
+        
+        return dt.strftime('%d.%m.%Y %H:%M:%S')
     except:
         return "N/A"
 
 @app.template_filter('format_date_only')
 def format_date_only(timestamp):
     try:
-        return datetime.fromtimestamp(timestamp / 1000).strftime('%d.%m.%Y')
+        turkey_tz = pytz.timezone('Europe/Istanbul')
+        
+        if timestamp > 1000000000000:
+            dt = datetime.fromtimestamp(timestamp / 1000, tz=turkey_tz)
+        else:
+            dt = datetime.fromtimestamp(timestamp, tz=turkey_tz)
+        
+        return dt.strftime('%d.%m.%Y')
     except:
         return "N/A"
 
 @app.template_filter('format_time_only')
 def format_time_only(timestamp):
     try:
-        return datetime.fromtimestamp(timestamp / 1000).strftime('%H:%M:%S')
+        turkey_tz = pytz.timezone('Europe/Istanbul')
+        
+        if timestamp > 1000000000000:
+            dt = datetime.fromtimestamp(timestamp / 1000, tz=turkey_tz)
+        else:
+            dt = datetime.fromtimestamp(timestamp, tz=turkey_tz)
+        
+        return dt.strftime('%H:%M:%S')
     except:
         return "N/A"
 
