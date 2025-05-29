@@ -1,19 +1,4 @@
-<!-- Cihaz Bilgileri - SON GÜNCELLEME VE FİRMWARE YAN YANA -->
-            <div class="device-info">
-                <div class="d-flex justify-content-between align-items-center text-xs">
-                    <span><i class="fas fa-fingerprint"></i> {{ cihaz.cihaz_id }}</span>
-                    <span><i class="fas fa-network-wired"></i> {{ cihaz.mac }}</span>
-                </div>
-                <div class="d-flex justify-content-between align-items-center mt-1">
-                    <span class="device-firmware">v{{ cihaz.firmware_version }}</span>
-                    <small><i class="fas fa-clock"></i> 
-                    {% if cihaz.last_seen and cihaz.last_seen > 0 %}
-                        {{ cihaz.last_seen|format_timestamp }}
-                    {% else %}
-                        Hiç bağlanmadı
-                    {% endif %}</small>
-                </div>
-            </div>{% extends "layout.html" %}
+{% extends "layout.html" %}
 
 {% block extra_css %}
 <style>
@@ -143,7 +128,7 @@
         margin-top: 0;
     }
     
-    /* YENİ: OEE ve Üretim Metrikleri */
+    /* OEE ve Performance Metrics */
     .device-metrics {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -322,7 +307,6 @@
 <div class="device-grid" id="deviceContainer">
     {% for cihaz in cihazlar %}
     {% set is_online = cihaz.real_online_status %}
-    {% set loop_index = loop.index %}
     <div class="device-card card {% if is_online %}online online-device{% else %}offline offline-device{% endif %}" 
          onclick="{% if is_online %}window.location.href='{{ url_for('cihaz_detay', cihaz_id=cihaz.cihaz_id) }}'{% else %}showOfflineMessage('{{ cihaz.cihaz_adi }}'){% endif %}">
         
@@ -345,23 +329,7 @@
                 <i class="fas fa-map-marker-alt"></i> {{ cihaz.konum }}
             </div>
             
-            <!-- Cihaz Bilgileri - TEK SATIRDA -->
-            <div class="device-info">
-                <div class="d-flex justify-content-between align-items-center text-xs">
-                    <span><i class="fas fa-fingerprint"></i> {{ cihaz.cihaz_id }}</span>
-                    <span><i class="fas fa-network-wired"></i> {{ cihaz.mac }}</span>
-                </div>
-                <div class="text-center mt-1">
-                    <small><i class="fas fa-clock"></i> 
-                    {% if cihaz.last_seen and cihaz.last_seen > 0 %}
-                        {{ cihaz.last_seen|format_timestamp }}
-                    {% else %}
-                        Hiç bağlanmadı
-                    {% endif %}</small>
-                </div>
-            </div>
-            
-            <!-- YENİ: OEE ve Üretim Metrikleri - ÜSTTE -->
+            <!-- OEE ve Üretim Metrikleri - ÜSTTE -->
             <div class="device-metrics">
                 <div class="metric-item">
                     <div class="metric-label">OEE</div>
@@ -412,7 +380,22 @@
                 </div>
             </div>
             
-            <!-- Firmware Badge kaldırıldı - artık yukarıda -->
+            <!-- Cihaz Bilgileri - ALTTA -->
+            <div class="device-info">
+                <div class="d-flex justify-content-between align-items-center text-xs">
+                    <span><i class="fas fa-fingerprint"></i> {{ cihaz.cihaz_id }}</span>
+                    <span><i class="fas fa-network-wired"></i> {{ cihaz.mac }}</span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center mt-1">
+                    <span class="device-firmware">v{{ cihaz.firmware_version }}</span>
+                    <small><i class="fas fa-clock"></i> 
+                    {% if cihaz.last_seen and cihaz.last_seen > 0 %}
+                        {{ cihaz.last_seen|format_timestamp }}
+                    {% else %}
+                        Hiç bağlanmadı
+                    {% endif %}</small>
+                </div>
+            </div>
         </div>
     </div>
     {% endfor %}
@@ -426,45 +409,99 @@
 {% endif %}
 
 <script>
-// Filtreleme fonksiyonları
-document.getElementById('filterAll').addEventListener('click', function() {
-    showAllDevices();
-    setActiveFilter(this);
-});
+// Filtreleme ve arama fonksiyonları
+let allDevices = [];
+let filteredDevices = [];
+let currentStatusFilter = 'all';
+let currentLocationFilter = '';
+let currentSearchTerm = '';
 
-document.getElementById('filterOnline').addEventListener('click', function() {
-    filterDevices('online');
-    setActiveFilter(this);
-});
-
-document.getElementById('filterOffline').addEventListener('click', function() {
-    filterDevices('offline');
-    setActiveFilter(this);
-});
-
-function showAllDevices() {
-    document.querySelectorAll('.device-card').forEach(card => {
-        card.style.display = 'block';
+document.addEventListener('DOMContentLoaded', function() {
+    // Tüm cihazları array'e kaydet
+    allDevices = Array.from(document.querySelectorAll('.device-card')).map(card => {
+        return {
+            element: card,
+            name: card.querySelector('.device-title').textContent.toLowerCase(),
+            location: card.querySelector('.device-location').textContent.toLowerCase(),
+            isOnline: card.classList.contains('online-device')
+        };
     });
+    
+    // Event listener'ları ekle
+    document.getElementById('filterAll').addEventListener('click', () => setStatusFilter('all'));
+    document.getElementById('filterOnline').addEventListener('click', () => setStatusFilter('online'));
+    document.getElementById('filterOffline').addEventListener('click', () => setStatusFilter('offline'));
+    document.getElementById('locationFilter').addEventListener('change', handleLocationFilter);
+    document.getElementById('searchInput').addEventListener('input', handleSearch);
+    
+    // İlk filtreleme
+    applyFilters();
+});
+
+function setStatusFilter(status) {
+    currentStatusFilter = status;
+    
+    // Buton durumlarını güncelle
+    document.querySelectorAll('.btn-group .btn').forEach(btn => btn.classList.remove('active'));
+    document.getElementById('filter' + status.charAt(0).toUpperCase() + status.slice(1)).classList.add('active');
+    
+    applyFilters();
 }
 
-function filterDevices(status) {
-    document.querySelectorAll('.device-card').forEach(card => {
-        if (status === 'online' && card.classList.contains('online-device')) {
-            card.style.display = 'block';
-        } else if (status === 'offline' && card.classList.contains('offline-device')) {
-            card.style.display = 'block';
-        } else {
-            card.style.display = 'none';
+function handleLocationFilter(e) {
+    currentLocationFilter = e.target.value.toLowerCase();
+    applyFilters();
+}
+
+function handleSearch(e) {
+    currentSearchTerm = e.target.value.toLowerCase();
+    applyFilters();
+}
+
+function applyFilters() {
+    filteredDevices = allDevices.filter(device => {
+        // Durum filtresi
+        let statusMatch = true;
+        if (currentStatusFilter === 'online') {
+            statusMatch = device.isOnline;
+        } else if (currentStatusFilter === 'offline') {
+            statusMatch = !device.isOnline;
         }
+        
+        // Konum filtresi
+        let locationMatch = true;
+        if (currentLocationFilter) {
+            locationMatch = device.location.includes(currentLocationFilter);
+        }
+        
+        // Arama filtresi
+        let searchMatch = true;
+        if (currentSearchTerm) {
+            searchMatch = device.name.includes(currentSearchTerm) || 
+                         device.location.includes(currentSearchTerm);
+        }
+        
+        return statusMatch && locationMatch && searchMatch;
     });
+    
+    // Görünürlüğü güncelle
+    allDevices.forEach(device => {
+        const shouldShow = filteredDevices.includes(device);
+        device.element.style.display = shouldShow ? 'block' : 'none';
+    });
+    
+    // Sonuç sayısını güncelle
+    updateFilterCounts();
 }
 
-function setActiveFilter(activeButton) {
-    document.querySelectorAll('.btn-group .btn').forEach(btn => {
-        btn.classList.remove('active');
-    });
-    activeButton.classList.add('active');
+function updateFilterCounts() {
+    const visibleCount = filteredDevices.length;
+    const onlineCount = filteredDevices.filter(d => d.isOnline).length;
+    const offlineCount = filteredDevices.filter(d => !d.isOnline).length;
+    
+    document.getElementById('filterAll').innerHTML = `<i class="fas fa-list"></i> Tümü (${visibleCount})`;
+    document.getElementById('filterOnline').innerHTML = `<i class="fas fa-wifi"></i> Online (${onlineCount})`;
+    document.getElementById('filterOffline').innerHTML = `<i class="fas fa-times-circle"></i> Offline (${offlineCount})`;
 }
 
 // Offline cihaz tıklama mesajı
