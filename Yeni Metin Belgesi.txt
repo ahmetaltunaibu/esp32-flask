@@ -1,0 +1,4 @@
+SECRET_KEY=your-super-secret-key-here-minimum-32-characters-long
+ADMIN_PASSWORD=IoT@dmin2024#Secure!
+DEBUG=False
+PORT=5000
