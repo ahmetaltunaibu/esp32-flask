@@ -335,14 +335,13 @@
                 {% endif %}
             </div>
             
-            <!-- YENİ: OEE ve Üretim Metrikleri - SABIT DEĞERLER -->
+            <!-- YENİ: OEE ve Üretim Metrikleri - GERÇEK VERİLER -->
             <div class="device-metrics">
                 <div class="metric-item">
                     <div class="metric-label">OEE</div>
-                    <div class="metric-value {% if is_online %}{% set oee_val = (loop_index * 7 + 65) % 40 + 60 %}{% if oee_val >= 80 %}oee-high{% elif oee_val >= 60 %}oee-medium{% else %}oee-low{% endif %}{% else %}oee-low{% endif %}">
-                        {% if is_online %}
-                            {% set oee_val = (loop_index * 7 + 65) % 40 + 60 %}
-                            {{ oee_val }}%
+                    <div class="metric-value {% if cihaz.oee_percentage %}{% if cihaz.oee_percentage >= 80 %}oee-high{% elif cihaz.oee_percentage >= 60 %}oee-medium{% else %}oee-low{% endif %}{% else %}oee-low{% endif %}">
+                        {% if cihaz.oee_percentage %}
+                            {{ "%.1f"|format(cihaz.oee_percentage) }}%
                         {% else %}
                             --
                         {% endif %}
@@ -352,8 +351,8 @@
                 <div class="metric-item">
                     <div class="metric-label">Aktif Çalışma</div>
                     <div class="metric-value">
-                        {% if is_online %}
-                            {{ "%.1f"|format((loop_index * 3.2 + 12) % 8 + 2) }}h
+                        {% if cihaz.active_time_hours %}
+                            {{ "%.1f"|format(cihaz.active_time_hours) }}h
                         {% else %}
                             --
                         {% endif %}
@@ -363,8 +362,8 @@
                 <div class="metric-item">
                     <div class="metric-label">Toplam Çalışma</div>
                     <div class="metric-value">
-                        {% if is_online %}
-                            {{ "%.1f"|format((loop_index * 4.1 + 15) % 6 + 6) }}h
+                        {% if cihaz.total_time_hours %}
+                            {{ "%.1f"|format(cihaz.total_time_hours) }}h
                         {% else %}
                             --
                         {% endif %}
@@ -374,10 +373,10 @@
                 <div class="metric-item">
                     <div class="metric-label">Toplam Ürün</div>
                     <div class="metric-value">
-                        {% if is_online %}
-                            {{ "{:,}".format((loop_index * 127 + 450) % 2000 + 800) }}
+                        {% if cihaz.total_products %}
+                            {{ "{:,}".format(cihaz.total_products) }}
                         {% else %}
-                            {{ "{:,}".format((loop_index * 89 + 200) % 1500 + 300) }}
+                            0
                         {% endif %}
                     </div>
                 </div>
