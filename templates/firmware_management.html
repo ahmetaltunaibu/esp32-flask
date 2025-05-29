@@ -41,6 +41,15 @@
         display: block;
         margin-top: 2px;
     }
+    
+    .release-notes {
+        font-size: 0.75rem;
+        color: #6c757d;
+        display: block;
+        margin-top: 3px;
+        font-style: italic;
+        line-height: 1.2;
+    }
 </style>
 {% endblock %}
 
@@ -99,12 +108,11 @@
             <table class="table table-striped" id="firmwareTable">
                 <thead>
                     <tr>
-                        <th>Versiyon & Dosya</th>
-                        <th>Yükleme Tarihi</th>
-                        <th>Dosya Boyutu</th>
-                        <th>Durum</th>
-                        <th>Sürüm Notları</th>
-                        <th>İşlemler</th>
+                        <th style="width: 25%;">Versiyon & Dosya & Açıklama</th>
+                        <th style="width: 15%;">Yükleme Tarihi</th>
+                        <th style="width: 12%;">Dosya Boyutu</th>
+                        <th style="width: 10%;">Durum</th>
+                        <th style="width: 23%;">İşlemler</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -126,6 +134,12 @@
                                     Dosya yolu bulunamadı
                                 </small>
                             {% endif %}
+                            {% if version.release_notes %}
+                                <small class="release-notes">
+                                    <i class="fas fa-sticky-note me-1"></i>
+                                    {{ version.release_notes[:40] + '...' if version.release_notes|length > 40 else version.release_notes }}
+                                </small>
+                            {% endif %}
                         </td>
                         <td>
                             <span class="text-muted">{{ version.created_at }}</span>
@@ -133,10 +147,14 @@
                         <td>
                             {% if version.file_size %}
                                 <span class="badge bg-light text-dark">
+                                    <i class="fas fa-hdd me-1"></i>
                                     {{ "%0.2f"|format(version.file_size/1024) }} KB
                                 </span>
                             {% else %}
-                                <span class="text-muted">Bilinmiyor</span>
+                                <span class="text-muted">
+                                    <i class="fas fa-question-circle me-1"></i>
+                                    Bilinmiyor
+                                </span>
                             {% endif %}
                         </td>
                         <td>
@@ -149,11 +167,6 @@
                                 <i class="fas fa-pause me-1"></i>Pasif
                             </span>
                             {% endif %}
-                        </td>
-                        <td>
-                            <small class="text-muted">
-                                {{ version.release_notes[:50] + '...' if version.release_notes and version.release_notes|length > 50 else version.release_notes or 'Belirtilmemiş' }}
-                            </small>
                         </td>
                         <td>
                             <div class="btn-group-actions">
@@ -312,12 +325,12 @@ $(document).ready(function() {
         `;
         $('#deviceDetails').html(deviceDetails);
         
-        // Firmware details - Dosya adı eklendi
+        // Firmware details - Dosya adı ve açıklama eklendi
         const firmwareDetails = `
             <strong>Versiyon:</strong> v${firmwareOption.val()}<br>
             <strong>Dosya:</strong> <code class="small">${firmwareOption.data('filename')}</code><br>
             <strong>Durum:</strong> ${firmwareOption.data('active') ? '<span class="badge bg-success">Aktif</span>' : '<span class="badge bg-secondary">Pasif</span>'}<br>
-            <strong>Notlar:</strong> ${firmwareOption.data('notes') || 'Belirtilmemiş'}
+            <strong>Açıklama:</strong> <em class="text-muted">${firmwareOption.data('notes') || 'Belirtilmemiş'}</em>
         `;
         $('#firmwareDetails').html(firmwareDetails);
         
