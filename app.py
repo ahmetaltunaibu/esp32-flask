@@ -117,7 +117,7 @@ HARDCODED_ADMIN = {
 
 # Database Setup
 def get_db():
-    conn = sqlite3.connect('sensor_data.db')
+     conn = sqlite3.connect('sensor_data.db', isolation_level=None)  # ← Bu kısmı ekle
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA synchronous = FULL')  # ← Bu satırı ekle
     conn.execute('PRAGMA journal_mode = WAL')   # ← Bu satırı ekle
