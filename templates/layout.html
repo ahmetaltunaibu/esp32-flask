@@ -409,6 +409,7 @@
         </div>
         
         <div class="sidebar-nav">
+            <!-- Dashboard -->
             <div class="nav-item">
                 <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" 
                    href="{{ url_for('index') }}">
@@ -419,15 +420,27 @@
             </div>
             
             {% if is_admin %}
+            <!-- Kullanıcı Yönetimi - YENİ MENÜ -->
+            <div class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'user_management' %}active{% endif %}" 
+                   href="{{ url_for('user_management') }}">
+                    <i class="fas fa-users nav-icon"></i>
+                    <span class="nav-text">Kullanıcılar</span>
+                    <div class="nav-tooltip">Kullanıcı Yönetimi</div>
+                </a>
+            </div>
+            
+            <!-- Firmware Yönetimi -->
             <div class="nav-item">
                 <a class="nav-link {% if request.endpoint == 'firmware_management' %}active{% endif %}" 
                    href="{{ url_for('firmware_management') }}">
                     <i class="fas fa-microchip nav-icon"></i>
-                    <span class="nav-text">Firmware Yönetimi</span>
+                    <span class="nav-text">Firmware</span>
                     <div class="nav-tooltip">Firmware Yönetimi</div>
                 </a>
             </div>
             
+            <!-- Veritabanı Yönetimi -->
             <div class="nav-item">
                 <a class="nav-link {% if request.endpoint == 'database_management' %}active{% endif %}" 
                    href="{{ url_for('database_management') }}">
@@ -438,6 +451,7 @@
             </div>
             {% endif %}
             
+            <!-- İstatistikler -->
             <div class="nav-item">
                 <a class="nav-link" href="#" onclick="showQuickStats()">
                     <i class="fas fa-chart-bar nav-icon"></i>
@@ -446,6 +460,7 @@
                 </a>
             </div>
             
+            <!-- Ayarlar -->
             <div class="nav-item">
                 <a class="nav-link" href="#" onclick="showSettings()">
                     <i class="fas fa-cog nav-icon"></i>
