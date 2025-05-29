@@ -335,13 +335,13 @@
                 {% endif %}
             </div>
             
-            <!-- YENİ: OEE ve Üretim Metrikleri - GERÇEK VERİLER -->
+            <!-- YENİ: OEE ve Üretim Metrikleri - SENSOR VERİLERİNDEN -->
             <div class="device-metrics">
                 <div class="metric-item">
                     <div class="metric-label">OEE</div>
-                    <div class="metric-value {% if cihaz.oee_percentage %}{% if cihaz.oee_percentage >= 80 %}oee-high{% elif cihaz.oee_percentage >= 60 %}oee-medium{% else %}oee-low{% endif %}{% else %}oee-low{% endif %}">
-                        {% if cihaz.oee_percentage %}
-                            {{ "%.1f"|format(cihaz.oee_percentage) }}%
+                    <div class="metric-value {% if cihaz.sensor_oee %}{% if cihaz.sensor_oee >= 80 %}oee-high{% elif cihaz.sensor_oee >= 60 %}oee-medium{% else %}oee-low{% endif %}{% else %}oee-low{% endif %}">
+                        {% if cihaz.sensor_oee %}
+                            {{ "%.1f"|format(cihaz.sensor_oee) }}%
                         {% else %}
                             --
                         {% endif %}
@@ -351,8 +351,8 @@
                 <div class="metric-item">
                     <div class="metric-label">Aktif Çalışma</div>
                     <div class="metric-value">
-                        {% if cihaz.active_time_hours %}
-                            {{ "%.1f"|format(cihaz.active_time_hours) }}h
+                        {% if cihaz.sensor_active_time %}
+                            {{ "%.1f"|format(cihaz.sensor_active_time) }}h
                         {% else %}
                             --
                         {% endif %}
@@ -362,8 +362,8 @@
                 <div class="metric-item">
                     <div class="metric-label">Toplam Çalışma</div>
                     <div class="metric-value">
-                        {% if cihaz.total_time_hours %}
-                            {{ "%.1f"|format(cihaz.total_time_hours) }}h
+                        {% if cihaz.sensor_total_time %}
+                            {{ "%.1f"|format(cihaz.sensor_total_time) }}h
                         {% else %}
                             --
                         {% endif %}
@@ -373,8 +373,8 @@
                 <div class="metric-item">
                     <div class="metric-label">Toplam Ürün</div>
                     <div class="metric-value">
-                        {% if cihaz.total_products %}
-                            {{ "{:,}".format(cihaz.total_products) }}
+                        {% if cihaz.sensor_total_products %}
+                            {{ "{:,}".format(cihaz.sensor_total_products|int) }}
                         {% else %}
                             0
                         {% endif %}
