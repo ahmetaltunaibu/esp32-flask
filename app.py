@@ -671,15 +671,39 @@ def index():
             cihaz_dict['sensor_total_time'] = None
             cihaz_dict['sensor_total_products'] = None
             
+            # Debug: Hangi sensor_id'ler var görelim
+            sensor_ids = [veri['sensor_id'] for veri in veriler]
+            logger.info(f"🔍 {cihaz['cihaz_adi']} sensor_ids: {sensor_ids}")
+            
             for veri in veriler:
-                if 'oee' in veri['sensor_id'].lower():
+                sensor_id = veri['sensor_id'].lower()
+                logger.info(f"   Kontrol ediliyor: {veri['sensor_id']} = {veri['sensor_value']}")
+                
+                if sensor_id == 'oee':
                     cihaz_dict['sensor_oee'] = veri['sensor_value']
-                elif 'active' in veri['sensor_id'].lower() and 'time' in veri['sensor_id'].lower():
+                    logger.info(f"   ✅ OEE bulundu: {veri['sensor_value']}")
+                elif sensor_id == 'aktif_calisma':
                     cihaz_dict['sensor_active_time'] = veri['sensor_value']
-                elif 'total' in veri['sensor_id'].lower() and 'time' in veri['sensor_id'].lower():
+                    logger.info(f"   ✅ Aktif çalışma bulundu: {veri['sensor_value']}")
+                elif sensor_id == 'toplam_calisma':
                     cihaz_dict['sensor_total_time'] = veri['sensor_value'] 
-                elif 'product' in veri['sensor_id'].lower() or 'urun' in veri['sensor_id'].lower():
+                    logger.info(f"   ✅ Toplam çalışma bulundu: {veri['sensor_value']}")
+                elif sensor_id == 'toplam_urun':
                     cihaz_dict['sensor_total_products'] = veri['sensor_value']
+                    logger.info(f"   ✅ Toplam ürün bulundu: {veri['sensor_value']}")
+                # Yedek aramalar
+                elif 'oee' in sensor_id:
+                    if not cihaz_dict['sensor_oee']:
+                        cihaz_dict['sensor_oee'] = veri['sensor_value']
+                elif 'aktif' in sensor_id and 'calis' in sensor_id:
+                    if not cihaz_dict['sensor_active_time']:
+                        cihaz_dict['sensor_active_time'] = veri['sensor_value']
+                elif 'toplam' in sensor_id and 'calis' in sensor_id:
+                    if not cihaz_dict['sensor_total_time']:
+                        cihaz_dict['sensor_total_time'] = veri['sensor_value']
+                elif 'toplam' in sensor_id and 'urun' in sensor_id:
+                    if not cihaz_dict['sensor_total_products']:
+                        cihaz_dict['sensor_total_products'] = veri['sensor_value']
             
             cihazlar.append(cihaz_dict)
         
