@@ -1,4 +1,19 @@
-{% extends "layout.html" %}
+<!-- Cihaz Bilgileri - SON GÜNCELLEME VE FİRMWARE YAN YANA -->
+            <div class="device-info">
+                <div class="d-flex justify-content-between align-items-center text-xs">
+                    <span><i class="fas fa-fingerprint"></i> {{ cihaz.cihaz_id }}</span>
+                    <span><i class="fas fa-network-wired"></i> {{ cihaz.mac }}</span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center mt-1">
+                    <span class="device-firmware">v{{ cihaz.firmware_version }}</span>
+                    <small><i class="fas fa-clock"></i> 
+                    {% if cihaz.last_seen and cihaz.last_seen > 0 %}
+                        {{ cihaz.last_seen|format_timestamp }}
+                    {% else %}
+                        Hiç bağlanmadı
+                    {% endif %}</small>
+                </div>
+            </div>{% extends "layout.html" %}
 
 {% block extra_css %}
 <style>
@@ -119,13 +134,13 @@
     }
     .device-firmware {
         display: inline-block;
-        background: rgba(52, 73, 94, 0.1);
+        background: rgba(255, 255, 255, 0.1);
         padding: 2px 8px;
         border-radius: 12px;
         font-size: 0.7rem;
         font-weight: 500;
-        color: #2d3436;
-        margin-top: 8px;
+        color: rgba(255, 255, 255, 0.9);
+        margin-top: 0;
     }
     
     /* YENİ: OEE ve Üretim Metrikleri */
@@ -397,10 +412,7 @@
                 </div>
             </div>
             
-            <!-- Firmware Badge -->
-            <div class="device-firmware">
-                v{{ cihaz.firmware_version }}
-            </div>
+            <!-- Firmware Badge kaldırıldı - artık yukarıda -->
         </div>
     </div>
     {% endfor %}
