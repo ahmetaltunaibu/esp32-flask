@@ -1454,11 +1454,24 @@ def upload_firmware():
     try:
         os.makedirs(app.config['FIRMWARE_FOLDER'], exist_ok=True)
         
+        # Orijinal dosya ismini kaydet
+        original_filename = secure_filename(file.filename)
+        
+        # Yeni dosya ismi oluştur
         filename = secure_filename(f"firmware_v{version}.bin")
         file_path = os.path.join(app.config['FIRMWARE_FOLDER'], filename)
         file.save(file_path)
         
         file_size = os.path.getsize(file_path)
+        
+        # Açıklamayı otomatik genişlet
+        auto_description = f"Orijinal dosya: {original_filename}"
+        if release_notes:
+            # Kullanıcı açıklaması varsa, orijinal dosya ismini başa ekle
+            final_release_notes = f"{auto_description} | {release_notes}"
+        else:
+            # Sadece orijinal dosya ismi
+            final_release_notes = auto_description
         
         # Sign firmware
         signature = sign_firmware(file_path)
@@ -1468,16 +1481,18 @@ def upload_firmware():
         with open(sig_path, 'wb') as f:
             f.write(signature)
         
-        # Save to database
+        # Save to database - güncellenmiş açıklama ile
         with get_db() as conn:
             try:
                 conn.execute('''
                     INSERT INTO firmware_versions (version, release_notes, file_path, file_size, signature_path)
                     VALUES (?, ?, ?, ?, ?)
-                ''', (version, release_notes, file_path, file_size, sig_path))
+                ''', (version, final_release_notes, file_path, file_size, sig_path))
                 conn.commit()
-                flash('Firmware başarıyla yüklendi', 'success')
-                logger.info(f"✅ Firmware uploaded: v{version}")
+                
+                flash(f'Firmware başarıyla yüklendi (v{version})', 'success')
+                logger.info(f"✅ Firmware uploaded: v{version} (original: {original_filename})")
+                
             except sqlite3.IntegrityError:
                 flash('Bu versiyon zaten mevcut', 'danger')
         
