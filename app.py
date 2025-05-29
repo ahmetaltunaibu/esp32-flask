@@ -909,23 +909,41 @@ def receive_data():
     
     try:
         with get_db() as conn:
-            # Update device info - FABRİKA EKLENDİ
-            conn.execute('''
-                INSERT OR REPLACE INTO devices 
-                (cihaz_id, cihaz_adi, fabrika_adi, konum, mac, firmware_version, last_seen, online_status, ip_address)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+            # ✅ UPDATE first (preserves target_firmware)
+            cursor = conn.execute('''
+                UPDATE devices 
+                SET cihaz_adi = ?, fabrika_adi = ?, konum = ?, mac = ?, 
+                    firmware_version = ?, last_seen = ?, online_status = 1, ip_address = ?
+                WHERE cihaz_id = ?
             ''', (
-                data['cihaz_id'],
                 data.get('cihaz_adi', 'Bilinmeyen'),
-                data.get('fabrika_adi', 'Belirtilmemiş'),  # 🏭 YENİ ALAN
+                data.get('fabrika_adi', 'Belirtilmemiş'),
                 data.get('konum', 'Bilinmeyen'),
                 data.get('mac', ''),
                 data['firmware_version'],
                 timestamp,
-                request.remote_addr
+                request.remote_addr,
+                data['cihaz_id']
             ))
             
-            # Save sensor data
+            # ✅ INSERT only if device doesn't exist
+            if cursor.rowcount == 0:
+                conn.execute('''
+                    INSERT INTO devices 
+                    (cihaz_id, cihaz_adi, fabrika_adi, konum, mac, firmware_version, last_seen, online_status, ip_address)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+                ''', (
+                    data['cihaz_id'],
+                    data.get('cihaz_adi', 'Bilinmeyen'),
+                    data.get('fabrika_adi', 'Belirtilmemiş'),
+                    data.get('konum', 'Bilinmeyen'),
+                    data.get('mac', ''),
+                    data['firmware_version'],
+                    timestamp,
+                    request.remote_addr
+                ))
+            
+            # Save sensor data (aynı kalır)
             if 'veriler' in data:
                 for veri in data['veriler']:
                     conn.execute('''
