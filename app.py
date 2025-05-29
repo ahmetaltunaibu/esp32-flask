@@ -1,4 +1,5 @@
 #deneme satır
+import secrets
 import os
 import sqlite3
 import logging
@@ -21,7 +22,6 @@ from werkzeug.utils import secure_filename
 import json
 from datetime import datetime, timedelta
 import pytz
-import secrets
 # Brute force koruması için basit rate limiting
 from collections import defaultdict
 from datetime import datetime, timedelta
