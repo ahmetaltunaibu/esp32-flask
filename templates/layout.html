@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}IoT Yönetim Sistemi{% endblock %}</title>
+    <title>Cihaz Yönetim Paneli</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="https://cdn.datatables.net/1.11.5/css/dataTables.bootstrap5.min.css" rel="stylesheet">
@@ -22,7 +22,7 @@
             --content-bg: #f8fafc;
             --sidebar-width: 280px;
             --sidebar-collapsed-width: 70px;
-            --topbar-height: 0px; /* Topbar'ı kaldırıyoruz */
+            --topbar-height: 0px;
         }
         
         * {
@@ -37,7 +37,6 @@
             overflow-x: hidden;
         }
         
-        /* Sidebar - İyileştirilmiş */
         .sidebar {
             position: fixed;
             top: 0;
@@ -56,7 +55,6 @@
             width: var(--sidebar-collapsed-width);
         }
         
-        /* Sidebar Header - Kullanıcı Bilgisi */
         .sidebar-header {
             padding: 20px;
             text-align: center;
@@ -120,7 +118,6 @@
             opacity: 0;
         }
         
-        /* Sidebar Navigation */
         .sidebar-nav {
             padding: 20px 0;
             flex-grow: 1;
@@ -193,7 +190,6 @@
             display: none;
         }
         
-        /* Sidebar Footer - Çıkış */
         .sidebar-footer {
             padding: 20px;
             border-top: 1px solid rgba(255,255,255,0.1);
@@ -246,7 +242,6 @@
             display: none;
         }
         
-        /* Toggle Button */
         .sidebar-toggle {
             position: absolute;
             top: 20px;
@@ -270,7 +265,6 @@
             transform: scale(1.1);
         }
         
-        /* Main Content - Topbar kaldırıldı */
         .main-content {
             margin-left: var(--sidebar-width);
             padding: 25px;
@@ -282,7 +276,6 @@
             margin-left: var(--sidebar-collapsed-width);
         }
         
-        /* Responsive */
         @media (max-width: 768px) {
             .sidebar {
                 transform: translateX(-100%);
@@ -315,7 +308,6 @@
             }
         }
         
-        /* Tooltip for collapsed sidebar */
         .nav-tooltip {
             position: absolute;
             left: calc(100% + 10px);
@@ -349,7 +341,7 @@
             left: calc(100% + 15px);
         }
         
-        /* Page Header Improvements */
+        /* Değiştirilen Kısım - Page Header */
         .page-header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -365,15 +357,14 @@
             font-size: 1.8rem;
             font-weight: 700;
             margin: 0;
+            text-align: center;
+            flex-grow: 1;
         }
         
         .page-subtitle {
-            font-size: 1rem;
-            opacity: 0.9;
-            margin: 5px 0 0 0;
+            display: none; /* Alt başlık kaldırıldı */
         }
     </style>
-    {% block extra_css %}{% endblock %}
 </head>
 <body>
     <!-- Mobile Overlay -->
@@ -388,77 +379,38 @@
         
         <!-- User Info Header -->
         <div class="sidebar-header">
-            {% if current_user %}
             <div class="user-avatar">
-                {{ current_user.name[0].upper() if current_user.name else session.username[0].upper() }}
+                <i class="fas fa-user"></i>
             </div>
-            <div class="user-name">{{ current_user.name or session.username }}</div>
+            <div class="user-name">Kullanıcı</div>
             <div class="user-role">
-                {% if is_admin %}
-                    <i class="fas fa-crown"></i> Yönetici
-                {% else %}
-                    <i class="fas fa-user"></i> Kullanıcı
-                {% endif %}
+                <i class="fas fa-user"></i> Kullanıcı
             </div>
-            {% endif %}
         </div>
         
         <!-- Navigation -->
         <div class="sidebar-nav">
             <!-- Ana Panel -->
             <div class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" 
-                   href="{{ url_for('index') }}">
+                <a class="nav-link active" href="#">
                     <i class="fas fa-chart-pie nav-icon"></i>
                     <span class="nav-text">Ana Panel</span>
                     <div class="nav-tooltip">Ana Panel</div>
                 </a>
             </div>
             
-            {% if is_admin %}
-            <!-- Kullanıcı Yönetimi -->
+            <!-- Cihazlar -->
             <div class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'user_management' %}active{% endif %}" 
-                   href="{{ url_for('user_management') }}">
-                    <i class="fas fa-users nav-icon"></i>
-                    <span class="nav-text">Kullanıcılar</span>
-                    <div class="nav-tooltip">Kullanıcı Yönetimi</div>
-                </a>
-            </div>
-            
-            <!-- Firmware Yönetimi -->
-            <div class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'firmware_management' %}active{% endif %}" 
-                   href="{{ url_for('firmware_management') }}">
+                <a class="nav-link" href="#">
                     <i class="fas fa-microchip nav-icon"></i>
-                    <span class="nav-text">Firmware</span>
-                    <div class="nav-tooltip">Firmware Yönetimi</div>
-                </a>
-            </div>
-            
-            <!-- Veritabanı Yönetimi -->
-            <div class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'database_management' %}active{% endif %}" 
-                   href="{{ url_for('database_management') }}">
-                    <i class="fas fa-database nav-icon"></i>
-                    <span class="nav-text">Veritabanı</span>
-                    <div class="nav-tooltip">Veritabanı Yönetimi</div>
-                </a>
-            </div>
-            {% endif %}
-            
-            <!-- Raporlar -->
-            <div class="nav-item">
-                <a class="nav-link" href="#" onclick="showReports()">
-                    <i class="fas fa-chart-bar nav-icon"></i>
-                    <span class="nav-text">Raporlar</span>
-                    <div class="nav-tooltip">Raporlar</div>
+                    <span class="nav-text">Cihazlar</span>
+                    <div class="nav-tooltip">Cihazlar</div>
                 </a>
             </div>
             
             <!-- Ayarlar -->
             <div class="nav-item">
-                <a class="nav-link" href="#" onclick="showSettings()">
+                <a class="nav-link" href="#">
                     <i class="fas fa-cog nav-icon"></i>
                     <span class="nav-text">Ayarlar</span>
                     <div class="nav-tooltip">Ayarlar</div>
@@ -468,7 +420,7 @@
         
         <!-- Logout Footer -->
         <div class="sidebar-footer">
-            <a href="{{ url_for('logout') }}" class="logout-btn" onclick="return confirm('Çıkış yapmak istediğinize emin misiniz?')">
+            <a href="#" class="logout-btn" onclick="return confirm('Çıkış yapmak istediğinize emin misiniz?')">
                 <i class="fas fa-sign-out-alt logout-icon"></i>
                 <span class="logout-text">Çıkış Yap</span>
             </a>
@@ -479,10 +431,7 @@
     <main class="main-content">
         <!-- Page Header -->
         <div class="page-header">
-            <div>
-                <h1 class="page-title">{% block page_title %}IoT Yönetim Sistemi{% endblock %}</h1>
-                <p class="page-subtitle">{% block page_subtitle %}Cihazlarınızı yönetin ve izleyin{% endblock %}</p>
-            </div>
+            <h1 class="page-title">Cihaz Yönetim Paneli</h1>
             <div>
                 <button type="button" class="btn btn-light" onclick="window.location.reload()">
                     <i class="fas fa-sync-alt me-2"></i>Yenile
@@ -490,8 +439,7 @@
             </div>
         </div>
         
-        {% include '_flash_messages.html' %}
-        {% block content %}{% endblock %}
+        <!-- İçerik buraya gelecek -->
     </main>
 
     <!-- Scripts -->
@@ -499,7 +447,6 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.11.5/js/dataTables.bootstrap5.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <script>
         // Sidebar toggle functionality
@@ -507,18 +454,13 @@
             const sidebar = document.getElementById('sidebar');
             
             if (window.innerWidth <= 768) {
-                // Mobile behavior
                 sidebar.classList.toggle('mobile-open');
                 document.getElementById('mobileOverlay').classList.toggle('active');
             } else {
-                // Desktop behavior
                 sidebar.classList.toggle('collapsed');
-                // Save state to localStorage if available
                 try {
                     localStorage.setItem('sidebarCollapsed', sidebar.classList.contains('collapsed'));
-                } catch (e) {
-                    // Ignore localStorage errors
-                }
+                } catch (e) {}
             }
         }
 
@@ -535,9 +477,7 @@
                 if (isCollapsed && window.innerWidth > 768) {
                     document.getElementById('sidebar').classList.add('collapsed');
                 }
-            } catch (e) {
-                // Ignore localStorage errors
-            }
+            } catch (e) {}
         });
 
         // Handle window resize
@@ -548,17 +488,6 @@
                 document.getElementById('mobileOverlay').classList.remove('active');
             }
         });
-
-        // Placeholder functions
-        function showReports() {
-            alert('Raporlar özelliği yakında eklenecek!');
-        }
-
-        function showSettings() {
-            alert('Ayarlar özelliği yakında eklenecek!');
-        }
     </script>
-    
-    {% block scripts %}{% endblock %}
 </body>
 </html>
