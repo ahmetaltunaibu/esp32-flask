@@ -425,6 +425,7 @@ let allDevices = [];
 let filteredDevices = [];
 let currentStatusFilter = 'all';
 let currentLocationFilter = '';
+let currentFactoryFilter = '';
 let currentSearchTerm = '';
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -434,6 +435,8 @@ document.addEventListener('DOMContentLoaded', function() {
             element: card,
             name: card.querySelector('.device-title').textContent.toLowerCase(),
             location: card.querySelector('.device-location').textContent.toLowerCase(),
+            factory: card.querySelector('.device-location div:first-child') ? 
+                     card.querySelector('.device-location div:first-child').textContent.toLowerCase() : '',
             isOnline: card.classList.contains('online-device')
         };
     });
@@ -443,6 +446,7 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('filterOnline').addEventListener('click', () => setStatusFilter('online'));
     document.getElementById('filterOffline').addEventListener('click', () => setStatusFilter('offline'));
     document.getElementById('locationFilter').addEventListener('change', handleLocationFilter);
+    document.getElementById('factoryFilter').addEventListener('change', handleFactoryFilter);
     document.getElementById('searchInput').addEventListener('input', handleSearch);
     
     // İlk filtreleme
@@ -461,6 +465,11 @@ function setStatusFilter(status) {
 
 function handleLocationFilter(e) {
     currentLocationFilter = e.target.value.toLowerCase();
+    applyFilters();
+}
+
+function handleFactoryFilter(e) {
+    currentFactoryFilter = e.target.value.toLowerCase();
     applyFilters();
 }
 
@@ -485,14 +494,21 @@ function applyFilters() {
             locationMatch = device.location.includes(currentLocationFilter);
         }
         
+        // Fabrika filtresi
+        let factoryMatch = true;
+        if (currentFactoryFilter) {
+            factoryMatch = device.factory.includes(currentFactoryFilter);
+        }
+        
         // Arama filtresi
         let searchMatch = true;
         if (currentSearchTerm) {
             searchMatch = device.name.includes(currentSearchTerm) || 
-                         device.location.includes(currentSearchTerm);
+                         device.location.includes(currentSearchTerm) ||
+                         device.factory.includes(currentSearchTerm);
         }
         
-        return statusMatch && locationMatch && searchMatch;
+        return statusMatch && locationMatch && factoryMatch && searchMatch;
     });
     
     // Görünürlüğü güncelle
