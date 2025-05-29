@@ -1,0 +1,852 @@
+{% extends "layout.html" %}
+
+{% block title %}Kullanıcı Yönetimi{% endblock %}
+
+{% block extra_css %}
+<style>
+    .user-card {
+        transition: all 0.3s;
+        border-radius: 12px;
+        border: none;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        overflow: hidden;
+    }
+    .user-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    }
+    .user-avatar {
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        font-weight: bold;
+        color: white;
+        margin: 0 auto 15px;
+    }
+    .user-avatar.admin {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    .user-avatar.user {
+        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+    }
+    .user-avatar.viewer {
+        background: linear-gradient(135deg, #74b9ff 0%, #0984e3 100%);
+    }
+    .user-avatar.inactive {
+        background: linear-gradient(135deg, #636e72 0%, #2d3436 100%);
+    }
+    .role-badge {
+        font-size: 0.75rem;
+        padding: 4px 8px;
+        border-radius: 12px;
+        font-weight: 600;
+    }
+    .role-admin {
+        background: #667eea;
+        color: white;
+    }
+    .role-user {
+        background: #11998e;
+        color: white;
+    }
+    .role-viewer {
+        background: #74b9ff;
+        color: white;
+    }
+    .status-active {
+        color: #27ae60;
+    }
+    .status-inactive {
+        color: #e74c3c;
+    }
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-bottom: 25px;
+    }
+    .stats-card {
+        background: white;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        text-align: center;
+        border: none;
+        transition: all 0.3s;
+    }
+    .stats-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+    }
+    .stats-icon {
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 10px;
+        font-size: 1.5rem;
+        color: white;
+    }
+    .stats-total { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+    .stats-admin { background: linear-gradient(135deg, #fc4a1a 0%, #f7b733 100%); }
+    .stats-active { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); }
+    .stats-recent { background: linear-gradient(135deg, #74b9ff 0%, #0984e3 100%); }
+    
+    .activity-item {
+        border-left: 3px solid #007bff;
+        padding-left: 15px;
+        margin-bottom: 15px;
+        position: relative;
+    }
+    .activity-item::before {
+        content: '';
+        position: absolute;
+        left: -6px;
+        top: 8px;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #007bff;
+    }
+    .activity-time {
+        font-size: 0.8rem;
+        color: #6c757d;
+    }
+    
+    .user-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 20px;
+    }
+    
+    @media (max-width: 768px) {
+        .user-grid {
+            grid-template-columns: 1fr;
+        }
+        .stats-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+</style>
+{% endblock %}
+
+{% block breadcrumb %}
+<i class="fas fa-users"></i>
+<span class="mx-2">/</span>
+<a href="{{ url_for('index') }}" class="text-decoration-none">Dashboard</a>
+<span class="mx-2">/</span>
+Kullanıcı Yönetimi
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Sayfa Başlığı -->
+    <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+        <h1 class="h2">
+            <i class="fas fa-users me-2"></i>Kullanıcı Yönetimi
+        </h1>
+        <div>
+            <button class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#addUserModal">
+                <i class="fas fa-plus"></i> Yeni Kullanıcı
+            </button>
+            <span class="badge bg-warning">Admin Paneli</span>
+        </div>
+    </div>
+
+    <!-- İstatistik Kartları -->
+    <div class="stats-grid">
+        <div class="stats-card">
+            <div class="stats-icon stats-total">
+                <i class="fas fa-users"></i>
+            </div>
+            <h3 id="totalUsers">0</h3>
+            <small class="text-muted">Toplam Kullanıcı</small>
+        </div>
+        <div class="stats-card">
+            <div class="stats-icon stats-admin">
+                <i class="fas fa-crown"></i>
+            </div>
+            <h3 id="adminUsers">0</h3>
+            <small class="text-muted">Yönetici</small>
+        </div>
+        <div class="stats-card">
+            <div class="stats-icon stats-active">
+                <i class="fas fa-user-check"></i>
+            </div>
+            <h3 id="activeUsers">0</h3>
+            <small class="text-muted">Aktif Kullanıcı</small>
+        </div>
+        <div class="stats-card">
+            <div class="stats-icon stats-recent">
+                <i class="fas fa-clock"></i>
+            </div>
+            <h3 id="recentLogins">0</h3>
+            <small class="text-muted">Son 24h Giriş</small>
+        </div>
+    </div>
+
+    <!-- Filtre ve Arama -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <select class="form-select" id="roleFilter">
+                        <option value="">Tüm Roller</option>
+                        <option value="admin">Yönetici</option>
+                        <option value="user">Kullanıcı</option>
+                        <option value="viewer">Görüntüleyici</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select" id="statusFilter">
+                        <option value="">Tüm Durumlar</option>
+                        <option value="active">Aktif</option>
+                        <option value="inactive">Pasif</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <input type="text" class="form-control" id="searchInput" placeholder="Kullanıcı ara...">
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-outline-secondary w-100" onclick="clearFilters()">
+                        <i class="fas fa-eraser"></i> Temizle
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Kullanıcı Listesi -->
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Kullanıcılar</h5>
+                    <span class="badge bg-primary" id="userCount">0 kullanıcı</span>
+                </div>
+                <div class="card-body">
+                    <div class="user-grid" id="userGrid">
+                        <!-- Kullanıcılar buraya yüklenecek -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Aktivite Logları -->
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-history me-2"></i>Son Aktiviteler
+                    </h5>
+                </div>
+                <div class="card-body" style="max-height: 500px; overflow-y: auto;">
+                    <div id="activityLog">
+                        <!-- Aktiviteler buraya yüklenecek -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Yeni Kullanıcı Modal -->
+<div class="modal fade" id="addUserModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">
+                    <i class="fas fa-user-plus me-2"></i>Yeni Kullanıcı Ekle
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="addUserForm">
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Ad Soyad</label>
+                            <input type="text" class="form-control" name="name" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Kullanıcı Adı</label>
+                            <input type="text" class="form-control" name="username" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Şifre</label>
+                            <input type="password" class="form-control" name="password" required minlength="6">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Rol</label>
+                            <select class="form-select" name="role" required>
+                                <option value="user">Kullanıcı</option>
+                                <option value="admin">Yönetici</option>
+                                <option value="viewer">Görüntüleyici</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Email (İsteğe bağlı)</label>
+                            <input type="email" class="form-control" name="email">
+                        </div>
+                        <div class="col-12">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="is_active" checked>
+                                <label class="form-check-label">Aktif kullanıcı</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                    <button type="submit" class="btn btn-success">
+                        <i class="fas fa-save"></i> Kaydet
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Kullanıcı Düzenleme Modal -->
+<div class="modal fade" id="editUserModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title">
+                    <i class="fas fa-user-edit me-2"></i>Kullanıcı Düzenle
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="editUserForm">
+                <input type="hidden" name="user_id">
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Ad Soyad</label>
+                            <input type="text" class="form-control" name="name" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Kullanıcı Adı</label>
+                            <input type="text" class="form-control" name="username" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Yeni Şifre (İsteğe bağlı)</label>
+                            <input type="password" class="form-control" name="password" minlength="6">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Rol</label>
+                            <select class="form-select" name="role" required>
+                                <option value="user">Kullanıcı</option>
+                                <option value="admin">Yönetici</option>
+                                <option value="viewer">Görüntüleyici</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Email</label>
+                            <input type="email" class="form-control" name="email">
+                        </div>
+                        <div class="col-12">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="is_active">
+                                <label class="form-check-label">Aktif kullanıcı</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Güncelle
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+let users = [];
+let activities = [];
+
+// Sayfa yüklendiğinde
+document.addEventListener('DOMContentLoaded', function() {
+    loadUsers();
+    loadActivities();
+    loadStats();
+    setupEventListeners();
+});
+
+// Event listener'ları ayarla
+function setupEventListeners() {
+    // Filtre ve arama
+    document.getElementById('roleFilter').addEventListener('change', filterUsers);
+    document.getElementById('statusFilter').addEventListener('change', filterUsers);
+    document.getElementById('searchInput').addEventListener('input', filterUsers);
+    
+    // Form submit'leri
+    document.getElementById('addUserForm').addEventListener('submit', handleAddUser);
+    document.getElementById('editUserForm').addEventListener('submit', handleEditUser);
+}
+
+// Kullanıcıları yükle
+function loadUsers() {
+    fetch('/admin/users')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                users = data.users;
+                renderUsers();
+                updateStats();
+            } else {
+                showNotification('error', data.error || 'Kullanıcılar yüklenemedi');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showNotification('error', 'Kullanıcılar yüklenirken hata oluştu');
+        });
+}
+
+// Kullanıcıları render et
+function renderUsers(filteredUsers = null) {
+    const userList = filteredUsers || users;
+    const container = document.getElementById('userGrid');
+    
+    if (userList.length === 0) {
+        container.innerHTML = `
+            <div class="col-12 text-center py-5">
+                <i class="fas fa-users fa-3x text-muted mb-3"></i>
+                <h5 class="text-muted">Kullanıcı bulunamadı</h5>
+                <p class="text-muted">Filtrelerinize uygun kullanıcı bulunamadı</p>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = userList.map(user => `
+        <div class="user-card card">
+            <div class="card-body text-center">
+                <div class="user-avatar ${user.role} ${user.is_active ? '' : 'inactive'}">
+                    ${user.name.charAt(0).toUpperCase()}
+                </div>
+                <h6 class="card-title">${user.name}</h6>
+                <p class="text-muted mb-2">@${user.username}</p>
+                <div class="mb-2">
+                    <span class="role-badge role-${user.role}">
+                        ${getRoleText(user.role)}
+                    </span>
+                </div>
+                <div class="mb-3">
+                    <small class="status-${user.is_active ? 'active' : 'inactive'}">
+                        <i class="fas fa-circle fa-xs"></i> 
+                        ${user.is_active ? 'Aktif' : 'Pasif'}
+                    </small>
+                </div>
+                <div class="mb-2">
+                    <small class="text-muted">
+                        <i class="fas fa-calendar"></i> 
+                        ${formatDate(user.created_at)}
+                    </small>
+                </div>
+                ${user.last_login ? `
+                    <div class="mb-3">
+                        <small class="text-success">
+                            <i class="fas fa-sign-in-alt"></i> 
+                            Son giriş: ${formatDate(user.last_login)}
+                        </small>
+                    </div>
+                ` : ''}
+                <div class="btn-group w-100">
+                    <button class="btn btn-sm btn-outline-primary" onclick="editUser(${user.id})">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-${user.is_active ? 'warning' : 'success'}" 
+                            onclick="toggleUser(${user.id})">
+                        <i class="fas fa-${user.is_active ? 'pause' : 'play'}"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-info" onclick="viewUserActivity(${user.id})">
+                        <i class="fas fa-history"></i>
+                    </button>
+                    ${user.role !== 'admin' || user.id !== getCurrentUserId() ? `
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteUser(${user.id})">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    ` : ''}
+                </div>
+            </div>
+        </div>
+    `).join('');
+    
+    document.getElementById('userCount').textContent = `${userList.length} kullanıcı`;
+}
+
+// Kullanıcı ekleme
+function handleAddUser(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(e.target);
+    const userData = {
+        name: formData.get('name'),
+        username: formData.get('username'),
+        password: formData.get('password'),
+        role: formData.get('role'),
+        email: formData.get('email'),
+        is_active: formData.get('is_active') === 'on'
+    };
+    
+    fetch('/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showNotification('success', 'Kullanıcı başarıyla eklendi');
+            bootstrap.Modal.getInstance(document.getElementById('addUserModal')).hide();
+            e.target.reset();
+            loadUsers();
+            logActivity('user_created', `Yeni kullanıcı eklendi: ${userData.name}`);
+        } else {
+            showNotification('error', data.error || 'Kullanıcı eklenemedi');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showNotification('error', 'Kullanıcı eklenirken hata oluştu');
+    });
+}
+
+// Kullanıcı düzenleme
+function editUser(userId) {
+    const user = users.find(u => u.id === userId);
+    if (!user) return;
+    
+    const form = document.getElementById('editUserForm');
+    form.querySelector('input[name="user_id"]').value = user.id;
+    form.querySelector('input[name="name"]').value = user.name;
+    form.querySelector('input[name="username"]').value = user.username;
+    form.querySelector('select[name="role"]').value = user.role;
+    form.querySelector('input[name="email"]').value = user.email || '';
+    form.querySelector('input[name="is_active"]').checked = user.is_active;
+    
+    new bootstrap.Modal(document.getElementById('editUserModal')).show();
+}
+
+// Kullanıcı güncelleme
+function handleEditUser(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(e.target);
+    const userId = formData.get('user_id');
+    const userData = {
+        name: formData.get('name'),
+        username: formData.get('username'),
+        role: formData.get('role'),
+        email: formData.get('email'),
+        is_active: formData.get('is_active') === 'on'
+    };
+    
+    if (formData.get('password')) {
+        userData.password = formData.get('password');
+    }
+    
+    fetch(`/admin/users/${userId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showNotification('success', 'Kullanıcı başarıyla güncellendi');
+            bootstrap.Modal.getInstance(document.getElementById('editUserModal')).hide();
+            loadUsers();
+            logActivity('user_updated', `Kullanıcı güncellendi: ${userData.name}`);
+        } else {
+            showNotification('error', data.error || 'Kullanıcı güncellenemedi');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showNotification('error', 'Kullanıcı güncellenirken hata oluştu');
+    });
+}
+
+// Kullanıcı durumu değiştir
+function toggleUser(userId) {
+    const user = users.find(u => u.id === userId);
+    if (!user) return;
+    
+    const action = user.is_active ? 'deactivate' : 'activate';
+    const actionText = user.is_active ? 'pasif' : 'aktif';
+    
+    if (confirm(`${user.name} kullanıcısını ${actionText} yapmak istediğinize emin misiniz?`)) {
+        fetch(`/admin/users/${userId}/${action}`, { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showNotification('success', `Kullanıcı ${actionText} yapıldı`);
+                    loadUsers();
+                    logActivity('user_status_changed', `${user.name} kullanıcısı ${actionText} yapıldı`);
+                } else {
+                    showNotification('error', data.error || 'İşlem başarısız');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showNotification('error', 'İşlem sırasında hata oluştu');
+            });
+    }
+}
+
+// Kullanıcı silme
+function deleteUser(userId) {
+    const user = users.find(u => u.id === userId);
+    if (!user) return;
+    
+    if (confirm(`${user.name} kullanıcısını kalıcı olarak silmek istediğinize emin misiniz?\n\nBu işlem geri alınamaz!`)) {
+        const doubleConfirm = prompt('Silme işlemini onaylamak için "SİL" yazın:');
+        if (doubleConfirm === 'SİL') {
+            fetch(`/admin/users/${userId}`, { method: 'DELETE' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showNotification('success', 'Kullanıcı başarıyla silindi');
+                        loadUsers();
+                        logActivity('user_deleted', `Kullanıcı silindi: ${user.name}`);
+                    } else {
+                        showNotification('error', data.error || 'Kullanıcı silinemedi');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showNotification('error', 'Kullanıcı silinirken hata oluştu');
+                });
+        }
+    }
+}
+
+// Filtreleme
+function filterUsers() {
+    const roleFilter = document.getElementById('roleFilter').value;
+    const statusFilter = document.getElementById('statusFilter').value;
+    const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+    
+    let filtered = users.filter(user => {
+        const roleMatch = !roleFilter || user.role === roleFilter;
+        const statusMatch = !statusFilter || 
+            (statusFilter === 'active' && user.is_active) ||
+            (statusFilter === 'inactive' && !user.is_active);
+        const searchMatch = !searchTerm || 
+            user.name.toLowerCase().includes(searchTerm) ||
+            user.username.toLowerCase().includes(searchTerm);
+        
+        return roleMatch && statusMatch && searchMatch;
+    });
+    
+    renderUsers(filtered);
+}
+
+// Filtreleri temizle
+function clearFilters() {
+    document.getElementById('roleFilter').value = '';
+    document.getElementById('statusFilter').value = '';
+    document.getElementById('searchInput').value = '';
+    renderUsers();
+}
+
+// İstatistikleri yükle
+function loadStats() {
+    fetch('/admin/users/stats')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('totalUsers').textContent = data.stats.total;
+                document.getElementById('adminUsers').textContent = data.stats.admins;
+                document.getElementById('activeUsers').textContent = data.stats.active;
+                document.getElementById('recentLogins').textContent = data.stats.recent_logins;
+            }
+        })
+        .catch(error => console.error('Stats error:', error));
+}
+
+// İstatistikleri güncelle
+function updateStats() {
+    const total = users.length;
+    const admins = users.filter(u => u.role === 'admin').length;
+    const active = users.filter(u => u.is_active).length;
+    const recent = users.filter(u => {
+        if (!u.last_login) return false;
+        const loginDate = new Date(u.last_login);
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        return loginDate >= yesterday;
+    }).length;
+    
+    document.getElementById('totalUsers').textContent = total;
+    document.getElementById('adminUsers').textContent = admins;
+    document.getElementById('activeUsers').textContent = active;
+    document.getElementById('recentLogins').textContent = recent;
+}
+
+// Aktivite logları
+function loadActivities() {
+    fetch('/admin/activities')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                activities = data.activities;
+                renderActivities();
+            }
+        })
+        .catch(error => console.error('Activities error:', error));
+}
+
+function renderActivities() {
+    const container = document.getElementById('activityLog');
+    
+    if (activities.length === 0) {
+        container.innerHTML = '<p class="text-muted text-center">Henüz aktivite bulunmuyor</p>';
+        return;
+    }
+    
+    container.innerHTML = activities.map(activity => `
+        <div class="activity-item">
+            <div class="fw-bold">${activity.description}</div>
+            <div class="activity-time">
+                <i class="fas fa-user"></i> ${activity.username} - 
+                <i class="fas fa-clock"></i> ${formatDate(activity.created_at)}
+            </div>
+        </div>
+    `).join('');
+}
+
+function logActivity(type, description) {
+    fetch('/admin/activities', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, description })
+    })
+    .then(() => loadActivities())
+    .catch(error => console.error('Activity log error:', error));
+}
+
+// Kullanıcı aktivitelerini görüntüle
+function viewUserActivity(userId) {
+    const user = users.find(u => u.id === userId);
+    if (!user) return;
+    
+    fetch(`/admin/users/${userId}/activities`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showUserActivityModal(user, data.activities);
+            } else {
+                showNotification('error', 'Aktiviteler yüklenemedi');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showNotification('error', 'Aktiviteler yüklenirken hata oluştu');
+        });
+}
+
+// Kullanıcı aktivite modalı göster
+function showUserActivityModal(user, activities) {
+    const modalHtml = `
+        <div class="modal fade" id="userActivityModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header bg-info text-white">
+                        <h5 class="modal-title">
+                            <i class="fas fa-history me-2"></i>${user.name} - Aktivite Geçmişi
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body" style="max-height: 400px; overflow-y: auto;">
+                        ${activities.length > 0 ? 
+                            activities.map(activity => `
+                                <div class="activity-item">
+                                    <div class="fw-bold">${activity.description}</div>
+                                    <div class="activity-time">
+                                        <i class="fas fa-clock"></i> ${formatDate(activity.created_at)}
+                                        ${activity.ip_address ? `<i class="fas fa-globe ms-2"></i> ${activity.ip_address}` : ''}
+                                    </div>
+                                </div>
+                            `).join('') :
+                            '<p class="text-muted text-center py-4">Bu kullanıcı için aktivite kaydı bulunmuyor</p>'
+                        }
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Mevcut modalı kaldır
+    const existingModal = document.getElementById('userActivityModal');
+    if (existingModal) existingModal.remove();
+    
+    // Yeni modalı ekle ve göster
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    new bootstrap.Modal(document.getElementById('userActivityModal')).show();
+}
+
+// Yardımcı fonksiyonlar
+function getRoleText(role) {
+    const roles = {
+        'admin': 'Yönetici',
+        'user': 'Kullanıcı', 
+        'viewer': 'Görüntüleyici'
+    };
+    return roles[role] || role;
+}
+
+function formatDate(dateString) {
+    if (!dateString) return 'Bilinmiyor';
+    const date = new Date(dateString);
+    return date.toLocaleString('tr-TR');
+}
+
+function getCurrentUserId() {
+    // Bu fonksiyon backend'den alınmalı
+    return 1; // Şimdilik sabit değer
+}
+
+// Bildirim göster
+function showNotification(type, message) {
+    const existingAlerts = document.querySelectorAll('.alert.auto-dismiss');
+    existingAlerts.forEach(alert => alert.remove());
+    
+    const alertClass = type === 'success' ? 'alert-success' : 
+                     type === 'error' ? 'alert-danger' : 
+                     type === 'info' ? 'alert-info' : 'alert-warning';
+    
+    const alertHTML = `
+        <div class="alert ${alertClass} alert-dismissible fade show auto-dismiss" 
+             style="position: fixed; top: 20px; right: 20px; z-index: 9999; min-width: 300px;">
+            <i class="fas fa-${type === 'success' ? 'check-circle' : 
+                              type === 'error' ? 'exclamation-circle' : 
+                              type === 'info' ? 'info-circle' : 'exclamation-triangle'}"></i>
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('afterbegin', alertHTML);
+    
+    setTimeout(() => {
+        const alert = document.querySelector('.alert.auto-dismiss');
+        if (alert) alert.remove();
+    }, 5000);
+}
+</script>
+{% endblock %}
