@@ -627,7 +627,7 @@ def index():
         current_time_ms = int(time.time() * 1000)
         threshold = current_time_ms - 120000  # 2 dakika
         
-        # Tüm cihazları getir
+        # Tüm cihazları getir - İSİM SIRASINA GÖRE SIRALA
         cihazlar_raw = conn.execute('''
             SELECT *,
                 CASE 
@@ -635,13 +635,8 @@ def index():
                     ELSE 0 
                 END as real_online_status
             FROM devices 
-            ORDER BY 
-                CASE 
-                    WHEN last_seen >= ? AND last_seen > 0 THEN 0 
-                    ELSE 1 
-                END,
-                last_seen DESC
-        ''', (threshold, threshold)).fetchall()
+            ORDER BY cihaz_adi ASC
+        ''', (threshold,)).fetchall()
         
         # Her cihaz için sensor verilerini al
         cihazlar = []
