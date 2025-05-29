@@ -71,7 +71,7 @@
         color: white;
         width: 100%;
         transition: all 0.3s;
-        margin-bottom: 15px;
+        margin-bottom: 20px;
     }
     
     .btn-login:hover {
@@ -219,7 +219,7 @@
             
             <!-- Güvenlik Bildirimi -->
             <div class="security-notice">
-                <i class="fas fa-shield-alt me-2"></i>
+                <i class="fas fa-shield-alt me-1"></i>
                 Güvenli bağlantı ile korunmaktasınız
             </div>
         </div>
@@ -261,11 +261,9 @@ document.getElementById('loginForm').addEventListener('submit', function(e) {
     // Show loading state
     loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Giriş yapılıyor...';
     loginBtn.disabled = true;
-    
-    // Form will submit normally, this is just for UX
 });
 
-// Security: Clear form on page load (prevent browser caching)
+// Security: Clear form on page load
 window.addEventListener('load', function() {
     document.getElementById('username').value = '';
     document.getElementById('password').value = '';
