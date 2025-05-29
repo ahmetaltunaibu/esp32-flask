@@ -947,6 +947,8 @@ def receive_data():
         logger.error(f"Data receive error: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+
+
 @app.route('/cihaz/<cihaz_id>')
 @login_required
 def cihaz_detay(cihaz_id):
