@@ -2535,35 +2535,237 @@ def user_management():
     """Kullanıcı yönetimi sayfası"""
     return render_template('user_management.html')
 
+
 @app.route('/admin/users', methods=['GET'])
 @login_required
 @admin_required
 def get_users():
-    """Kullanıcı listesi API"""
+    """Kullanıcı listesi API - TAMAMEN GÜVENLİ VERSİYON"""
     try:
         with get_db() as conn:
-            users = conn.execute('''
-                SELECT u.*, creator.username as created_by_username
-                FROM users u
-                LEFT JOIN users creator ON u.created_by = creator.id
-                ORDER BY u.created_at DESC
-            ''').fetchall()
-            
+            # 1. TABLO VARLIĞI KONTROLÜ
+            table_exists = conn.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='users'
+            """).fetchone()
+
+            if not table_exists:
+                logger.warning("⚠️ Users tablosu bulunamadı, oluşturuluyor...")
+
+                # Users tablosunu oluştur
+                conn.execute('''
+                    CREATE TABLE users (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        username TEXT UNIQUE NOT NULL,
+                        password TEXT NOT NULL,
+                        name TEXT NOT NULL DEFAULT 'User',
+                        email TEXT,
+                        role TEXT DEFAULT 'user',
+                        is_active BOOLEAN DEFAULT 1,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        last_login DATETIME,
+                        created_by INTEGER
+                    )
+                ''')
+
+                # Admin kullanıcısı oluştur
+                secure_password = os.environ.get('ADMIN_PASSWORD', 'IoT@dmin2024#Secure!')
+                conn.execute('''
+                    INSERT INTO users (username, password, name, role, is_active)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (
+                    'admin',
+                    generate_password_hash(secure_password),
+                    'System Administrator',
+                    'admin',
+                    1
+                ))
+
+                conn.commit()
+                logger.info("✅ Users tablosu oluşturuldu ve admin eklendi")
+
+            # 2. SÜTUN YAPISINI KONTROL ET VE DÜZELTElti
+            columns = conn.execute("PRAGMA table_info(users)").fetchall()
+            column_names = [col[1] for col in columns]
+            logger.info(f"🔍 Mevcut users sütunları: {column_names}")
+
+            # Gerekli sütunları ekle
+            required_columns = {
+                'name': "ALTER TABLE users ADD COLUMN name TEXT DEFAULT 'User'",
+                'email': "ALTER TABLE users ADD COLUMN email TEXT",
+                'role': "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'",
+                'is_active': "ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT 1",
+                'created_at': "ALTER TABLE users ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP",
+                'last_login': "ALTER TABLE users ADD COLUMN last_login DATETIME",
+                'created_by': "ALTER TABLE users ADD COLUMN created_by INTEGER"
+            }
+
+            for column_name, sql_command in required_columns.items():
+                if column_name not in column_names:
+                    try:
+                        conn.execute(sql_command)
+                        logger.info(f"✅ {column_name} sütunu eklendi")
+                        column_names.append(column_name)  # Listeyi güncelle
+                    except sqlite3.OperationalError as e:
+                        logger.warning(f"⚠️ {column_name} sütunu eklenirken: {str(e)}")
+
+            # 3. VERI TUTARLILIĞI KONTROLÜ
+            # Boş name değerlerini düzelt
+            conn.execute("UPDATE users SET name = username WHERE name IS NULL OR name = ''")
+
+            # Boş role değerlerini düzelt
+            conn.execute("UPDATE users SET role = 'user' WHERE role IS NULL OR role = ''")
+
+            # is_admin'den role'e migration (eğer is_admin sütunu varsa)
+            if 'is_admin' in column_names and 'role' in column_names:
+                conn.execute('''
+                    UPDATE users 
+                    SET role = CASE 
+                        WHEN is_admin = 1 THEN 'admin' 
+                        ELSE 'user' 
+                    END 
+                    WHERE role = 'user' AND is_admin IS NOT NULL
+                ''')
+                logger.info("✅ is_admin → role migration yapıldı")
+
+            conn.commit()
+
+            # 4. GÜVENLİ KULLANICI LİSTESİ SORGUSU
+            # Sadece mevcut sütunları seç
+            safe_columns = []
+            for col in ['id', 'username', 'name', 'email', 'role', 'is_active', 'created_at', 'last_login']:
+                if col in column_names:
+                    safe_columns.append(f'u.{col}')
+
+            select_clause = ', '.join(safe_columns)
+
+            # Creator bilgisi için LEFT JOIN (eğer created_by sütunu varsa)
+            if 'created_by' in column_names:
+                query = f'''
+                    SELECT {select_clause}, creator.username as created_by_username
+                    FROM users u
+                    LEFT JOIN users creator ON u.created_by = creator.id
+                    ORDER BY u.created_at DESC
+                '''
+            else:
+                query = f'''
+                    SELECT {select_clause}
+                    FROM users u
+                    ORDER BY u.id DESC
+                '''
+
+            logger.info(f"🗃️ SQL Query: {query}")
+
+            users = conn.execute(query).fetchall()
+
+            # 5. SONUÇLARI HAZIRLA
             user_list = []
             for user in users:
                 user_dict = dict(user)
-                # Şifreyi gizle
+
+                # Şifreyi kaldır (güvenlik)
                 user_dict.pop('password', None)
+
+                # Varsayılan değerleri garanti et
+                user_dict['role'] = user_dict.get('role') or 'user'
+                user_dict['name'] = user_dict.get('name') or user_dict.get('username', 'Unknown User')
+                user_dict['is_active'] = bool(user_dict.get('is_active', True))
+
+                # Tarih formatlarını kontrol et
+                for date_field in ['created_at', 'last_login']:
+                    if date_field in user_dict and user_dict[date_field]:
+                        try:
+                            # Tarihi doğrula
+                            if isinstance(user_dict[date_field], str):
+                                datetime.strptime(user_dict[date_field], '%Y-%m-%d %H:%M:%S')
+                        except (ValueError, TypeError):
+                            user_dict[date_field] = None
+
                 user_list.append(user_dict)
-            
+
+            logger.info(f"✅ {len(user_list)} kullanıcı başarıyla hazırlandı")
+
             return jsonify({
                 'success': True,
-                'users': user_list
+                'users': user_list,
+                'debug_info': {
+                    'table_columns': column_names,
+                    'user_count': len(user_list),
+                    'query_used': query.replace('\n', ' ').strip()
+                }
             })
-            
+
+    except sqlite3.DatabaseError as e:
+        error_msg = f"Veritabanı hatası: {str(e)}"
+        logger.error(f"❌ Database error in get_users: {error_msg}")
+
+        return jsonify({
+            'success': False,
+            'error': error_msg,
+            'error_type': 'database_error',
+            'solution': 'Veritabanını yeniden başlatmayı veya migration çalıştırmayı deneyin'
+        }), 500
+
     except Exception as e:
-        logger.error(f"❌ Get users error: {str(e)}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        error_msg = f"Beklenmeyen hata: {str(e)}"
+        logger.error(f"❌ Unexpected error in get_users: {error_msg}")
+
+        return jsonify({
+            'success': False,
+            'error': error_msg,
+            'error_type': 'unexpected_error',
+            'solution': 'Uygulama loglarını kontrol edin ve tekrar deneyin'
+        }), 500
+
+
+# Ayrıca debug endpoint'i de ekleyin:
+@app.route('/admin/users/debug')
+@login_required
+@admin_required
+def debug_users_table():
+    """Users tablosu debug bilgileri"""
+    try:
+        with get_db() as conn:
+            debug_info = {}
+
+            # Tablo varlığı
+            table_exists = conn.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='users'
+            """).fetchone()
+            debug_info['table_exists'] = bool(table_exists)
+
+            if table_exists:
+                # Sütun bilgileri
+                columns = conn.execute("PRAGMA table_info(users)").fetchall()
+                debug_info['columns'] = [dict(col) for col in columns]
+                debug_info['column_names'] = [col[1] for col in columns]
+
+                # Kayıt sayısı
+                count = conn.execute("SELECT COUNT(*) as count FROM users").fetchone()['count']
+                debug_info['record_count'] = count
+
+                # İlk 3 kayıt (şifresiz)
+                sample_users = conn.execute("""
+                    SELECT id, username, name, role, is_active, created_at 
+                    FROM users 
+                    LIMIT 3
+                """).fetchall()
+                debug_info['sample_records'] = [dict(user) for user in sample_users]
+
+            else:
+                debug_info['error'] = 'Users tablosu bulunamadı'
+
+            return jsonify({
+                'success': True,
+                'debug_info': debug_info
+            })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @app.route('/admin/users', methods=['POST'])
 @login_required
