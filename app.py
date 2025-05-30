@@ -2536,6 +2536,487 @@ def user_management():
     return render_template('user_management.html')
 
 
+
+@app.route('/admin/api/users', methods=['GET'])
+@login_required
+@admin_required
+def get_users_api():
+    """Kullanıcı listesi API"""
+    try:
+        with get_db() as conn:
+            # Basit ve güvenli sorgu
+            try:
+                users = conn.execute('''
+                    SELECT id, username, 
+                           COALESCE(name, username) as name,
+                           COALESCE(role, 'user') as role,
+                           COALESCE(is_active, 1) as is_active,
+                           created_at,
+                           last_login
+                    FROM users 
+                    ORDER BY id
+                ''').fetchall()
+            except sqlite3.OperationalError as e:
+                # Tablo veya sütun yoksa basit sorgu
+                logger.warning(f"Column missing, using basic query: {e}")
+                users = conn.execute('SELECT id, username FROM users').fetchall()
+
+                # Basit user listesi oluştur
+                user_list = []
+                for user in users:
+                    user_dict = dict(user)
+                    user_dict['name'] = user_dict.get('username', 'Unknown')
+                    user_dict['role'] = 'admin' if user_dict.get('username') == 'admin' else 'user'
+                    user_dict['is_active'] = True
+                    user_dict['created_at'] = None
+                    user_dict['last_login'] = None
+                    user_list.append(user_dict)
+
+                return jsonify({
+                    'success': True,
+                    'users': user_list,
+                    'message': 'Basit veri formatı (bazı sütunlar eksik)'
+                })
+
+            # Normal sonuç
+            user_list = []
+            for user in users:
+                user_dict = dict(user)
+                user_dict.pop('password', None)  # Şifreyi kaldır
+                user_list.append(user_dict)
+
+            return jsonify({
+                'success': True,
+                'users': user_list
+            })
+
+    except Exception as e:
+        logger.error(f"❌ get_users_api error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'users': []
+        }), 500
+
+
+@app.route('/admin/api/users/stats', methods=['GET'])
+@login_required
+@admin_required
+def user_stats_api():
+    """Kullanıcı istatistikleri API"""
+    try:
+        with get_db() as conn:
+            try:
+                total = conn.execute('SELECT COUNT(*) as count FROM users').fetchone()['count']
+
+                # Diğer istatistikler için güvenli sorgular
+                try:
+                    active = conn.execute('SELECT COUNT(*) as count FROM users WHERE is_active = 1').fetchone()['count']
+                except:
+                    active = total  # Fallback
+
+                try:
+                    admins = conn.execute('SELECT COUNT(*) as count FROM users WHERE role = "admin"').fetchone()[
+                        'count']
+                except:
+                    admins = 1  # En az admin var
+
+                try:
+                    recent = conn.execute('''
+                        SELECT COUNT(*) as count FROM users 
+                        WHERE last_login >= datetime('now', '-1 day')
+                    ''').fetchone()['count']
+                except:
+                    recent = 0  # Fallback
+
+            except sqlite3.OperationalError:
+                # Tablo yoksa varsayılan değerler
+                total = active = admins = recent = 0
+
+            return jsonify({
+                'success': True,
+                'stats': {
+                    'total': total,
+                    'active': active,
+                    'admins': admins,
+                    'recent_logins': recent
+                }
+            })
+    except Exception as e:
+        logger.error(f"❌ user_stats_api error: {str(e)}")
+        return jsonify({
+            'success': True,
+            'stats': {'total': 0, 'active': 0, 'admins': 0, 'recent_logins': 0}
+        })
+
+
+@app.route('/admin/api/activities', methods=['GET'])
+@login_required
+@admin_required
+def get_activities_api():
+    """Aktivite logları API"""
+    try:
+        with get_db() as conn:
+            try:
+                activities = conn.execute('''
+                    SELECT ua.*, u.username
+                    FROM user_activities ua
+                    LEFT JOIN users u ON ua.user_id = u.id
+                    ORDER BY ua.created_at DESC
+                    LIMIT 50
+                ''').fetchall()
+
+                activity_list = [dict(activity) for activity in activities]
+
+            except sqlite3.OperationalError:
+                # Tablo yoksa boş liste
+                activity_list = []
+
+            return jsonify({
+                'success': True,
+                'activities': activity_list
+            })
+
+    except Exception as e:
+        logger.error(f"❌ get_activities_api error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'activities': [],
+            'error': str(e)
+        })
+
+
+@app.route('/admin/api/users', methods=['POST'])
+@login_required
+@admin_required
+def create_user_api():
+    """Yeni kullanıcı oluştur API"""
+    try:
+        data = request.get_json()
+
+        # Validation
+        required_fields = ['username', 'password', 'name', 'role']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({'success': False, 'error': f'{field} alanı gerekli'}), 400
+
+        with get_db() as conn:
+            # Kullanıcı adı kontrolü
+            existing = conn.execute('SELECT id FROM users WHERE username = ?', (data['username'],)).fetchone()
+            if existing:
+                return jsonify({'success': False, 'error': 'Bu kullanıcı adı zaten kullanılıyor'}), 400
+
+            # Kullanıcı oluştur
+            conn.execute('''
+                INSERT INTO users (username, password, name, role, is_active)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (
+                data['username'],
+                generate_password_hash(data['password']),
+                data['name'],
+                data['role'],
+                data.get('is_active', True)
+            ))
+
+            conn.commit()
+
+            return jsonify({
+                'success': True,
+                'message': 'Kullanıcı başarıyla oluşturuldu'
+            })
+
+    except Exception as e:
+        logger.error(f"❌ create_user_api error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/admin/api/users/<int:user_id>', methods=['PUT'])
+@login_required
+@admin_required
+def update_user_api(user_id):
+    """Kullanıcı güncelle API"""
+    try:
+        data = request.get_json()
+
+        with get_db() as conn:
+            # Kullanıcı var mı kontrol et
+            user = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+            if not user:
+                return jsonify({'success': False, 'error': 'Kullanıcı bulunamadı'}), 404
+
+            # Güncelleme alanları
+            update_fields = []
+            params = []
+
+            if 'name' in data:
+                update_fields.append('name = ?')
+                params.append(data['name'])
+
+            if 'username' in data:
+                update_fields.append('username = ?')
+                params.append(data['username'])
+
+            if 'role' in data:
+                update_fields.append('role = ?')
+                params.append(data['role'])
+
+            if 'is_active' in data:
+                update_fields.append('is_active = ?')
+                params.append(data['is_active'])
+
+            if 'password' in data and data['password']:
+                update_fields.append('password = ?')
+                params.append(generate_password_hash(data['password']))
+
+            if update_fields:
+                params.append(user_id)
+                query = f"UPDATE users SET {', '.join(update_fields)} WHERE id = ?"
+                conn.execute(query, params)
+                conn.commit()
+
+            return jsonify({
+                'success': True,
+                'message': 'Kullanıcı başarıyla güncellendi'
+            })
+
+    except Exception as e:
+        logger.error(f"❌ update_user_api error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/admin/api/users/<int:user_id>', methods=['DELETE'])
+@login_required
+@admin_required
+def delete_user_api(user_id):
+    """Kullanıcı sil API"""
+    try:
+        current_user_id = session.get('user_id', 1)
+
+        # Kendi kendini silmeyi engelle
+        if user_id == current_user_id:
+            return jsonify({'success': False, 'error': 'Kendi hesabınızı silemezsiniz'}), 400
+
+        with get_db() as conn:
+            # Kullanıcı var mı kontrol et
+            user = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+            if not user:
+                return jsonify({'success': False, 'error': 'Kullanıcı bulunamadı'}), 404
+
+            # Kullanıcıyı sil
+            conn.execute('DELETE FROM users WHERE id = ?', (user_id,))
+            conn.commit()
+
+            return jsonify({
+                'success': True,
+                'message': 'Kullanıcı başarıyla silindi'
+            })
+
+    except Exception as e:
+        logger.error(f"❌ delete_user_api error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/admin/api/users/<int:user_id>/activate', methods=['POST'])
+@login_required
+@admin_required
+def activate_user_api(user_id):
+    """Kullanıcıyı aktif et API"""
+    return toggle_user_status_api(user_id, True)
+
+
+@app.route('/admin/api/users/<int:user_id>/deactivate', methods=['POST'])
+@login_required
+@admin_required
+def deactivate_user_api(user_id):
+    """Kullanıcıyı pasif et API"""
+    return toggle_user_status_api(user_id, False)
+
+
+def toggle_user_status_api(user_id, is_active):
+    """Kullanıcı durumu değiştir API yardımcı fonksiyonu"""
+    try:
+        with get_db() as conn:
+            # Kullanıcı var mı kontrol et
+            user = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+            if not user:
+                return jsonify({'success': False, 'error': 'Kullanıcı bulunamadı'}), 404
+
+            # Durumu güncelle
+            conn.execute('UPDATE users SET is_active = ? WHERE id = ?', (is_active, user_id))
+            conn.commit()
+
+            status_text = 'aktif' if is_active else 'pasif'
+            return jsonify({
+                'success': True,
+                'message': f'Kullanıcı {status_text} yapıldı'
+            })
+
+    except Exception as e:
+        logger.error(f"❌ toggle_user_status_api error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/admin/api/users/<int:user_id>/activities', methods=['GET'])
+@login_required
+@admin_required
+def get_user_activities_api(user_id):
+    """Kullanıcı aktiviteleri API"""
+    try:
+        with get_db() as conn:
+            try:
+                activities = conn.execute('''
+                    SELECT * FROM user_activities
+                    WHERE user_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT 100
+                ''', (user_id,)).fetchall()
+
+                activity_list = [dict(activity) for activity in activities]
+
+            except sqlite3.OperationalError:
+                # Tablo yoksa boş liste
+                activity_list = []
+
+            return jsonify({
+                'success': True,
+                'activities': activity_list
+            })
+
+    except Exception as e:
+        logger.error(f"❌ get_user_activities_api error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/admin/api/activities', methods=['POST'])
+@login_required
+@admin_required
+def create_activity_api():
+    """Aktivite logu oluştur API"""
+    try:
+        data = request.get_json()
+
+        with get_db() as conn:
+            try:
+                conn.execute('''
+                    INSERT INTO user_activities (user_id, activity_type, description, ip_address, user_agent)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (
+                    session.get('user_id', 1),
+                    data.get('type', 'manual'),
+                    data.get('description', ''),
+                    request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr),
+                    request.headers.get('User-Agent', '')
+                ))
+                conn.commit()
+
+            except sqlite3.OperationalError:
+                # Tablo yoksa görmezden gel
+                pass
+
+            return jsonify({'success': True})
+
+    except Exception as e:
+        logger.error(f"❌ create_activity_api error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# İlk kez kullanıcı tablosunu oluşturmak için startup function
+@app.before_first_request
+def ensure_users_table():
+    """Uygulama başlarken users tablosunu garanti et"""
+    try:
+        with get_db() as conn:
+            # Users tablosu var mı kontrol et
+            table_exists = conn.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='users'
+            """).fetchone()
+
+            if not table_exists:
+                # Basit users tablosu oluştur
+                conn.execute('''
+                    CREATE TABLE users (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        username TEXT UNIQUE NOT NULL,
+                        password TEXT NOT NULL,
+                        name TEXT DEFAULT 'User',
+                        role TEXT DEFAULT 'user',
+                        is_active BOOLEAN DEFAULT 1,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        last_login DATETIME
+                    )
+                ''')
+
+                # Admin kullanıcısı oluştur
+                admin_password = os.environ.get('ADMIN_PASSWORD', 'admin123')
+                conn.execute('''
+                    INSERT INTO users (username, password, name, role, is_active)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (
+                    'admin',
+                    generate_password_hash(admin_password),
+                    'System Administrator',
+                    'admin',
+                    1
+                ))
+
+                conn.commit()
+                logger.info("✅ Users table created with admin user")
+            else:
+                # Mevcut tabloda eksik sütunları kontrol et ve ekle
+                columns = conn.execute("PRAGMA table_info(users)").fetchall()
+                column_names = [col[1] for col in columns]
+
+                # Eksik sütunları ekle
+                missing_columns = {
+                    'name': "ALTER TABLE users ADD COLUMN name TEXT DEFAULT 'User'",
+                    'role': "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'",
+                    'is_active': "ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT 1",
+                    'last_login': "ALTER TABLE users ADD COLUMN last_login DATETIME"
+                }
+
+                for column_name, sql_command in missing_columns.items():
+                    if column_name not in column_names:
+                        try:
+                            conn.execute(sql_command)
+                            logger.info(f"✅ Added missing column: {column_name}")
+                        except sqlite3.OperationalError as e:
+                            logger.warning(f"⚠️ Could not add column {column_name}: {e}")
+
+                # Boş name değerlerini düzelt
+                conn.execute("UPDATE users SET name = username WHERE name IS NULL OR name = ''")
+
+                # Admin kullanıcısının role'ünü garanti et
+                conn.execute("UPDATE users SET role = 'admin' WHERE username = 'admin'")
+
+                conn.commit()
+                logger.info("✅ Users table updated and verified")
+
+    except Exception as e:
+        logger.error(f"❌ ensure_users_table error: {str(e)}")
+
+
+# ESKI route'ları kaldırın ve bunları kullanın
+# Ayrıca user_activities tablosunu da oluşturalım
+def create_user_activities_table():
+    """User activities tablosunu oluştur"""
+    try:
+        with get_db() as conn:
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS user_activities (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    activity_type TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    ip_address TEXT,
+                    user_agent TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            conn.commit()
+            logger.info("✅ User activities table ready")
+    except Exception as e:
+        logger.error(f"❌ create_user_activities_table error: {str(e)}")
+
+
+
 # app.py'ye bu route'u ekleyin (mevcut /admin/users route'unu değiştirin):
 
 @app.route('/admin/users', methods=['GET'])
