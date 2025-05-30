@@ -183,78 +183,105 @@ def init_db():
         except sqlite3.OperationalError:
             logger.info("ℹ️ fabrika_adi sütunu zaten mevcut")
 
-        # 🔧 FİX: Kullanıcılar tablosunu yeniden oluştur - GÜVENLİ VERSİYON
-        # Önce mevcut users tablosunun yapısını kontrol et
+        # 🔧 USERS TABLOSU - GÜVENLİ MİGRATİON
         try:
-            columns = conn.execute("PRAGMA table_info(users)").fetchall()
-            column_names = [col[1] for col in columns]
-            logger.info(f"🔍 Mevcut users tablosu sütunları: {column_names}")
+            # Önce users tablosunun var olup olmadığını kontrol et
+            table_exists = conn.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='users'
+            """).fetchone()
 
-            # Yeni sütunları ekle (eğer yoksa)
-            missing_columns = []
+            if table_exists:
+                # Tablo varsa sütunları kontrol et
+                columns = conn.execute("PRAGMA table_info(users)").fetchall()
+                column_names = [col[1] for col in columns]
+                logger.info(f"🔍 Mevcut users tablosu sütunları: {column_names}")
 
-            if 'email' not in column_names:
-                conn.execute('ALTER TABLE users ADD COLUMN email TEXT')
-                missing_columns.append('email')
+                # Eksik sütunları ekle
+                missing_columns = []
+                migration_queries = [
+                    ('name', "ALTER TABLE users ADD COLUMN name TEXT DEFAULT 'User'"),
+                    ('email', "ALTER TABLE users ADD COLUMN email TEXT"),
+                    ('role', "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'"),
+                    ('is_active', "ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT 1"),
+                    ('created_at', "ALTER TABLE users ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP"),
+                    ('last_login', "ALTER TABLE users ADD COLUMN last_login DATETIME"),
+                    ('created_by', "ALTER TABLE users ADD COLUMN created_by INTEGER")
+                ]
 
-            if 'role' not in column_names:
-                conn.execute('ALTER TABLE users ADD COLUMN role TEXT DEFAULT "user"')
-                missing_columns.append('role')
+                for column_name, migration_sql in migration_queries:
+                    if column_name not in column_names:
+                        try:
+                            conn.execute(migration_sql)
+                            missing_columns.append(column_name)
+                            logger.info(f"✅ {column_name} sütunu eklendi")
+                        except sqlite3.OperationalError as e:
+                            logger.warning(f"⚠️ {column_name} sütunu eklenemedi: {str(e)}")
 
-            if 'created_by' not in column_names:
-                conn.execute('ALTER TABLE users ADD COLUMN created_by INTEGER')
-                missing_columns.append('created_by')
+                # is_admin'den role'e migration
+                if 'is_admin' in column_names and 'role' in column_names:
+                    conn.execute('''
+                        UPDATE users 
+                        SET role = CASE 
+                            WHEN is_admin = 1 THEN 'admin' 
+                            ELSE 'user' 
+                        END
+                        WHERE role IS NULL OR role = '' OR role = 'user'
+                    ''')
+                    logger.info("✅ is_admin → role migration tamamlandı")
 
-            # is_admin sütununu role'e dönüştür
-            if 'is_admin' in column_names and 'role' not in column_names:
-                # is_admin varsa ama role yoksa, role ekle ve verileri migrate et
-                conn.execute('ALTER TABLE users ADD COLUMN role TEXT DEFAULT "user"')
+                # Boş name değerlerini düzelt
                 conn.execute('''
                     UPDATE users 
-                    SET role = CASE 
-                        WHEN is_admin = 1 THEN 'admin' 
-                        ELSE 'user' 
-                    END
-                ''')
-                logger.info("✅ is_admin → role migration completed")
-                missing_columns.append('role (migrated from is_admin)')
-
-            # Eksik sütunlar varsa role'leri güncelle
-            if 'role' in column_names:
-                # Mevcut admin kullanıcılarının role'ünü ayarla
-                conn.execute('''
-                    UPDATE users 
-                    SET role = 'admin' 
-                    WHERE username = 'admin' AND (role IS NULL OR role = '')
+                    SET name = username 
+                    WHERE name IS NULL OR name = ''
                 ''')
 
-            if missing_columns:
-                logger.info(f"✅ Eklenen sütunlar: {missing_columns}")
+                if missing_columns:
+                    logger.info(f"✅ Eklenen sütunlar: {missing_columns}")
+                else:
+                    logger.info("ℹ️ Tüm users sütunları mevcut")
+
             else:
-                logger.info("ℹ️ Tüm users sütunları mevcut")
+                # Tablo yoksa yeni yapıyla oluştur
+                logger.info("⚠️ Users tablosu bulunamadı, yeni tablo oluşturuluyor...")
+                conn.execute('''
+                    CREATE TABLE users (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        username TEXT UNIQUE NOT NULL,
+                        password TEXT NOT NULL,
+                        name TEXT NOT NULL DEFAULT 'User',
+                        email TEXT,
+                        role TEXT DEFAULT 'user' CHECK (role IN ('admin', 'user', 'viewer')),
+                        is_active BOOLEAN DEFAULT 1,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        last_login DATETIME,
+                        created_by INTEGER,
+                        FOREIGN KEY (created_by) REFERENCES users(id)
+                    )
+                ''')
+                logger.info("✅ Users tablosu yeni yapıyla oluşturuldu")
 
-        except sqlite3.OperationalError as e:
-            # Users tablosu yoksa yenisini oluştur
-            logger.info(f"⚠️ Users tablosu hatası: {e}, yeniden oluşturuluyor...")
+        except Exception as e:
+            logger.error(f"❌ Users tablo migration hatası: {str(e)}")
+            # Fallback: Basit tablo oluştur
+            try:
+                conn.execute('''
+                    CREATE TABLE IF NOT EXISTS users (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        username TEXT UNIQUE NOT NULL,
+                        password TEXT NOT NULL,
+                        name TEXT DEFAULT 'User',
+                        role TEXT DEFAULT 'user',
+                        is_active BOOLEAN DEFAULT 1,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                logger.info("✅ Fallback users tablosu oluşturuldu")
+            except Exception as fallback_e:
+                logger.error(f"❌ Fallback users tablosu hatası: {str(fallback_e)}")
 
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS users (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    username TEXT UNIQUE NOT NULL,
-                    password TEXT NOT NULL,
-                    name TEXT NOT NULL,
-                    email TEXT,
-                    role TEXT DEFAULT 'user' CHECK (role IN ('admin', 'user', 'viewer')),
-                    is_active BOOLEAN DEFAULT 1,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    last_login DATETIME,
-                    created_by INTEGER,
-                    FOREIGN KEY (created_by) REFERENCES users(id)
-                )
-            ''')
-            logger.info("✅ Users tablosu yeniden oluşturuldu")
-
-        # Aktivite logları tablosu
+        # User Activities tablosu
         conn.execute('''
             CREATE TABLE IF NOT EXISTS user_activities (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -263,8 +290,7 @@ def init_db():
                 description TEXT NOT NULL,
                 ip_address TEXT,
                 user_agent TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id)
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
@@ -281,8 +307,7 @@ def init_db():
                 is_verified BOOLEAN DEFAULT 0,
                 compatible_devices TEXT DEFAULT 'all',
                 uploader_id INTEGER,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (uploader_id) REFERENCES users(id)
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
@@ -296,9 +321,7 @@ def init_db():
                 status TEXT NOT NULL,
                 error_message TEXT,
                 initiated_by INTEGER,
-                timestamp INTEGER NOT NULL,
-                FOREIGN KEY (cihaz_id) REFERENCES devices(cihaz_id),
-                FOREIGN KEY (initiated_by) REFERENCES users(id)
+                timestamp INTEGER NOT NULL
             )
         ''')
 
@@ -317,21 +340,18 @@ def init_db():
             CREATE TABLE IF NOT EXISTS device_group_mapping (
                 group_id INTEGER NOT NULL,
                 cihaz_id TEXT NOT NULL,
-                PRIMARY KEY (group_id, cihaz_id),
-                FOREIGN KEY (group_id) REFERENCES device_groups(id) ON DELETE CASCADE,
-                FOREIGN KEY (cihaz_id) REFERENCES devices(cihaz_id) ON DELETE CASCADE
+                PRIMARY KEY (group_id, cihaz_id)
             )
         ''')
 
-        # 🔐 GÜVENLİ ADMIN KULLANICISI OLUŞTURMA
+        # 🔐 ADMIN KULLANICISI YÖNETİMİ - GÜVENLİ VERSİYON
         try:
             # Admin kullanıcı var mı kontrol et
             admin_user = conn.execute('SELECT * FROM users WHERE username = ?', ('admin',)).fetchone()
 
             if not admin_user:
-                # Güvenli şifre ile admin oluştur
-                secure_password = os.environ.get('ADMIN_PASSWORD', 'IoT@dmin2024#Secure!')
-
+                # Yeni admin oluştur
+                secure_password = os.environ.get('ADMIN_PASSWORD', 'YeniSuperGüvenliŞifre2024!@#$%^')
                 conn.execute('''
                     INSERT INTO users (username, password, name, role, is_active)
                     VALUES (?, ?, ?, ?, ?)
@@ -342,37 +362,55 @@ def init_db():
                     'admin',
                     1
                 ))
-                logger.info("✅ Secure admin user created")
-                logger.warning(f"🔐 Admin password: {secure_password}")
-                logger.warning("⚠️ ÖNEMLI: Production'da ADMIN_PASSWORD environment variable'ını kullanın!")
+                logger.info("✅ Yeni admin kullanıcısı oluşturuldu")
+                logger.warning(f"🔐 Admin şifresi: {secure_password}")
+
             else:
-                # Mevcut admin'in şifresini güncelle (sadece varsayılan zayıf şifre ise)
-                if check_password_hash(admin_user['password'], 'admin123'):
-                    new_secure_password = os.environ.get('ADMIN_PASSWORD', 'IoT@dmin2024#Secure!')
+                # Mevcut admin'i güncelle
+                logger.info("ℹ️ Admin kullanıcısı zaten mevcut")
+
+                # Admin'in role'ünü garanti et
+                conn.execute('''
+                    UPDATE users 
+                    SET role = 'admin', 
+                        is_active = 1,
+                        name = COALESCE(NULLIF(name, ''), 'System Administrator')
+                    WHERE username = 'admin'
+                ''')
+
+                # Eğer zayıf şifre kullanıyorsa güncelle
+                if admin_user and check_password_hash(admin_user['password'], 'admin123'):
+                    new_secure_password = os.environ.get('ADMIN_PASSWORD', 'YeniSuperGüvenliŞifre2024!@#$%^')
                     conn.execute('''
                         UPDATE users 
-                        SET password = ?, role = 'admin', is_active = 1 
+                        SET password = ? 
                         WHERE username = 'admin'
                     ''', (generate_password_hash(new_secure_password),))
-                    logger.warning("🔐 Admin password updated to secure version!")
-                    logger.warning(f"🔑 New admin password: {new_secure_password}")
+                    logger.warning("🔐 Admin şifresi güvenli versiyona güncellendi!")
+                    logger.warning(f"🔑 Yeni admin şifresi: {new_secure_password}")
                 else:
-                    # Mevcut admin kullanıcının role'ünü güncelle
-                    conn.execute('''
-                        UPDATE users 
-                        SET role = 'admin', is_active = 1 
-                        WHERE username = 'admin'
-                    ''', )
-                    logger.info("✅ Admin kullanıcısı role güncellendi")
+                    logger.info("✅ Admin kullanıcısı role/durum güncellendi")
 
         except sqlite3.IntegrityError as e:
-            logger.info(f"ℹ️ Admin kullanıcısı zaten mevcut: {e}")
+            logger.info(f"ℹ️ Admin kullanıcısı zaten mevcut (IntegrityError): {e}")
         except Exception as e:
-            logger.error(f"❌ Admin kullanıcısı hatası: {e}")
+            logger.error(f"❌ Admin kullanıcısı yönetim hatası: {str(e)}")
 
+        # Tüm değişiklikleri kaydet
         conn.commit()
-        logger.info("✅ Database initialized with enhanced security")
+        logger.info("✅ Database başarıyla başlatıldı - tüm tablolar hazır")
 
+        # Sonuç özeti
+        try:
+            user_count = conn.execute('SELECT COUNT(*) FROM users').fetchone()[0]
+            device_count = conn.execute('SELECT COUNT(*) FROM devices').fetchone()[0]
+            logger.info(f"📊 Veritabanı özeti: {user_count} kullanıcı, {device_count} cihaz")
+        except:
+            logger.info("📊 Veritabanı özeti alınamadı")
+
+
+# init_db() çağrısını garanti et
+init_db()
 init_db()
 
 
@@ -2918,80 +2956,6 @@ def create_activity_api():
 
 
 # İlk kez kullanıcı tablosunu oluşturmak için startup function
-@app.before_first_request
-def ensure_users_table():
-    """Uygulama başlarken users tablosunu garanti et"""
-    try:
-        with get_db() as conn:
-            # Users tablosu var mı kontrol et
-            table_exists = conn.execute("""
-                SELECT name FROM sqlite_master 
-                WHERE type='table' AND name='users'
-            """).fetchone()
-
-            if not table_exists:
-                # Basit users tablosu oluştur
-                conn.execute('''
-                    CREATE TABLE users (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        username TEXT UNIQUE NOT NULL,
-                        password TEXT NOT NULL,
-                        name TEXT DEFAULT 'User',
-                        role TEXT DEFAULT 'user',
-                        is_active BOOLEAN DEFAULT 1,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        last_login DATETIME
-                    )
-                ''')
-
-                # Admin kullanıcısı oluştur
-                admin_password = os.environ.get('ADMIN_PASSWORD', 'admin123')
-                conn.execute('''
-                    INSERT INTO users (username, password, name, role, is_active)
-                    VALUES (?, ?, ?, ?, ?)
-                ''', (
-                    'admin',
-                    generate_password_hash(admin_password),
-                    'System Administrator',
-                    'admin',
-                    1
-                ))
-
-                conn.commit()
-                logger.info("✅ Users table created with admin user")
-            else:
-                # Mevcut tabloda eksik sütunları kontrol et ve ekle
-                columns = conn.execute("PRAGMA table_info(users)").fetchall()
-                column_names = [col[1] for col in columns]
-
-                # Eksik sütunları ekle
-                missing_columns = {
-                    'name': "ALTER TABLE users ADD COLUMN name TEXT DEFAULT 'User'",
-                    'role': "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'",
-                    'is_active': "ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT 1",
-                    'last_login': "ALTER TABLE users ADD COLUMN last_login DATETIME"
-                }
-
-                for column_name, sql_command in missing_columns.items():
-                    if column_name not in column_names:
-                        try:
-                            conn.execute(sql_command)
-                            logger.info(f"✅ Added missing column: {column_name}")
-                        except sqlite3.OperationalError as e:
-                            logger.warning(f"⚠️ Could not add column {column_name}: {e}")
-
-                # Boş name değerlerini düzelt
-                conn.execute("UPDATE users SET name = username WHERE name IS NULL OR name = ''")
-
-                # Admin kullanıcısının role'ünü garanti et
-                conn.execute("UPDATE users SET role = 'admin' WHERE username = 'admin'")
-
-                conn.commit()
-                logger.info("✅ Users table updated and verified")
-
-    except Exception as e:
-        logger.error(f"❌ ensure_users_table error: {str(e)}")
-
 
 # ESKI route'ları kaldırın ve bunları kullanın
 # Ayrıca user_activities tablosunu da oluşturalım
