@@ -561,9 +561,41 @@ def receive_data():
 
     try:
         with get_db() as conn:
-            # Mevcut cihaz güncelleme kodu...
+            # ✅ UPDATE first (preserves target_firmware)
+            cursor = conn.execute('''
+                UPDATE devices 
+                SET cihaz_adi = ?, fabrika_adi = ?, konum = ?, mac = ?, 
+                    firmware_version = ?, last_seen = ?, online_status = 1, ip_address = ?
+                WHERE cihaz_id = ?
+            ''', (
+                data.get('cihaz_adi', 'Bilinmeyen'),
+                data.get('fabrika_adi', 'Belirtilmemiş'),
+                data.get('konum', 'Bilinmeyen'),
+                data.get('mac', ''),
+                data.get('firmware_version', '1.0.0'),
+                timestamp,
+                request.remote_addr,
+                data['cihaz_id']
+            ))
 
-            # ✅ YENİ: İş emri verilerini kaydet
+            # ✅ INSERT only if device doesn't exist
+            if cursor.rowcount == 0:
+                conn.execute('''
+                    INSERT INTO devices 
+                    (cihaz_id, cihaz_adi, fabrika_adi, konum, mac, firmware_version, last_seen, online_status, ip_address)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+                ''', (
+                    data['cihaz_id'],
+                    data.get('cihaz_adi', 'Bilinmeyen'),
+                    data.get('fabrika_adi', 'Belirtilmemiş'),
+                    data.get('konum', 'Bilinmeyen'),
+                    data.get('mac', ''),
+                    data.get('firmware_version', '1.0.0'),
+                    timestamp,
+                    request.remote_addr
+                ))
+
+            # ✅ İş emri verilerini kaydet
             if 'is_emri' in data:
                 is_emri = data['is_emri']
 
@@ -612,7 +644,20 @@ def receive_data():
                         is_emri.get('is_emri_durum', 0)
                     ))
 
-            # Sensör verileri kaydetme (mevcut kod)...
+            # Sensör verileri kaydetme
+            if 'veriler' in data:
+                for veri in data['veriler']:
+                    conn.execute('''
+                        INSERT INTO sensor_data 
+                        (cihaz_id, sensor_id, sensor_value, sensor_unit, timestamp)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (
+                        data['cihaz_id'],
+                        veri.get('sensor_id', ''),
+                        veri.get('deger', 0),
+                        veri.get('birim', ''),
+                        timestamp
+                    ))
 
             conn.commit()
             return jsonify({"status": "success", "message": "Veri alındı"})
@@ -1332,73 +1377,7 @@ def signup():
     flash('Yeni hesap oluşturma kapatılmıştır. Lütfen yöneticinizle iletişime geçin.', 'warning')
     return redirect(url_for('login'))
 
-@app.route('/data', methods=['POST'])
-def receive_data():
-    data = request.get_json()
-    if not data or 'cihaz_id' not in data:
-        return jsonify({"status": "error", "message": "Geçersiz veri"}), 400
-    
-    timestamp = int(time.time() * 1000)
-    data['timestamp'] = timestamp
-    data['firmware_version'] = data.get('firmware_version', '1.0.0')
-    
-    try:
-        with get_db() as conn:
-            # ✅ UPDATE first (preserves target_firmware)
-            cursor = conn.execute('''
-                UPDATE devices 
-                SET cihaz_adi = ?, fabrika_adi = ?, konum = ?, mac = ?, 
-                    firmware_version = ?, last_seen = ?, online_status = 1, ip_address = ?
-                WHERE cihaz_id = ?
-            ''', (
-                data.get('cihaz_adi', 'Bilinmeyen'),
-                data.get('fabrika_adi', 'Belirtilmemiş'),
-                data.get('konum', 'Bilinmeyen'),
-                data.get('mac', ''),
-                data['firmware_version'],
-                timestamp,
-                request.remote_addr,
-                data['cihaz_id']
-            ))
-            
-            # ✅ INSERT only if device doesn't exist
-            if cursor.rowcount == 0:
-                conn.execute('''
-                    INSERT INTO devices 
-                    (cihaz_id, cihaz_adi, fabrika_adi, konum, mac, firmware_version, last_seen, online_status, ip_address)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
-                ''', (
-                    data['cihaz_id'],
-                    data.get('cihaz_adi', 'Bilinmeyen'),
-                    data.get('fabrika_adi', 'Belirtilmemiş'),
-                    data.get('konum', 'Bilinmeyen'),
-                    data.get('mac', ''),
-                    data['firmware_version'],
-                    timestamp,
-                    request.remote_addr
-                ))
-            
-            # Save sensor data (aynı kalır)
-            if 'veriler' in data:
-                for veri in data['veriler']:
-                    conn.execute('''
-                        INSERT INTO sensor_data 
-                        (cihaz_id, sensor_id, sensor_value, sensor_unit, timestamp)
-                        VALUES (?, ?, ?, ?, ?)
-                    ''', (
-                        data['cihaz_id'],
-                        veri.get('sensor_id', ''),
-                        veri.get('deger', 0),
-                        veri.get('birim', ''),
-                        timestamp
-                    ))
-            
-            conn.commit()
-            return jsonify({"status": "success", "message": "Veri alındı"})
-    
-    except Exception as e:
-        logger.error(f"Data receive error: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+
 
 
 
