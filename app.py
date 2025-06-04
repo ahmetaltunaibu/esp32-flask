@@ -155,6 +155,27 @@ def init_db():
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        # 1. Database'e iş emri tablosu ekleme
+        conn.execute('''
+                    CREATE TABLE IF NOT EXISTS work_orders (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        cihaz_id TEXT NOT NULL,
+                        is_emri_no TEXT NOT NULL,
+                        urun_tipi TEXT,
+                        hedef_urun INTEGER,
+                        operator_ad TEXT,
+                        shift_bilgisi TEXT,
+                        baslama_zamani TEXT,
+                        bitis_zamani TEXT,
+                        gerceklesen_urun INTEGER DEFAULT 0,
+                        fire_sayisi INTEGER DEFAULT 0,
+                        makine_durumu INTEGER DEFAULT 0,
+                        is_emri_durum INTEGER DEFAULT 0,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (cihaz_id) REFERENCES devices(cihaz_id)
+                    )
+                ''')
 
         # Cihazlar tablosu - FABRİKA EKLENDİ
         conn.execute('''
@@ -527,6 +548,181 @@ def inject_user():
         current_user=dict(name=username), 
         is_admin=is_admin
     )
+
+
+# 2. ESP32'den iş emri alma endpoint'i
+@app.route('/data', methods=['POST'])
+def receive_data():
+    data = request.get_json()
+    if not data or 'cihaz_id' not in data:
+        return jsonify({"status": "error", "message": "Geçersiz veri"}), 400
+
+    timestamp = int(time.time() * 1000)
+
+    try:
+        with get_db() as conn:
+            # Mevcut cihaz güncelleme kodu...
+
+            # ✅ YENİ: İş emri verilerini kaydet
+            if 'is_emri' in data:
+                is_emri = data['is_emri']
+
+                # Aktif iş emri var mı kontrol et
+                existing = conn.execute('''
+                    SELECT id FROM work_orders 
+                    WHERE cihaz_id = ? AND is_emri_no = ? AND is_emri_durum != 2
+                ''', (data['cihaz_id'], is_emri.get('is_emri_no', ''))).fetchone()
+
+                if existing:
+                    # Mevcut iş emrini güncelle
+                    conn.execute('''
+                        UPDATE work_orders 
+                        SET urun_tipi = ?, hedef_urun = ?, operator_ad = ?, 
+                            shift_bilgisi = ?, baslama_zamani = ?, bitis_zamani = ?,
+                            makine_durumu = ?, is_emri_durum = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    ''', (
+                        is_emri.get('urun_tipi', ''),
+                        is_emri.get('hedef_urun', 0),
+                        is_emri.get('operator_ad', ''),
+                        is_emri.get('shift_bilgisi', ''),
+                        is_emri.get('baslama_zamani', ''),
+                        is_emri.get('bitis_zamani', ''),
+                        is_emri.get('makine_durumu', 0),
+                        is_emri.get('is_emri_durum', 0),
+                        existing['id']
+                    ))
+                else:
+                    # Yeni iş emri oluştur
+                    conn.execute('''
+                        INSERT INTO work_orders 
+                        (cihaz_id, is_emri_no, urun_tipi, hedef_urun, operator_ad, 
+                         shift_bilgisi, baslama_zamani, bitis_zamani, makine_durumu, is_emri_durum)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        data['cihaz_id'],
+                        is_emri.get('is_emri_no', ''),
+                        is_emri.get('urun_tipi', ''),
+                        is_emri.get('hedef_urun', 0),
+                        is_emri.get('operator_ad', ''),
+                        is_emri.get('shift_bilgisi', ''),
+                        is_emri.get('baslama_zamani', ''),
+                        is_emri.get('bitis_zamani', ''),
+                        is_emri.get('makine_durumu', 0),
+                        is_emri.get('is_emri_durum', 0)
+                    ))
+
+            # Sensör verileri kaydetme (mevcut kod)...
+
+            conn.commit()
+            return jsonify({"status": "success", "message": "Veri alındı"})
+
+    except Exception as e:
+        logger.error(f"Data receive error: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# 3. İş emri görüntüleme sayfası
+@app.route('/work_orders')
+@login_required
+def work_orders():
+    with get_db() as conn:
+        # Tüm iş emirlerini al
+        work_orders = conn.execute('''
+            SELECT wo.*, d.cihaz_adi, d.konum, d.fabrika_adi
+            FROM work_orders wo
+            LEFT JOIN devices d ON wo.cihaz_id = d.cihaz_id
+            ORDER BY wo.created_at DESC
+            LIMIT 100
+        ''').fetchall()
+
+        return render_template('work_orders.html', work_orders=work_orders)
+
+
+# 4. Cihaz bazlı iş emri görüntüleme
+@app.route('/work_orders/<cihaz_id>')
+@login_required
+def device_work_orders(cihaz_id):
+    with get_db() as conn:
+        # Cihaz bilgisi
+        device = conn.execute('SELECT * FROM devices WHERE cihaz_id = ?', (cihaz_id,)).fetchone()
+        if not device:
+            flash('Cihaz bulunamadı', 'danger')
+            return redirect(url_for('index'))
+
+        # İş emirleri
+        work_orders = conn.execute('''
+            SELECT * FROM work_orders 
+            WHERE cihaz_id = ? 
+            ORDER BY created_at DESC
+        ''', (cihaz_id,)).fetchall()
+
+        return render_template('device_work_orders.html',
+                               device=device, work_orders=work_orders)
+
+
+# 5. İş emri API endpoint'i
+@app.route('/api/work_orders/<cihaz_id>')
+@login_required
+def api_work_orders(cihaz_id):
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+
+    with get_db() as conn:
+        query = 'SELECT * FROM work_orders WHERE cihaz_id = ?'
+        params = [cihaz_id]
+
+        if start_date:
+            query += ' AND created_at >= ?'
+            params.append(start_date)
+
+        if end_date:
+            query += ' AND created_at <= ?'
+            params.append(end_date + ' 23:59:59')
+
+        query += ' ORDER BY created_at DESC'
+
+        work_orders = conn.execute(query, params).fetchall()
+
+        return jsonify({
+            'work_orders': [dict(wo) for wo in work_orders]
+        })
+
+
+# 6. İş emri özet endpoint'i
+@app.route('/api/work_order_summary/<cihaz_id>')
+@login_required
+def work_order_summary(cihaz_id):
+    with get_db() as conn:
+        # Aktif iş emri
+        active = conn.execute('''
+            SELECT * FROM work_orders 
+            WHERE cihaz_id = ? AND is_emri_durum = 1 
+            ORDER BY created_at DESC LIMIT 1
+        ''', (cihaz_id,)).fetchone()
+
+        # Son 30 günde tamamlanan iş emirleri
+        completed = conn.execute('''
+            SELECT COUNT(*) as count FROM work_orders 
+            WHERE cihaz_id = ? AND is_emri_durum = 2 
+            AND created_at >= datetime('now', '-30 days')
+        ''', (cihaz_id,)).fetchone()
+
+        # Bu ay hedef tutturma oranı
+        target_rate = conn.execute('''
+            SELECT 
+                AVG(CASE WHEN hedef_urun > 0 THEN (gerceklesen_urun * 100.0 / hedef_urun) ELSE 0 END) as rate
+            FROM work_orders 
+            WHERE cihaz_id = ? AND is_emri_durum = 2 
+            AND created_at >= datetime('now', 'start of month')
+        ''', (cihaz_id,)).fetchone()
+
+        return jsonify({
+            'active_work_order': dict(active) if active else None,
+            'completed_last_30_days': completed['count'],
+            'target_achievement_rate': round(target_rate['rate'] or 0, 1)
+        })
+
 
 
 # Routes
