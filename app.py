@@ -300,7 +300,7 @@ def show_table_stats():
                 print(f"❌ {table} tablosu kontrol edilemedi: {e}")
 
 
-# app.py'de migrate_database() fonksiyonunu bu şekilde güncelleyin
+
 
 init_db()  # Tabloları oluştur
 
@@ -421,6 +421,31 @@ def format_db_datetime(datetime_str):
 
 # app.py'ye bu endpoint'i ekle:
 
+
+# Authentication Decorators
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'username' not in session:
+            flash('Lütfen giriş yapın', 'danger')
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+
+    return decorated_function
+
+
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('is_admin'):
+            if request.is_json:
+                return jsonify({"error": "Bu işlem için admin yetkisi gerekli"}), 403
+            flash('Bu işlem için ADMIN yetkisi gerekiyor!', 'danger')
+            return redirect(url_for('index'))
+        return f(*args, **kwargs)
+
+    return decorated_function
+
 @app.route('/api/live_production/<cihaz_id>')
 @login_required
 def live_production_data(cihaz_id):
@@ -540,29 +565,6 @@ def live_production_data(cihaz_id):
         logger.error(f"❌ Live production data error: {str(e)}")
         return jsonify({'error': str(e), 'active': False}), 500
 
-# Authentication Decorators
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'username' not in session:
-            flash('Lütfen giriş yapın', 'danger')
-            return redirect(url_for('login'))
-        return f(*args, **kwargs)
-
-    return decorated_function
-
-
-def admin_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if not session.get('is_admin'):
-            if request.is_json:
-                return jsonify({"error": "Bu işlem için admin yetkisi gerekli"}), 403
-            flash('Bu işlem için ADMIN yetkisi gerekiyor!', 'danger')
-            return redirect(url_for('index'))
-        return f(*args, **kwargs)
-
-    return decorated_function
 
 
 # Context Processors
