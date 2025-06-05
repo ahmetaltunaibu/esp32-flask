@@ -451,9 +451,12 @@ def admin_required(f):
 def live_production_data(cihaz_id):
     """Canlı üretim verilerini döndürür"""
     try:
-        # Cihaz kontrolü
-        device = get_device_by_id(cihaz_id)
+        # Cihaz kontrolü - direkt SQL sorgusu
+        cursor = get_db_cursor()
+        cursor.execute("SELECT * FROM devices WHERE cihaz_id = %s", (cihaz_id,))
+        device = cursor.fetchone()
         if not device:
+            cursor.close()
             return jsonify({'error': 'Device not found'}), 404
 
         # Aktif iş emrini bul
