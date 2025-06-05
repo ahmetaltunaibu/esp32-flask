@@ -333,7 +333,8 @@ def migrate_database():
 
     except Exception as e:
         print(f"❌ Migration hatası: {e}")
-
+init_db()  # Tabloları oluştur
+migrate_database()  # Eksik kolonları ekle
 
 def is_ip_locked(ip_address):
     """IP adresinin kilitli olup olmadığını kontrol et"""
