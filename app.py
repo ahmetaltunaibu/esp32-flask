@@ -300,7 +300,7 @@ def show_table_stats():
                 print(f"❌ {table} tablosu kontrol edilemedi: {e}")
 
 
-
+# app.py'de migrate_database() fonksiyonunu bu şekilde güncelleyin
 
 init_db()  # Tabloları oluştur
 
@@ -449,123 +449,125 @@ def admin_required(f):
 @app.route('/api/live_production/<cihaz_id>')
 @login_required
 def live_production_data(cihaz_id):
-    """Canlı üretim verisi - aktif iş emri sırasında"""
+    """Canlı üretim verilerini döndürür"""
     try:
-        with get_db() as conn:
-            # Aktif iş emrini bul
-            active_work_order = conn.execute('''
-                SELECT * FROM work_orders 
-                WHERE cihaz_id = ? AND is_emri_durum = 1 
-                ORDER BY created_at DESC LIMIT 1
-            ''', (cihaz_id,)).fetchone()
+        # Cihaz kontrolü
+        device = get_device_by_id(cihaz_id)
+        if not device:
+            return jsonify({'error': 'Device not found'}), 404
 
-            if not active_work_order:
-                return jsonify({
-                    'active': False,
-                    'message': 'Aktif iş emri bulunamadı'
-                })
+        # Aktif iş emrini bul
+        cursor = get_db_cursor()
+        cursor.execute("""
+            SELECT * FROM work_orders 
+            WHERE cihaz_id = %s AND is_emri_durum = 1 
+            ORDER BY created_at DESC LIMIT 1
+        """, (cihaz_id,))
+        active_order = cursor.fetchone()
 
-            # Son 5 dakikanın sensör verilerini al
-            current_time = int(time.time() * 1000)
-            five_minutes_ago = current_time - (5 * 60 * 1000)
+        # Son sensör verilerini al (son 10 kayıt)
+        cursor.execute("""
+            SELECT * FROM sensor_data 
+            WHERE cihaz_id = %s 
+            ORDER BY timestamp DESC LIMIT 10
+        """, (cihaz_id,))
+        recent_data = cursor.fetchall()
 
-            # Kritik sensörlerin son değerleri
-            critical_sensors = ['toplam_urun', 'hatali_urun', 'saglam_urun', 'OEE',
-                                'kullanilabilirlik', 'kalite', 'performans']
+        # Değişkenleri başlat
+        fire_trend_ago = 0
+        production_rate = 0
+        efficiency_trend = 0
+        quality_rate = 95.0
+        current_speed = 0
+        target_speed = 100
 
-            sensor_data = {}
-            for sensor in critical_sensors:
-                latest = conn.execute('''
-                    SELECT sensor_value, timestamp FROM sensor_data 
-                    WHERE cihaz_id = ? AND sensor_id = ?
-                    ORDER BY timestamp DESC LIMIT 1
-                ''', (cihaz_id, sensor)).fetchone()
+        # Aktif iş emri varsa verilerini hazırla
+        if active_order:
+            # Fire trend hesaplama
+            if len(recent_data) >= 2:
+                current_fire = recent_data[0].get('fire_sayisi', 0) or 0
+                previous_fire = recent_data[1].get('fire_sayisi', 0) or 0
+                fire_trend_ago = current_fire - previous_fire
 
-                if latest:
-                    sensor_data[sensor] = {
-                        'value': latest['sensor_value'],
-                        'timestamp': latest['timestamp']
-                    }
+            # Üretim hızı hesaplama (adet/dakika)
+            if active_order.get('gerceklesen_urun') and active_order.get('baslama_zamani'):
+                from datetime import datetime
+                start_time = datetime.fromisoformat(active_order['baslama_zamani'].replace('Z', '+00:00'))
+                elapsed_minutes = (datetime.now().replace(tzinfo=start_time.tzinfo) - start_time).total_seconds() / 60
+                if elapsed_minutes > 0:
+                    production_rate = round(active_order.get('gerceklesen_urun', 0) / elapsed_minutes, 1)
 
-            # Son 5 dakikanın üretim trendi
-            production_trend = conn.execute('''
-                SELECT sensor_value, timestamp FROM sensor_data 
-                WHERE cihaz_id = ? AND sensor_id = 'toplam_urun'
-                AND timestamp >= ?
-                ORDER BY timestamp ASC
-            ''', (cihaz_id, five_minutes_ago)).fetchall()
+            # Verimlilik trendi (basit hesaplama)
+            if active_order.get('hedef_urun', 0) > 0:
+                current_efficiency = (active_order.get('gerceklesen_urun', 0) * 100) / active_order['hedef_urun']
+                # Trend için önceki kayıtlarla karşılaştırma yapılabilir, şimdilik 0
+                efficiency_trend = 0
 
-            fire_trend = conn.execute('''
-                SELECT sensor_value, timestamp FROM sensor_data 
-                WHERE cihaz_id = ? AND sensor_id = 'hatali_urun'
-                AND timestamp >= ?
-                ORDER BY timestamp ASC
-            ''', (cihaz_id, fire_trend_ago)).fetchall()
+            # Kalite oranı
+            if active_order.get('gerceklesen_urun', 0) > 0:
+                fire_count = active_order.get('fire_sayisi', 0) or 0
+                quality_rate = round(
+                    ((active_order['gerceklesen_urun'] - fire_count) * 100) / active_order['gerceklesen_urun'], 1)
 
-            # Hedef ve gerçekleşen hesaplama
-            hedef_urun = active_work_order['hedef_urun']
-            gerceklesen_urun = sensor_data.get('toplam_urun', {}).get('value', 0)
-            fire_sayisi = sensor_data.get('hatali_urun', {}).get('value', 0)
+            # Mevcut hız (son sensör verisinden)
+            if recent_data:
+                current_speed = recent_data[0].get('uretim_hizi', 0) or 0
 
-            # Başlangıçtan geçen süre
-            baslama_zamani = active_work_order['baslama_zamani']
-            if baslama_zamani:
-                start_time = datetime.strptime(baslama_zamani, '%Y-%m-%d %H:%M:%S')
-                elapsed_minutes = (datetime.now() - start_time).total_seconds() / 60
-            else:
-                elapsed_minutes = 0
+            # Hedef hız (iş emrinden veya varsayılan)
+            target_speed = active_order.get('hedef_hiz', 100) or 100
 
-            # Tahmini bitiş süresi (üretim hızına göre)
-            if gerceklesen_urun > 0 and elapsed_minutes > 0:
-                production_rate = gerceklesen_urun / elapsed_minutes  # adet/dk
-                if production_rate > 0:
-                    remaining_units = hedef_urun - gerceklesen_urun
-                    estimated_completion_minutes = remaining_units / production_rate
-                else:
-                    estimated_completion_minutes = 0
-            else:
-                estimated_completion_minutes = 0
+        # Yanıt verisi
+        response_data = {
+            'device_id': cihaz_id,
+            'device_name': device.get('cihaz_adi', 'Bilinmeyen Cihaz'),
+            'is_active': bool(active_order),
+            'timestamp': datetime.now().isoformat(),
+            'work_order': {
+                'id': active_order.get('id') if active_order else None,
+                'order_number': active_order.get('is_emri_no') if active_order else None,
+                'product_type': active_order.get('urun_tipi') if active_order else None,
+                'operator': active_order.get('operator_ad') if active_order else None,
+                'shift': active_order.get('shift_bilgisi') if active_order else None,
+                'target_quantity': active_order.get('hedef_urun', 0) if active_order else 0,
+                'actual_quantity': active_order.get('gerceklesen_urun', 0) if active_order else 0,
+                'fire_count': active_order.get('fire_sayisi', 0) if active_order else 0,
+                'fire_trend': fire_trend_ago,
+                'start_time': active_order.get('baslama_zamani') if active_order else None,
+                'progress_percentage': round(
+                    (active_order.get('gerceklesen_urun', 0) * 100) / active_order.get('hedef_urun', 1),
+                    1) if active_order and active_order.get('hedef_urun', 0) > 0 else 0
+            },
+            'performance': {
+                'production_rate': production_rate,
+                'efficiency': round((active_order.get('gerceklesen_urun', 0) * 100) / active_order.get('hedef_urun', 1),
+                                    1) if active_order and active_order.get('hedef_urun', 0) > 0 else 0,
+                'efficiency_trend': efficiency_trend,
+                'quality_rate': quality_rate,
+                'current_speed': current_speed,
+                'target_speed': target_speed,
+                'remaining_quantity': (active_order.get('hedef_urun', 0) - active_order.get('gerceklesen_urun',
+                                                                                            0)) if active_order else 0
+            },
+            'status': {
+                'machine_status': 'running' if active_order else 'idle',
+                'alerts': [],  # Uyarılar için
+                'last_update': datetime.now().isoformat()
+            }
+        }
 
-            return jsonify({
-                'active': True,
-                'work_order': {
-                    'is_emri_no': active_work_order['is_emri_no'],
-                    'urun_tipi': active_work_order['urun_tipi'],
-                    'operator_ad': active_work_order['operator_ad'],
-                    'hedef_urun': hedef_urun,
-                    'baslama_zamani': baslama_zamani
-                },
-                'current_production': {
-                    'gerceklesen_urun': int(gerceklesen_urun),
-                    'fire_sayisi': int(fire_sayisi),
-                    'saglam_urun': int(gerceklesen_urun - fire_sayisi),
-                    'hedef_kalan': int(hedef_urun - gerceklesen_urun),
-                    'tamamlanma_orani': round((gerceklesen_urun / hedef_urun) * 100, 1) if hedef_urun > 0 else 0,
-                    'fire_orani': round((fire_sayisi / gerceklesen_urun) * 100, 1) if gerceklesen_urun > 0 else 0
-                },
-                'performance': {
-                    'oee': round(sensor_data.get('OEE', {}).get('value', 0), 1),
-                    'kullanilabilirlik': round(sensor_data.get('kullanilabilirlik', {}).get('value', 0), 1),
-                    'kalite': round(sensor_data.get('kalite', {}).get('value', 0), 1),
-                    'performans': round(sensor_data.get('performans', {}).get('value', 0), 1)
-                },
-                'timing': {
-                    'elapsed_minutes': round(elapsed_minutes, 0),
-                    'estimated_completion_minutes': round(estimated_completion_minutes, 0),
-                    'production_rate_per_minute': round(production_rate, 1) if 'production_rate' in locals() else 0
-                },
-                'trends': {
-                    'production': [{'value': row['sensor_value'], 'timestamp': row['timestamp']} for row in
-                                   production_trend],
-                    'fire': [{'value': row['sensor_value'], 'timestamp': row['timestamp']} for row in fire_trend]
-                }
-            })
+        cursor.close()
+        return jsonify(response_data)
 
     except Exception as e:
-        logger.error(f"❌ Live production data error: {str(e)}")
-        return jsonify({'error': str(e), 'active': False}), 500
-
-
+        logger.error(f"❌ Live production data error: {e}")
+        import traceback
+        logger.error(f"❌ Traceback: {traceback.format_exc()}")
+        return jsonify({
+            'error': 'Internal server error',
+            'device_id': cihaz_id,
+            'is_active': False,
+            'message': str(e)
+        }), 500
 
 # Context Processors
 @app.context_processor
