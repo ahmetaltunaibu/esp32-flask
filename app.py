@@ -142,163 +142,197 @@ def get_db():
 
 
 def init_db():
-    """Tüm gerekli tabloları oluştur"""
+    """Database'i başlat - tüm tabloları oluştur"""
     with get_db() as conn:
-        # 1. DEVICES TABLOSU - ESP32 cihazları için
+
+        # 1. DEVICES TABLOSU
         conn.execute('''
             CREATE TABLE IF NOT EXISTS devices (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 cihaz_id TEXT UNIQUE NOT NULL,
-                cihaz_adi TEXT NOT NULL,
+                cihaz_adi TEXT,
                 fabrika_adi TEXT,
                 konum TEXT,
                 mac TEXT,
                 firmware_version TEXT DEFAULT '1.0.0',
-                target_firmware TEXT,
                 last_seen INTEGER,
                 online_status INTEGER DEFAULT 0,
                 ip_address TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                last_update DATETIME DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
-        # 2. SENSOR_DATA TABLOSU - Sensör verileri için
+        # 2. SENSOR_DATA TABLOSU
         conn.execute('''
             CREATE TABLE IF NOT EXISTS sensor_data (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 cihaz_id TEXT NOT NULL,
                 sensor_id TEXT NOT NULL,
                 sensor_value REAL NOT NULL,
-                sensor_unit TEXT NOT NULL,
+                sensor_unit TEXT,
                 timestamp INTEGER NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cihaz_id) REFERENCES devices (cihaz_id)
             )
         ''')
 
-        # 3. WORK_ORDERS TABLOSU - İş emirleri için (13 sensör verisi dahil)
+        # 3. WORK_ORDERS TABLOSU - ✅ SENSÖR KOLONLARI İLE
         conn.execute('''
             CREATE TABLE IF NOT EXISTS work_orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 cihaz_id TEXT NOT NULL,
-                is_emri_no TEXT NOT NULL,
+                is_emri_no TEXT,
                 urun_tipi TEXT,
-                hedef_urun INTEGER,
+                hedef_urun INTEGER DEFAULT 0,
                 operator_ad TEXT,
                 shift_bilgisi TEXT,
                 baslama_zamani TEXT,
                 bitis_zamani TEXT,
-                gerceklesen_urun INTEGER DEFAULT 0,
-                fire_sayisi INTEGER DEFAULT 0,
                 makine_durumu INTEGER DEFAULT 0,
                 is_emri_durum INTEGER DEFAULT 0,
-
-                -- 13 SENSÖR VERİSİ ALANLARI
-                aktif_calisma REAL DEFAULT 0,
-                toplam_calisma REAL DEFAULT 0,
-                mola_dahil_durus REAL DEFAULT 0,
-                plansiz_durus REAL DEFAULT 0,
-                mola_durus REAL DEFAULT 0,
-                toplam_urun REAL DEFAULT 0,
-                tag_zamani REAL DEFAULT 0,
-                hatali_urun REAL DEFAULT 0,
-                saglam_urun REAL DEFAULT 0,
-                kullanilabilirlik REAL DEFAULT 0,
-                kalite REAL DEFAULT 0,
-                performans REAL DEFAULT 0,
-                oee REAL DEFAULT 0,
-
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (cihaz_id) REFERENCES devices(cihaz_id)
+                gerceklesen_urun INTEGER DEFAULT 0,
+                fire_sayisi INTEGER DEFAULT 0,
+                created_at TEXT,
+                sensor_sicaklik REAL DEFAULT 0,
+                sensor_nem REAL DEFAULT 0,
+                sensor_basinc REAL DEFAULT 0,
+                sensor_titresim REAL DEFAULT 0,
+                sensor_guc REAL DEFAULT 0,
+                sensor_toplam_urun REAL DEFAULT 0,
+                sensor_kaliteli_urun REAL DEFAULT 0,
+                sensor_hatali_urun REAL DEFAULT 0,
+                sensor_hiz REAL DEFAULT 0,
+                sensor_torque REAL DEFAULT 0,
+                sensor_amper REAL DEFAULT 0,
+                sensor_voltaj REAL DEFAULT 0,
+                sensor_frekans REAL DEFAULT 0,
+                FOREIGN KEY (cihaz_id) REFERENCES devices (cihaz_id)
             )
         ''')
 
-        # 4. USERS TABLOSU - Kullanıcılar için
+        # 4. USERS TABLOSU
         conn.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
-                password TEXT NOT NULL,
-                name TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
                 email TEXT,
                 role TEXT DEFAULT 'user',
-                is_active BOOLEAN DEFAULT 1,
-                created_by INTEGER,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                last_login DATETIME,
-                FOREIGN KEY (created_by) REFERENCES users(id)
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
-        # 5. USER_ACTIVITIES TABLOSU - Kullanıcı aktiviteleri için
+        # 5. USER_ACTIVITIES TABLOSU
         conn.execute('''
             CREATE TABLE IF NOT EXISTS user_activities (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER,
-                activity_type TEXT NOT NULL,
-                description TEXT NOT NULL,
+                activity_type TEXT,
+                description TEXT,
                 ip_address TEXT,
-                user_agent TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id)
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id)
             )
         ''')
 
-        # 6. FIRMWARE_VERSIONS TABLOSU - Firmware yönetimi için
+        # 6. FIRMWARE_VERSIONS TABLOSU
         conn.execute('''
             CREATE TABLE IF NOT EXISTS firmware_versions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 version TEXT UNIQUE NOT NULL,
-                release_notes TEXT,
-                file_path TEXT NOT NULL,
+                filename TEXT NOT NULL,
                 file_size INTEGER,
-                signature_path TEXT,
-                is_active BOOLEAN DEFAULT 0,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                release_notes TEXT,
+                is_active INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
-        # 7. UPDATE_HISTORY TABLOSU - Güncelleme geçmişi için
+        # 7. UPDATE_HISTORY TABLOSU
         conn.execute('''
             CREATE TABLE IF NOT EXISTS update_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 cihaz_id TEXT NOT NULL,
                 old_version TEXT,
-                new_version TEXT NOT NULL,
-                status TEXT DEFAULT 'pending',
-                timestamp INTEGER NOT NULL,
-                completed_at DATETIME,
+                new_version TEXT,
+                update_status TEXT,
+                started_at TIMESTAMP,
+                completed_at TIMESTAMP,
                 error_message TEXT,
-                FOREIGN KEY (cihaz_id) REFERENCES devices(cihaz_id)
+                FOREIGN KEY (cihaz_id) REFERENCES devices (cihaz_id)
             )
         ''')
 
-        # 8. Varsayılan ADMIN kullanıcısı oluştur
+        # ✅ VARSAYILAN ADMIN KULLANICISINI OLUŞTUR
         try:
-            admin_password = os.environ.get('ADMIN_PASSWORD', 'IoT@dmin2024#Secure!')
-            conn.execute('''
-                INSERT OR IGNORE INTO users (username, password, name, role, is_active)
-                VALUES (?, ?, ?, ?, ?)
-            ''', ('admin', generate_password_hash(admin_password), 'System Administrator', 'admin', 1))
+            # Admin kullanıcısı var mı kontrol et
+            cursor = conn.execute('SELECT COUNT(*) FROM users WHERE username = ?', ('admin',))
+            if cursor.fetchone()[0] == 0:
+                # Şifre: admin123
+                password_hash = generate_password_hash('admin123')
+                conn.execute('''
+                    INSERT INTO users (username, password_hash, email, role)
+                    VALUES (?, ?, ?, ?)
+                ''', ('admin', password_hash, 'admin@system.com', 'admin'))
+                print("✅ Varsayılan admin kullanıcısı oluşturuldu (admin/admin123)")
         except Exception as e:
-            logger.warning(f"Admin kullanıcı oluşturulamadı: {str(e)}")
+            print(f"❌ Admin kullanıcısı oluşturulurken hata: {e}")
 
         conn.commit()
-        logger.info("✅ Tüm veritabanı tabloları oluşturuldu")
+        print("✅ Tüm veritabanı tabloları oluşturuldu")
 
-        # Tablo sayılarını kontrol et
-        tables = ['devices', 'sensor_data', 'work_orders', 'users', 'user_activities', 'firmware_versions', 'update_history']
+    # Tablo bilgilerini göster
+    show_table_stats()
+
+
+def show_table_stats():
+    """Tablo istatistiklerini göster"""
+    tables = ['devices', 'sensor_data', 'work_orders', 'users', 'user_activities',
+              'firmware_versions', 'update_history']
+
+    with get_db() as conn:
         for table in tables:
             try:
-                count = conn.execute(f'SELECT COUNT(*) as count FROM {table}').fetchone()['count']
-                logger.info(f"📊 {table}: {count} kayıt")
+                cursor = conn.execute(f'SELECT COUNT(*) FROM {table}')
+                count = cursor.fetchone()[0]
+                print(f"📊 {table}: {count} kayıt")
             except Exception as e:
-                logger.error(f"❌ {table} tablosu kontrol edilemedi: {str(e)}")
+                print(f"❌ {table} tablosu kontrol edilemedi: {e}")
 
-# init_db() çağrısını garanti et
-init_db()
 
+# ✅ Migration fonksiyonu (mevcut veritabanı için)
+def migrate_database():
+    """Mevcut work_orders tablosuna sensör kolonlarını ekle"""
+    print("🔄 Database migration başlıyor...")
+
+    sensor_columns = [
+        'sensor_sicaklik', 'sensor_nem', 'sensor_basinc', 'sensor_titresim',
+        'sensor_guc', 'sensor_toplam_urun', 'sensor_kaliteli_urun',
+        'sensor_hatali_urun', 'sensor_hiz', 'sensor_torque',
+        'sensor_amper', 'sensor_voltaj', 'sensor_frekans'
+    ]
+
+    try:
+        with get_db() as conn:
+            # Mevcut kolonları kontrol et
+            cursor = conn.execute("PRAGMA table_info(work_orders)")
+            existing_columns = [row[1] for row in cursor.fetchall()]
+
+            # Eksik kolonları ekle
+            for column in sensor_columns:
+                if column not in existing_columns:
+                    try:
+                        conn.execute(f"ALTER TABLE work_orders ADD COLUMN {column} REAL DEFAULT 0")
+                        print(f"✅ {column} kolonu eklendi")
+                    except Exception as e:
+                        if "duplicate column name" not in str(e).lower():
+                            print(f"❌ {column} eklenirken hata: {e}")
+
+            conn.commit()
+            print("✅ Database migration tamamlandı!")
+
+    except Exception as e:
+        print(f"❌ Migration hatası: {e}")
 
 
 def is_ip_locked(ip_address):
@@ -3730,6 +3764,15 @@ with app.app_context():
         logger.error(f"❌ Error updating device status: {str(e)}")
 
 if __name__ == '__main__':
+    # ✅ DATABASE BAŞLATMA VE MİGRATİON
+    try:
+        logger.info("🔄 Database initialization başlıyor...")
+        init_db()  # Tabloları oluştur
+        migrate_database()  # Eksik kolonları ekle
+        logger.info("✅ Database hazır!")
+    except Exception as e:
+        logger.error(f"❌ Database initialization hatası: {e}")
+
     # Güvenlik kontrolleri
     if not os.environ.get('SECRET_KEY'):
         logger.warning("⚠️ SECRET_KEY environment variable tanımlanmamış!")
