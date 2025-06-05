@@ -300,39 +300,8 @@ def show_table_stats():
                 print(f"❌ {table} tablosu kontrol edilemedi: {e}")
 
 
-# ✅ Migration fonksiyonu (mevcut veritabanı için)
-def migrate_database():
-    """Mevcut work_orders tablosuna sensör kolonlarını ekle"""
-    print("🔄 Database migration başlıyor...")
+# app.py'de migrate_database() fonksiyonunu bu şekilde güncelleyin
 
-    sensor_columns = [
-        'sensor_sicaklik', 'sensor_nem', 'sensor_basinc', 'sensor_titresim',
-        'sensor_guc', 'sensor_toplam_urun', 'sensor_kaliteli_urun',
-        'sensor_hatali_urun', 'sensor_hiz', 'sensor_torque',
-        'sensor_amper', 'sensor_voltaj', 'sensor_frekans'
-    ]
-
-    try:
-        with get_db() as conn:
-            # Mevcut kolonları kontrol et
-            cursor = conn.execute("PRAGMA table_info(work_orders)")
-            existing_columns = [row[1] for row in cursor.fetchall()]
-
-            # Eksik kolonları ekle
-            for column in sensor_columns:
-                if column not in existing_columns:
-                    try:
-                        conn.execute(f"ALTER TABLE work_orders ADD COLUMN {column} REAL DEFAULT 0")
-                        print(f"✅ {column} kolonu eklendi")
-                    except Exception as e:
-                        if "duplicate column name" not in str(e).lower():
-                            print(f"❌ {column} eklenirken hata: {e}")
-
-            conn.commit()
-            print("✅ Database migration tamamlandı!")
-
-    except Exception as e:
-        print(f"❌ Migration hatası: {e}")
 init_db()  # Tabloları oluştur
 migrate_database()  # Eksik kolonları ekle
 
@@ -783,6 +752,8 @@ def api_work_orders(cihaz_id):
 
 
 # 6. İş emri özet endpoint'i
+# app.py'de work_order_summary() fonksiyonunu değiştir:
+
 @app.route('/api/work_order_summary/<cihaz_id>')
 @login_required
 def work_order_summary(cihaz_id):
@@ -801,11 +772,11 @@ def work_order_summary(cihaz_id):
             AND created_at >= datetime('now', '-30 days')
         ''', (cihaz_id,)).fetchone()
 
-        # Bu ay ortalama OEE
+        # Bu ay ortalama OEE - SENSOR_DATA tablosundan al (work_orders'da oee kolonu yok!)
         avg_oee = conn.execute('''
-            SELECT AVG(oee) as avg_oee FROM work_orders 
-            WHERE cihaz_id = ? AND is_emri_durum = 2 
-            AND created_at >= datetime('now', 'start of month')
+            SELECT AVG(sensor_value) as avg_oee FROM sensor_data 
+            WHERE cihaz_id = ? AND sensor_id = 'OEE'
+            AND timestamp >= (strftime('%s', datetime('now', 'start of month')) * 1000)
         ''', (cihaz_id,)).fetchone()
 
         return jsonify({
@@ -813,7 +784,6 @@ def work_order_summary(cihaz_id):
             'completed_last_30_days': completed['count'],
             'average_oee': round(avg_oee['avg_oee'] or 0, 1)
         })
-
 
 # RoutesYedekleme ve geri yükleme route'ları
 
@@ -2123,51 +2093,27 @@ def assign_firmware():
 
 
 # 🔍 Firmware kontrol endpoint'i - debug mesajlarıyla
+
+
+# app.py'de check_firmware() fonksiyonundaki sorguyu düzelt:
+
 @app.route('/firmware/check/<cihaz_id>')
 def check_firmware(cihaz_id):
-    """
-    🔍 Cihaz için firmware güncellemesi kontrol et
-    """
     api_key = request.args.get('api_key')
     if api_key != "GUVENLI_ANAHTAR_123":
         return jsonify({"error": "Yetkisiz erişim"}), 401
 
     try:
         with get_db() as conn:
-            # Cihaz ve target firmware bilgilerini al
-            device_query = '''
-                SELECT 
-                    d.cihaz_id,
-                    d.cihaz_adi,
-                    d.firmware_version as current_version, 
-                    d.target_firmware,
-                    f.file_path, 
-                    f.signature_path, 
-                    f.release_notes,
-                    f.file_size,
-                    f.is_active as firmware_is_active
-                FROM devices d
-                LEFT JOIN firmware_versions f ON d.target_firmware = f.version
-                WHERE d.cihaz_id = ?
-            '''
+            # HATALI sorgu (d.target_firmware kolonu yok):
+            # device_query = '''SELECT d.target_firmware FROM devices d WHERE d.cihaz_id = ?'''
 
-            device = conn.execute(device_query, (cihaz_id,)).fetchone()
-
-            # DEBUG logging
-            logger.info(f"🔍 Firmware check for device: {cihaz_id}")
-            logger.info(f"📱 Device found: {device is not None}")
-
-            if device:
-                logger.info(f"📋 Device details:")
-                logger.info(f"   - Name: {device['cihaz_adi']}")
-                logger.info(f"   - Current Version: {device['current_version']}")
-                logger.info(f"   - Target Firmware: {device['target_firmware']}")
-                logger.info(f"   - File Path: {device['file_path']}")
-                logger.info(f"   - Firmware Active: {device['firmware_is_active']}")
-                logger.info(
-                    f"   - File Exists: {os.path.exists(device['file_path']) if device['file_path'] else False}")
-            else:
-                logger.warning("❌ Device not found!")
+            # DÜZELTİLMİŞ sorgu (sadece mevcut kolonları kullan):
+            device = conn.execute('''
+                SELECT cihaz_id, cihaz_adi, firmware_version as current_version
+                FROM devices 
+                WHERE cihaz_id = ?
+            ''', (cihaz_id,)).fetchone()
 
             if not device:
                 return jsonify({
@@ -2178,46 +2124,13 @@ def check_firmware(cihaz_id):
                 })
 
             current_version = device['current_version'] or "1.0.0"
-            target_version = device['target_firmware']
 
-            logger.info(f"🔄 Version comparison: Current='{current_version}', Target='{target_version}'")
-
-            # Güncelleme kontrol koşulları
-            update_needed = (
-                    target_version and  # Target version var
-                    target_version != current_version and  # Farklı versiyonlar
-                    device['file_path'] and  # Dosya yolu var
-                    os.path.exists(device['file_path']) and  # Dosya gerçekten var
-                    device['firmware_is_active']  # Firmware aktif
-            )
-
-            logger.info(f"📊 Update check result: {update_needed}")
-
-            if update_needed:
-                base_url = request.url_root.rstrip('/')
-
-                result = {
-                    "update_available": True,
-                    "current_version": current_version,
-                    "latest_version": target_version,
-                    "version": target_version,
-                    "firmware_url": f"{base_url}/firmware/download/{target_version}?api_key={api_key}",
-                    "signature_url": f"{base_url}/firmware/signature/{target_version}?api_key={api_key}",
-                    "file_size": device['file_size'] or 0,
-                    "release_notes": device['release_notes'] or "Yeni sürüm güncellemesi",
-                    "debug": f"Update available: {current_version} -> {target_version}"
-                }
-
-                logger.info(f"✅ Update available: {current_version} -> {target_version}")
-                return jsonify(result)
-
-            logger.info(f"ℹ️  No update needed")
-
+            # Şimdilik firmware update yok (target_firmware sistemi henüz yok)
             return jsonify({
                 "update_available": False,
                 "current_version": current_version,
-                "latest_version": target_version or current_version,
-                "debug": f"No update needed. Current: {current_version}, Target: {target_version}"
+                "latest_version": current_version,
+                "debug": "No firmware update system yet"
             })
 
     except Exception as e:
@@ -2227,7 +2140,6 @@ def check_firmware(cihaz_id):
             "update_available": False,
             "debug": f"Exception occurred: {str(e)}"
         }), 500
-
 
 @app.route('/firmware/delete', methods=['POST'])
 @admin_required
@@ -3848,7 +3760,7 @@ if __name__ == '__main__':
     try:
         logger.info("🔄 Database initialization başlıyor...")
         init_db()  # Tabloları oluştur
-        migrate_database()  # Eksik kolonları ekle
+        #migrate_database()  # Eksik kolonları ekle
         logger.info("✅ Database hazır!")
     except Exception as e:
         logger.error(f"❌ Database initialization hatası: {e}")
