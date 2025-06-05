@@ -213,7 +213,82 @@
                                     <div>
                                         <h6 class="mb-1">{{ wo.is_emri_no }}</h6>
                                         <small class="text-muted">{{ wo.created_at }}</small>
-                                    {% endfor %}
+                                    </div>
+                                    <div>
+                                        {% set status_class = 'secondary' if wo.is_emri_durum == 0 else 'success' if wo.is_emri_durum == 1 else 'primary' if wo.is_emri_durum == 2 else 'danger' %}
+                                        {% set status_text = 'Bekliyor' if wo.is_emri_durum == 0 else 'Aktif' if wo.is_emri_durum == 1 else 'Tamamlandı' if wo.is_emri_durum == 2 else 'İptal' %}
+                                        <span class="badge bg-{{ status_class }}">{{ status_text }}</span>
+                                    </div>
+                                </div>
+
+                                <!-- Ürün Bilgileri -->
+                                <div class="row mb-3">
+                                    <div class="col-md-6">
+                                        <strong>Ürün:</strong> {{ wo.urun_tipi or 'Belirtilmemiş' }}<br>
+                                        <strong>Operatör:</strong> {{ wo.operator_ad or 'Belirtilmemiş' }}
+                                    </div>
+                                    <div class="col-md-6">
+                                        <strong>Hedef:</strong> {{ "{:,}".format(wo.hedef_urun) if wo.hedef_urun else '0' }} adet<br>
+                                        <strong>Vardiya:</strong> {{ wo.shift_bilgisi or 'Belirtilmemiş' }}
+                                    </div>
+                                </div>
+
+                                <!-- Zaman Bilgileri -->
+                                {% if wo.baslama_zamani or wo.bitis_zamani %}
+                                <div class="row mb-3">
+                                    <div class="col-md-6">
+                                        <small class="text-muted">
+                                            <i class="fas fa-play-circle me-1"></i>
+                                            <strong>Başlama:</strong> {{ wo.baslama_zamani or 'Başlamamış' }}
+                                        </small>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <small class="text-muted">
+                                            <i class="fas fa-stop-circle me-1"></i>
+                                            <strong>Bitiş:</strong> {{ wo.bitis_zamani or 'Devam ediyor' }}
+                                        </small>
+                                    </div>
+                                </div>
+                                {% endif %}
+
+                                <!-- Performans (Tamamlanmış iş emirleri için) -->
+                                {% if wo.is_emri_durum == 2 and wo.hedef_urun and wo.hedef_urun > 0 %}
+                                <div class="row">
+                                    <div class="col-md-3">
+                                        <div class="text-center">
+                                            <div class="h5 mb-0">{{ "{:,}".format(wo.gerceklesen_urun or 0) }}</div>
+                                            <small class="text-muted">Gerçekleşen</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="text-center">
+                                            <div class="h5 mb-0">{{ "{:,}".format(wo.fire_sayisi or 0) }}</div>
+                                            <small class="text-muted">Fire</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="text-center">
+                                            {% set quality_rate = ((wo.gerceklesen_urun - (wo.fire_sayisi or 0)) * 100 / wo.gerceklesen_urun)|round(1) if wo.gerceklesen_urun else 0 %}
+                                            <div class="h5 mb-0" style="color: {% if quality_rate >= 95 %}#28a745{% elif quality_rate >= 90 %}#ffc107{% else %}#dc3545{% endif %}">
+                                                {{ quality_rate }}%
+                                            </div>
+                                            <small class="text-muted">Kalite</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="text-center">
+                                            {% set efficiency = (wo.gerceklesen_urun * 100 / wo.hedef_urun)|round(1) %}
+                                            <div class="h5 mb-0" style="color: {% if efficiency >= 100 %}#28a745{% elif efficiency >= 80 %}#ffc107{% else %}#dc3545{% endif %}">
+                                                {{ efficiency }}%
+                                            </div>
+                                            <small class="text-muted">Verimlilik</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
                     </div>
                     {% else %}
                     <div class="text-center py-5">
@@ -240,7 +315,7 @@
                     <h6 class="text-success">{{ active_order.is_emri_no }}</h6>
 
                     <!-- İlerleme Çemberi -->
-                    <div class="text-center mb-3">
+                    <div class="text-center mb-3 position-relative">
                         {% if active_order.hedef_urun and active_order.hedef_urun > 0 %}
                             {% set progress = (active_order.gerceklesen_urun or 0) * 100 / active_order.hedef_urun %}
                             {% set progress_clamped = [progress, 100]|min %}
@@ -338,7 +413,8 @@
                         <div class="d-flex justify-content-between align-items-center">
                             <span>Bu Ay Tamamlanan:</span>
                             <span class="badge bg-primary">
-                                {{ work_orders|selectattr('is_emri_durum', 'equalto', 2)|selectattr('created_at', 'match', '.*' + (moment().strftime('%Y-%m') if moment else '2025-06') + '.*')|list|length }}
+                                {% set current_month = (moment().strftime('%Y-%m') if moment else '2025-06') %}
+                                {{ work_orders|selectattr('is_emri_durum', 'equalto', 2)|selectattr('created_at', 'match', '.*' + current_month + '.*')|list|length }}
                             </span>
                         </div>
                     </div>
@@ -363,7 +439,12 @@
                     </div>
 
                     <!-- En Yüksek Verimlilik -->
-                    {% set best_efficiency = work_orders|selectattr('is_emri_durum', 'equalto', 2)|selectattr('hedef_urun', 'greaterthan', 0)|map('gerceklesen_urun')|max / work_orders|selectattr('is_emri_durum', 'equalto', 2)|selectattr('hedef_urun', 'greaterthan', 0)|map('hedef_urun')|max * 100 if work_orders|selectattr('is_emri_durum', 'equalto', 2)|selectattr('hedef_urun', 'greaterthan', 0)|list else 0 %}
+                    {% set completed_orders_with_target = work_orders|selectattr('is_emri_durum', 'equalto', 2)|selectattr('hedef_urun', 'greaterthan', 0)|list %}
+                    {% if completed_orders_with_target %}
+                        {% set best_efficiency = completed_orders_with_target|map(attribute='gerceklesen_urun')|max * 100 / completed_orders_with_target|selectattr('gerceklesen_urun', 'equalto', completed_orders_with_target|map(attribute='gerceklesen_urun')|max)|first.hedef_urun %}
+                    {% else %}
+                        {% set best_efficiency = 0 %}
+                    {% endif %}
                     <div class="mb-3">
                         <div class="d-flex justify-content-between align-items-center">
                             <span>En Yüksek Verim:</span>
@@ -444,77 +525,4 @@ setInterval(() => {
 }, 60000); // 1 dakikada bir
 {% endif %}
 </script>
-{% endblock %}            <div>
-                                        {% set status_class = 'secondary' if wo.is_emri_durum == 0 else 'success' if wo.is_emri_durum == 1 else 'primary' if wo.is_emri_durum == 2 else 'danger' %}
-                                        {% set status_text = 'Bekliyor' if wo.is_emri_durum == 0 else 'Aktif' if wo.is_emri_durum == 1 else 'Tamamlandı' if wo.is_emri_durum == 2 else 'İptal' %}
-                                        <span class="badge bg-{{ status_class }}">{{ status_text }}</span>
-                                    </div>
-                                </div>
-
-                                <!-- Ürün Bilgileri -->
-                                <div class="row mb-3">
-                                    <div class="col-md-6">
-                                        <strong>Ürün:</strong> {{ wo.urun_tipi or 'Belirtilmemiş' }}<br>
-                                        <strong>Operatör:</strong> {{ wo.operator_ad or 'Belirtilmemiş' }}
-                                    </div>
-                                    <div class="col-md-6">
-                                        <strong>Hedef:</strong> {{ "{:,}".format(wo.hedef_urun) if wo.hedef_urun else '0' }} adet<br>
-                                        <strong>Vardiya:</strong> {{ wo.shift_bilgisi or 'Belirtilmemiş' }}
-                                    </div>
-                                </div>
-
-                                <!-- Zaman Bilgileri -->
-                                {% if wo.baslama_zamani or wo.bitis_zamani %}
-                                <div class="row mb-3">
-                                    <div class="col-md-6">
-                                        <small class="text-muted">
-                                            <i class="fas fa-play-circle me-1"></i>
-                                            <strong>Başlama:</strong> {{ wo.baslama_zamani or 'Başlamamış' }}
-                                        </small>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <small class="text-muted">
-                                            <i class="fas fa-stop-circle me-1"></i>
-                                            <strong>Bitiş:</strong> {{ wo.bitis_zamani or 'Devam ediyor' }}
-                                        </small>
-                                    </div>
-                                </div>
-                                {% endif %}
-
-                                <!-- Performans (Tamamlanmış iş emirleri için) -->
-                                {% if wo.is_emri_durum == 2 and wo.hedef_urun and wo.hedef_urun > 0 %}
-                                <div class="row">
-                                    <div class="col-md-3">
-                                        <div class="text-center">
-                                            <div class="h5 mb-0">{{ "{:,}".format(wo.gerceklesen_urun or 0) }}</div>
-                                            <small class="text-muted">Gerçekleşen</small>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <div class="text-center">
-                                            <div class="h5 mb-0">{{ "{:,}".format(wo.fire_sayisi or 0) }}</div>
-                                            <small class="text-muted">Fire</small>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <div class="text-center">
-                                            {% set quality_rate = ((wo.gerceklesen_urun - (wo.fire_sayisi or 0)) * 100 / wo.gerceklesen_urun)|round(1) if wo.gerceklesen_urun else 0 %}
-                                            <div class="h5 mb-0" style="color: {% if quality_rate >= 95 %}#28a745{% elif quality_rate >= 90 %}#ffc107{% else %}#dc3545{% endif %}">
-                                                {{ quality_rate }}%
-                                            </div>
-                                            <small class="text-muted">Kalite</small>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <div class="text-center">
-                                            {% set efficiency = (wo.gerceklesen_urun * 100 / wo.hedef_urun)|round(1) %}
-                                            <div class="h5 mb-0" style="color: {% if efficiency >= 100 %}#28a745{% elif efficiency >= 80 %}#ffc107{% else %}#dc3545{% endif %}">
-                                                {{ efficiency }}%
-                                            </div>
-                                            <small class="text-muted">Verimlilik</small>
-                                        </div>
-                                    </div>
-                                </div>
-                                {% endif %}
-                            </div>
-                        </div>
+{% endblock %}
