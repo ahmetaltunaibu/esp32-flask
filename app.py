@@ -303,7 +303,6 @@ def show_table_stats():
 # app.py'de migrate_database() fonksiyonunu bu şekilde güncelleyin
 
 init_db()  # Tabloları oluştur
-migrate_database()  # Eksik kolonları ekle
 
 def is_ip_locked(ip_address):
     """IP adresinin kilitli olup olmadığını kontrol et"""
