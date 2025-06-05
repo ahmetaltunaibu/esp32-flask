@@ -304,6 +304,7 @@ def show_table_stats():
 
 init_db()  # Tabloları oluştur
 
+
 def is_ip_locked(ip_address):
     """IP adresinin kilitli olup olmadığını kontrol et"""
     now = datetime.now()
@@ -325,6 +326,7 @@ def clear_login_attempts(ip_address):
     """Başarılı login sonrası denemeleri temizle"""
     if ip_address in login_attempts:
         del login_attempts[ip_address]
+
 
 
 # Template Filters
@@ -416,6 +418,127 @@ def format_db_datetime(datetime_str):
         print(f"DB datetime format error: {e}, value: {datetime_str}")
         return datetime_str
 
+
+# app.py'ye bu endpoint'i ekle:
+
+@app.route('/api/live_production/<cihaz_id>')
+@login_required
+def live_production_data(cihaz_id):
+    """Canlı üretim verisi - aktif iş emri sırasında"""
+    try:
+        with get_db() as conn:
+            # Aktif iş emrini bul
+            active_work_order = conn.execute('''
+                SELECT * FROM work_orders 
+                WHERE cihaz_id = ? AND is_emri_durum = 1 
+                ORDER BY created_at DESC LIMIT 1
+            ''', (cihaz_id,)).fetchone()
+
+            if not active_work_order:
+                return jsonify({
+                    'active': False,
+                    'message': 'Aktif iş emri bulunamadı'
+                })
+
+            # Son 5 dakikanın sensör verilerini al
+            current_time = int(time.time() * 1000)
+            five_minutes_ago = current_time - (5 * 60 * 1000)
+
+            # Kritik sensörlerin son değerleri
+            critical_sensors = ['toplam_urun', 'hatali_urun', 'saglam_urun', 'OEE',
+                                'kullanilabilirlik', 'kalite', 'performans']
+
+            sensor_data = {}
+            for sensor in critical_sensors:
+                latest = conn.execute('''
+                    SELECT sensor_value, timestamp FROM sensor_data 
+                    WHERE cihaz_id = ? AND sensor_id = ?
+                    ORDER BY timestamp DESC LIMIT 1
+                ''', (cihaz_id, sensor)).fetchone()
+
+                if latest:
+                    sensor_data[sensor] = {
+                        'value': latest['sensor_value'],
+                        'timestamp': latest['timestamp']
+                    }
+
+            # Son 5 dakikanın üretim trendi
+            production_trend = conn.execute('''
+                SELECT sensor_value, timestamp FROM sensor_data 
+                WHERE cihaz_id = ? AND sensor_id = 'toplam_urun'
+                AND timestamp >= ?
+                ORDER BY timestamp ASC
+            ''', (cihaz_id, five_minutes_ago)).fetchall()
+
+            fire_trend = conn.execute('''
+                SELECT sensor_value, timestamp FROM sensor_data 
+                WHERE cihaz_id = ? AND sensor_id = 'hatali_urun'
+                AND timestamp >= ?
+                ORDER BY timestamp ASC
+            ''', (cihaz_id, fire_trend_ago)).fetchall()
+
+            # Hedef ve gerçekleşen hesaplama
+            hedef_urun = active_work_order['hedef_urun']
+            gerceklesen_urun = sensor_data.get('toplam_urun', {}).get('value', 0)
+            fire_sayisi = sensor_data.get('hatali_urun', {}).get('value', 0)
+
+            # Başlangıçtan geçen süre
+            baslama_zamani = active_work_order['baslama_zamani']
+            if baslama_zamani:
+                start_time = datetime.strptime(baslama_zamani, '%Y-%m-%d %H:%M:%S')
+                elapsed_minutes = (datetime.now() - start_time).total_seconds() / 60
+            else:
+                elapsed_minutes = 0
+
+            # Tahmini bitiş süresi (üretim hızına göre)
+            if gerceklesen_urun > 0 and elapsed_minutes > 0:
+                production_rate = gerceklesen_urun / elapsed_minutes  # adet/dk
+                if production_rate > 0:
+                    remaining_units = hedef_urun - gerceklesen_urun
+                    estimated_completion_minutes = remaining_units / production_rate
+                else:
+                    estimated_completion_minutes = 0
+            else:
+                estimated_completion_minutes = 0
+
+            return jsonify({
+                'active': True,
+                'work_order': {
+                    'is_emri_no': active_work_order['is_emri_no'],
+                    'urun_tipi': active_work_order['urun_tipi'],
+                    'operator_ad': active_work_order['operator_ad'],
+                    'hedef_urun': hedef_urun,
+                    'baslama_zamani': baslama_zamani
+                },
+                'current_production': {
+                    'gerceklesen_urun': int(gerceklesen_urun),
+                    'fire_sayisi': int(fire_sayisi),
+                    'saglam_urun': int(gerceklesen_urun - fire_sayisi),
+                    'hedef_kalan': int(hedef_urun - gerceklesen_urun),
+                    'tamamlanma_orani': round((gerceklesen_urun / hedef_urun) * 100, 1) if hedef_urun > 0 else 0,
+                    'fire_orani': round((fire_sayisi / gerceklesen_urun) * 100, 1) if gerceklesen_urun > 0 else 0
+                },
+                'performance': {
+                    'oee': round(sensor_data.get('OEE', {}).get('value', 0), 1),
+                    'kullanilabilirlik': round(sensor_data.get('kullanilabilirlik', {}).get('value', 0), 1),
+                    'kalite': round(sensor_data.get('kalite', {}).get('value', 0), 1),
+                    'performans': round(sensor_data.get('performans', {}).get('value', 0), 1)
+                },
+                'timing': {
+                    'elapsed_minutes': round(elapsed_minutes, 0),
+                    'estimated_completion_minutes': round(estimated_completion_minutes, 0),
+                    'production_rate_per_minute': round(production_rate, 1) if 'production_rate' in locals() else 0
+                },
+                'trends': {
+                    'production': [{'value': row['sensor_value'], 'timestamp': row['timestamp']} for row in
+                                   production_trend],
+                    'fire': [{'value': row['sensor_value'], 'timestamp': row['timestamp']} for row in fire_trend]
+                }
+            })
+
+    except Exception as e:
+        logger.error(f"❌ Live production data error: {str(e)}")
+        return jsonify({'error': str(e), 'active': False}), 500
 
 # Authentication Decorators
 def login_required(f):
@@ -3759,7 +3882,7 @@ if __name__ == '__main__':
     try:
         logger.info("🔄 Database initialization başlıyor...")
         init_db()  # Tabloları oluştur
-        #migrate_database()  # Eksik kolonları ekle
+        migrate_database()  # Eksik kolonları ekle
         logger.info("✅ Database hazır!")
     except Exception as e:
         logger.error(f"❌ Database initialization hatası: {e}")
@@ -3793,3 +3916,5 @@ if __name__ == '__main__':
         debug=debug_mode,
         threaded=True
     )
+
+
