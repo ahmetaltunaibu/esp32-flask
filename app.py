@@ -142,8 +142,9 @@ def get_db():
 
 
 def init_db():
+    """Tüm gerekli tabloları oluştur"""
     with get_db() as conn:
-
+        # 1. DEVICES TABLOSU - ESP32 cihazları için
         conn.execute('''
             CREATE TABLE IF NOT EXISTS devices (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -161,7 +162,8 @@ def init_db():
                 last_update DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-        # Mevcut sensor verileri tablosu
+
+        # 2. SENSOR_DATA TABLOSU - Sensör verileri için
         conn.execute('''
             CREATE TABLE IF NOT EXISTS sensor_data (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -174,7 +176,7 @@ def init_db():
             )
         ''')
 
-        # *** GÜNCELLENMİŞ İŞ EMRİ TABLOSU - 13 SENSÖR VERİSİ EKLENDİ ***
+        # 3. WORK_ORDERS TABLOSU - İş emirleri için (13 sensör verisi dahil)
         conn.execute('''
             CREATE TABLE IF NOT EXISTS work_orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -191,7 +193,7 @@ def init_db():
                 makine_durumu INTEGER DEFAULT 0,
                 is_emri_durum INTEGER DEFAULT 0,
 
-                -- *** YENİ: 13 SENSÖR VERİSİ ALANLARI ***
+                -- 13 SENSÖR VERİSİ ALANLARI
                 aktif_calisma REAL DEFAULT 0,
                 toplam_calisma REAL DEFAULT 0,
                 mola_dahil_durus REAL DEFAULT 0,
@@ -212,56 +214,92 @@ def init_db():
             )
         ''')
 
-        # *** MEVCUT TABLOYA YENİ SÜTUNLARI EKLE (GÜVENLİ MİGRATİON) ***
+        # 4. USERS TABLOSU - Kullanıcılar için
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password TEXT NOT NULL,
+                name TEXT NOT NULL,
+                email TEXT,
+                role TEXT DEFAULT 'user',
+                is_active BOOLEAN DEFAULT 1,
+                created_by INTEGER,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_login DATETIME,
+                FOREIGN KEY (created_by) REFERENCES users(id)
+            )
+        ''')
+
+        # 5. USER_ACTIVITIES TABLOSU - Kullanıcı aktiviteleri için
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS user_activities (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                activity_type TEXT NOT NULL,
+                description TEXT NOT NULL,
+                ip_address TEXT,
+                user_agent TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        ''')
+
+        # 6. FIRMWARE_VERSIONS TABLOSU - Firmware yönetimi için
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS firmware_versions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                version TEXT UNIQUE NOT NULL,
+                release_notes TEXT,
+                file_path TEXT NOT NULL,
+                file_size INTEGER,
+                signature_path TEXT,
+                is_active BOOLEAN DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # 7. UPDATE_HISTORY TABLOSU - Güncelleme geçmişi için
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS update_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cihaz_id TEXT NOT NULL,
+                old_version TEXT,
+                new_version TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                timestamp INTEGER NOT NULL,
+                completed_at DATETIME,
+                error_message TEXT,
+                FOREIGN KEY (cihaz_id) REFERENCES devices(cihaz_id)
+            )
+        ''')
+
+        # 8. Varsayılan ADMIN kullanıcısı oluştur
         try:
-            # work_orders tablosunun mevcut sütunlarını kontrol et
-            cursor = conn.execute("PRAGMA table_info(work_orders)")
-            existing_columns = [column[1] for column in cursor.fetchall()]
-
-            sensor_columns_to_add = [
-                ('aktif_calisma', 'REAL DEFAULT 0'),
-                ('toplam_calisma', 'REAL DEFAULT 0'),
-                ('mola_dahil_durus', 'REAL DEFAULT 0'),
-                ('plansiz_durus', 'REAL DEFAULT 0'),
-                ('mola_durus', 'REAL DEFAULT 0'),
-                ('toplam_urun', 'REAL DEFAULT 0'),
-                ('tag_zamani', 'REAL DEFAULT 0'),
-                ('hatali_urun', 'REAL DEFAULT 0'),
-                ('saglam_urun', 'REAL DEFAULT 0'),
-                ('kullanilabilirlik', 'REAL DEFAULT 0'),
-                ('kalite', 'REAL DEFAULT 0'),
-                ('performans', 'REAL DEFAULT 0'),
-                ('oee', 'REAL DEFAULT 0')
-            ]
-
-            # Eksik sütunları ekle
-            added_columns = []
-            for column_name, column_def in sensor_columns_to_add:
-                if column_name not in existing_columns:
-                    try:
-                        alter_query = f"ALTER TABLE work_orders ADD COLUMN {column_name} {column_def}"
-                        conn.execute(alter_query)
-                        added_columns.append(column_name)
-                        logger.info(f"✅ Sütun eklendi: {column_name}")
-                    except sqlite3.OperationalError as e:
-                        logger.warning(f"⚠️ Sütun eklenemedi {column_name}: {str(e)}")
-
-            if added_columns:
-                logger.info(f"📊 Work_orders tablosuna {len(added_columns)} yeni sensör sütunu eklendi")
-            else:
-                logger.info("ℹ️ Work_orders tablosunda tüm sensör sütunları mevcut")
-
+            admin_password = os.environ.get('ADMIN_PASSWORD', 'IoT@dmin2024#Secure!')
+            conn.execute('''
+                INSERT OR IGNORE INTO users (username, password, name, role, is_active)
+                VALUES (?, ?, ?, ?, ?)
+            ''', ('admin', generate_password_hash(admin_password), 'System Administrator', 'admin', 1))
         except Exception as e:
-            logger.error(f"❌ Work orders tablo migration hatası: {str(e)}")
+            logger.warning(f"Admin kullanıcı oluşturulamadı: {str(e)}")
 
-        # Diğer tablolar... (değişmez)
-        # ... (geri kalan tablolar aynı kalır)
+        conn.commit()
+        logger.info("✅ Tüm veritabanı tabloları oluşturuldu")
+
+        # Tablo sayılarını kontrol et
+        tables = ['devices', 'sensor_data', 'work_orders', 'users', 'user_activities', 'firmware_versions', 'update_history']
+        for table in tables:
+            try:
+                count = conn.execute(f'SELECT COUNT(*) as count FROM {table}').fetchone()['count']
+                logger.info(f"📊 {table}: {count} kayıt")
+            except Exception as e:
+                logger.error(f"❌ {table} tablosu kontrol edilemedi: {str(e)}")
 
 
 
 
 # init_db() çağrısını garanti et
-init_db()
 init_db()
 
 
