@@ -143,6 +143,24 @@ def get_db():
 
 def init_db():
     with get_db() as conn:
+
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS devices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cihaz_id TEXT UNIQUE NOT NULL,
+                cihaz_adi TEXT NOT NULL,
+                fabrika_adi TEXT,
+                konum TEXT,
+                mac TEXT,
+                firmware_version TEXT DEFAULT '1.0.0',
+                target_firmware TEXT,
+                last_seen INTEGER,
+                online_status INTEGER DEFAULT 0,
+                ip_address TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_update DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
         # Mevcut sensor verileri tablosu
         conn.execute('''
             CREATE TABLE IF NOT EXISTS sensor_data (
