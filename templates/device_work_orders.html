@@ -212,7 +212,7 @@
                                 <div class="d-flex justify-content-between align-items-start mb-3">
                                     <div>
                                         <h6 class="mb-1">{{ wo.is_emri_no }}</h6>
-                                        <small class="text-muted">{{ wo.created_at }}</small>
+                                        <small class="text-muted">{{ wo.created_at|format_db_datetime if wo.created_at else 'Bilinmiyor' }}</small>
                                     </div>
                                     <div>
                                         {% set status_class = 'secondary' if wo.is_emri_durum == 0 else 'success' if wo.is_emri_durum == 1 else 'primary' if wo.is_emri_durum == 2 else 'danger' %}
@@ -239,13 +239,13 @@
                                     <div class="col-md-6">
                                         <small class="text-muted">
                                             <i class="fas fa-play-circle me-1"></i>
-                                            <strong>Başlama:</strong> {{ wo.baslama_zamani or 'Başlamamış' }}
+                                            <strong>Başlama:</strong> {{ wo.baslama_zamani|format_work_order_time if wo.baslama_zamani else 'Başlamamış' }}
                                         </small>
                                     </div>
                                     <div class="col-md-6">
                                         <small class="text-muted">
                                             <i class="fas fa-stop-circle me-1"></i>
-                                            <strong>Bitiş:</strong> {{ wo.bitis_zamani or 'Devam ediyor' }}
+                                            <strong>Bitiş:</strong> {{ wo.bitis_zamani|format_work_order_time if wo.bitis_zamani else 'Devam ediyor' }}
                                         </small>
                                     </div>
                                 </div>
@@ -383,7 +383,7 @@
                     {% if active_order.baslama_zamani %}
                     <div class="mb-3">
                         <small class="text-muted d-block">Başlama Zamanı:</small>
-                        <strong>{{ active_order.baslama_zamani }}</strong>
+                        <strong>{{ active_order.baslama_zamani|format_work_order_time }}</strong>
                     </div>
                     {% endif %}
 
@@ -408,24 +408,34 @@
                     </h5>
                 </div>
                 <div class="card-body">
-                    <!-- Bu Ay -->
+                    <!-- Bu Ay Tamamlanan - DÜZELTİLMİŞ -->
                     <div class="mb-3">
                         <div class="d-flex justify-content-between align-items-center">
                             <span>Bu Ay Tamamlanan:</span>
                             <span class="badge bg-primary">
-                                {% set current_month = (moment().strftime('%Y-%m') if moment else '2025-06') %}
-                                {{ work_orders|selectattr('is_emri_durum', 'equalto', 2)|selectattr('created_at', 'match', '.*' + current_month + '.*')|list|length }}
+                                {% set completed_this_month = 0 %}
+                                {% for order in work_orders %}
+                                    {% if order.is_emri_durum == 2 and order.created_at and '2025-06' in order.created_at %}
+                                        {% set completed_this_month = completed_this_month + 1 %}
+                                    {% endif %}
+                                {% endfor %}
+                                {{ completed_this_month }}
                             </span>
                         </div>
                     </div>
 
-                    <!-- Son 7 Gün -->
+                    <!-- Son 7 Gün - DÜZELTİLMİŞ -->
                     <div class="mb-3">
                         <div class="d-flex justify-content-between align-items-center">
                             <span>Son 7 Gün:</span>
                             <span class="badge bg-info">
-                                {% set week_ago = (moment().subtract(7, 'days').format('YYYY-MM-DD') if moment else '2025-05-28') %}
-                                {{ work_orders|selectattr('created_at', 'ge', week_ago)|list|length }}
+                                {% set recent_orders = 0 %}
+                                {% for order in work_orders %}
+                                    {% if order.created_at and order.created_at >= '2025-05-28' %}
+                                        {% set recent_orders = recent_orders + 1 %}
+                                    {% endif %}
+                                {% endfor %}
+                                {{ recent_orders }}
                             </span>
                         </div>
                     </div>
@@ -438,17 +448,22 @@
                         </div>
                     </div>
 
-                    <!-- En Yüksek Verimlilik -->
-                    {% set completed_orders_with_target = work_orders|selectattr('is_emri_durum', 'equalto', 2)|selectattr('hedef_urun', 'greaterthan', 0)|list %}
-                    {% if completed_orders_with_target %}
-                        {% set best_efficiency = completed_orders_with_target|map(attribute='gerceklesen_urun')|max * 100 / completed_orders_with_target|selectattr('gerceklesen_urun', 'equalto', completed_orders_with_target|map(attribute='gerceklesen_urun')|max)|first.hedef_urun %}
-                    {% else %}
-                        {% set best_efficiency = 0 %}
-                    {% endif %}
+                    <!-- En Yüksek Verimlilik - BASİTLEŞTİRİLMİŞ -->
                     <div class="mb-3">
                         <div class="d-flex justify-content-between align-items-center">
                             <span>En Yüksek Verim:</span>
-                            <span class="text-success">{{ "%.1f"|format(best_efficiency) }}%</span>
+                            <span class="text-success">
+                                {% set best_efficiency = 0 %}
+                                {% for order in work_orders %}
+                                    {% if order.is_emri_durum == 2 and order.hedef_urun and order.hedef_urun > 0 and order.gerceklesen_urun %}
+                                        {% set efficiency = (order.gerceklesen_urun * 100 / order.hedef_urun) %}
+                                        {% if efficiency > best_efficiency %}
+                                            {% set best_efficiency = efficiency %}
+                                        {% endif %}
+                                    {% endif %}
+                                {% endfor %}
+                                {{ "%.1f"|format(best_efficiency) }}%
+                            </span>
                         </div>
                     </div>
 
