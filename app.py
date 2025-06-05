@@ -508,7 +508,7 @@ def receive_data():
     if not data or 'cihaz_id' not in data:
         return jsonify({"status": "error", "message": "Geçersiz veri"}), 400
 
-    # ✅ Türkiye saatiyle timestamp oluştur
+    # Türkiye saatiyle timestamp oluştur
     turkey_tz = pytz.timezone('Europe/Istanbul')
     current_time_turkey = datetime.now(turkey_tz)
     timestamp = int(current_time_turkey.timestamp() * 1000)
@@ -527,7 +527,7 @@ def receive_data():
                 data.get('konum', 'Bilinmeyen'),
                 data.get('mac', ''),
                 data.get('firmware_version', '1.0.0'),
-                timestamp,  # ✅ Türkiye saati timestamp
+                timestamp,
                 request.remote_addr,
                 data['cihaz_id']
             ))
@@ -544,36 +544,57 @@ def receive_data():
                     data.get('konum', 'Bilinmeyen'),
                     data.get('mac', ''),
                     data.get('firmware_version', '1.0.0'),
-                    timestamp,  # ✅ Türkiye saati timestamp
+                    timestamp,
                     request.remote_addr
                 ))
 
-            # ✅ İŞ EMRİ VERİLERİNİ KAYDET - ESP32 ZAMANLARINI KORU
+            # ✅ İŞ EMRİ VERİLERİNİ KAYDET (SENSÖRLER DAHİL)
             if 'is_emri' in data:
                 is_emri = data['is_emri']
-
-                # ESP32'den gelen zamanları direkt kullan (zaten Türkiye saati)
-                baslama_zamani = is_emri.get('baslama_zamani', '')
-                bitis_zamani = is_emri.get('bitis_zamani', '')
-
-                # ✅ created_at için Türkiye saatini string olarak formatla
                 created_at_turkey = current_time_turkey.strftime('%Y-%m-%d %H:%M:%S')
 
                 # Sensör verilerini hazırla
                 sensor_values = {}
                 if 'veriler' in data:
                     for veri in data['veriler']:
-                        sensor_id = veri.get('sensor_id', '')
+                        sensor_id = veri.get('sensor_id', '').lower()
                         sensor_value = veri.get('deger', 0)
-                        sensor_values[sensor_id] = sensor_value
 
-                # İş emri verilerini kaydet
+                        # Sensör ID'lerini doğru kolona eşle
+                        if 'sicaklik' in sensor_id or 'temperature' in sensor_id:
+                            sensor_values['sensor_sicaklik'] = sensor_value
+                        elif 'nem' in sensor_id or 'humidity' in sensor_id:
+                            sensor_values['sensor_nem'] = sensor_value
+                        elif 'basinc' in sensor_id or 'pressure' in sensor_id:
+                            sensor_values['sensor_basinc'] = sensor_value
+                        elif 'titresim' in sensor_id or 'vibration' in sensor_id:
+                            sensor_values['sensor_titresim'] = sensor_value
+                        elif 'guc' in sensor_id or 'power' in sensor_id:
+                            sensor_values['sensor_guc'] = sensor_value
+                        elif 'toplam_urun' in sensor_id:
+                            sensor_values['sensor_toplam_urun'] = sensor_value
+                        elif 'kaliteli_urun' in sensor_id:
+                            sensor_values['sensor_kaliteli_urun'] = sensor_value
+                        elif 'hatali_urun' in sensor_id:
+                            sensor_values['sensor_hatali_urun'] = sensor_value
+                        elif 'hiz' in sensor_id or 'speed' in sensor_id:
+                            sensor_values['sensor_hiz'] = sensor_value
+                        elif 'torque' in sensor_id:
+                            sensor_values['sensor_torque'] = sensor_value
+                        elif 'amper' in sensor_id or 'current' in sensor_id:
+                            sensor_values['sensor_amper'] = sensor_value
+                        elif 'voltaj' in sensor_id or 'voltage' in sensor_id:
+                            sensor_values['sensor_voltaj'] = sensor_value
+                        elif 'frekans' in sensor_id or 'frequency' in sensor_id:
+                            sensor_values['sensor_frekans'] = sensor_value
+
+                # ✅ TÜM VERİLERİ WORK_ORDERS'A KAYDET
                 conn.execute('''
                     INSERT INTO work_orders 
                     (cihaz_id, is_emri_no, urun_tipi, hedef_urun, operator_ad, shift_bilgisi,
                      baslama_zamani, bitis_zamani, makine_durumu, is_emri_durum, 
                      gerceklesen_urun, fire_sayisi, created_at,
-                     sensor_sicaklik, sensor_nem, sensor_basinc, sensor_titresim, 
+                     sensor_sicaklik, sensor_nem, sensor_basinc, sensor_titresim,
                      sensor_guc, sensor_toplam_urun, sensor_kaliteli_urun, sensor_hatali_urun,
                      sensor_hiz, sensor_torque, sensor_amper, sensor_voltaj, sensor_frekans)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -584,36 +605,31 @@ def receive_data():
                     is_emri.get('hedef_urun', 0),
                     is_emri.get('operator_ad', ''),
                     is_emri.get('shift_bilgisi', ''),
-                    baslama_zamani,  # ✅ ESP32'den gelen zaman (Türkiye saati)
-                    bitis_zamani,  # ✅ ESP32'den gelen zaman (Türkiye saati)
+                    is_emri.get('baslama_zamani', ''),
+                    is_emri.get('bitis_zamani', ''),
                     is_emri.get('makine_durumu', 0),
                     is_emri.get('is_emri_durum', 0),
                     is_emri.get('gerceklesen_urun', 0),
                     is_emri.get('fire_sayisi', 0),
-                    created_at_turkey,  # ✅ Türkiye saati string
-                    sensor_values.get('sicaklik', 0),
-                    sensor_values.get('nem', 0),
-                    sensor_values.get('basinc', 0),
-                    sensor_values.get('titresim', 0),
-                    sensor_values.get('guc', 0),
-                    sensor_values.get('toplam_urun', 0),
-                    sensor_values.get('kaliteli_urun', 0),
-                    sensor_values.get('hatali_urun', 0),
-                    sensor_values.get('hiz', 0),
-                    sensor_values.get('torque', 0),
-                    sensor_values.get('amper', 0),
-                    sensor_values.get('voltaj', 0),
-                    sensor_values.get('frekans', 0)
+                    created_at_turkey,
+                    sensor_values.get('sensor_sicaklik', 0),
+                    sensor_values.get('sensor_nem', 0),
+                    sensor_values.get('sensor_basinc', 0),
+                    sensor_values.get('sensor_titresim', 0),
+                    sensor_values.get('sensor_guc', 0),
+                    sensor_values.get('sensor_toplam_urun', 0),
+                    sensor_values.get('sensor_kaliteli_urun', 0),
+                    sensor_values.get('sensor_hatali_urun', 0),
+                    sensor_values.get('sensor_hiz', 0),
+                    sensor_values.get('sensor_torque', 0),
+                    sensor_values.get('sensor_amper', 0),
+                    sensor_values.get('sensor_voltaj', 0),
+                    sensor_values.get('sensor_frekans', 0)
                 ))
 
-                print(f"✅ İş emri kaydedildi:")
-                print(f"   ├─ İş Emri No: {is_emri.get('is_emri_no', '')}")
-                print(f"   ├─ Başlama: {baslama_zamani}")
-                print(f"   ├─ Bitiş: {bitis_zamani}")
-                print(f"   ├─ Oluşturulma: {created_at_turkey}")
-                print(f"   └─ Durum: {is_emri.get('is_emri_durum', 0)}")
+                logger.info(f"✅ İş emri + sensörler kaydedildi: {is_emri.get('is_emri_no', '')} - {created_at_turkey}")
 
-            # Sensör verileri kaydetme (eskisi gibi)
+            # ✅ SENSÖR VERİLERİNİ AYRI TABLODA DA KAYDET (tarihsel veri için)
             if 'veriler' in data:
                 for veri in data['veriler']:
                     conn.execute('''
@@ -625,16 +641,15 @@ def receive_data():
                         veri.get('sensor_id', ''),
                         veri.get('deger', 0),
                         veri.get('birim', ''),
-                        timestamp  # ✅ Türkiye saati timestamp
+                        timestamp
                     ))
 
             conn.commit()
-            return jsonify({"status": "success", "message": "Veri alındı"})
+            return jsonify({"status": "success", "message": "Veri alındı ve işlendi"})
 
     except Exception as e:
         logger.error(f"Data receive error: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
-
 
 # 3. İş emri görüntüleme sayfası
 @app.route('/work_orders')
