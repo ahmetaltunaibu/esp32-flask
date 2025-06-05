@@ -348,30 +348,6 @@
             visibility: visible;
             left: calc(100% + 15px);
         }
-        
-        /* Page Header Improvements */
-        .page-header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 20px 25px;
-            border-radius: 15px;
-            margin-bottom: 25px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .page-title {
-            font-size: 1.8rem;
-            font-weight: 700;
-            margin: 0;
-        }
-        
-        .page-subtitle {
-            font-size: 1rem;
-            opacity: 0.9;
-            margin: 5px 0 0 0;
-        }
     </style>
     {% block extra_css %}{% endblock %}
 </head>
@@ -404,78 +380,77 @@
         </div>
         
         <!-- Navigation -->
-        <!-- Navigation -->
-<div class="sidebar-nav">
-    <!-- Ana Panel -->
-    <div class="nav-item">
-        <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}"
-           href="{{ url_for('index') }}">
-            <i class="fas fa-chart-pie nav-icon"></i>
-            <span class="nav-text">Ana Panel</span>
-            <div class="nav-tooltip">Ana Panel</div>
-        </a>
-    </div>
+        <div class="sidebar-nav">
+            <!-- Ana Panel -->
+            <div class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}"
+                   href="{{ url_for('index') }}">
+                    <i class="fas fa-chart-pie nav-icon"></i>
+                    <span class="nav-text">Ana Panel</span>
+                    <div class="nav-tooltip">Ana Panel</div>
+                </a>
+            </div>
 
-    <!-- YENİ: İş Emirleri -->
-    <div class="nav-item">
-        <a class="nav-link {% if request.endpoint == 'work_orders' %}active{% endif %}"
-           href="{{ url_for('work_orders') }}">
-            <i class="fas fa-clipboard-list nav-icon"></i>
-            <span class="nav-text">İş Emirleri</span>
-            <div class="nav-tooltip">İş Emirleri</div>
-        </a>
-    </div>
+            <!-- İş Emirleri -->
+            <div class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'work_orders' %}active{% endif %}"
+                   href="{{ url_for('work_orders') }}">
+                    <i class="fas fa-clipboard-list nav-icon"></i>
+                    <span class="nav-text">İş Emirleri</span>
+                    <div class="nav-tooltip">İş Emirleri</div>
+                </a>
+            </div>
 
-    {% if is_admin %}
-    <!-- Kullanıcı Yönetimi -->
-    <div class="nav-item">
-        <a class="nav-link {% if request.endpoint == 'user_management' %}active{% endif %}"
-           href="{{ url_for('user_management') }}">
-            <i class="fas fa-users nav-icon"></i>
-            <span class="nav-text">Kullanıcılar</span>
-            <div class="nav-tooltip">Kullanıcı Yönetimi</div>
-        </a>
-    </div>
+            {% if is_admin %}
+            <!-- Kullanıcı Yönetimi -->
+            <div class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'user_management' %}active{% endif %}"
+                   href="{{ url_for('user_management') }}">
+                    <i class="fas fa-users nav-icon"></i>
+                    <span class="nav-text">Kullanıcılar</span>
+                    <div class="nav-tooltip">Kullanıcı Yönetimi</div>
+                </a>
+            </div>
 
-    <!-- Firmware Yönetimi -->
-    <div class="nav-item">
-        <a class="nav-link {% if request.endpoint == 'firmware_management' %}active{% endif %}"
-           href="{{ url_for('firmware_management') }}">
-            <i class="fas fa-microchip nav-icon"></i>
-            <span class="nav-text">Firmware</span>
-            <div class="nav-tooltip">Firmware Yönetimi</div>
-        </a>
-    </div>
+            <!-- Firmware Yönetimi -->
+            <div class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'firmware_management' %}active{% endif %}"
+                   href="{{ url_for('firmware_management') }}">
+                    <i class="fas fa-microchip nav-icon"></i>
+                    <span class="nav-text">Firmware</span>
+                    <div class="nav-tooltip">Firmware Yönetimi</div>
+                </a>
+            </div>
 
-    <!-- Veritabanı Yönetimi -->
-    <div class="nav-item">
-        <a class="nav-link {% if request.endpoint == 'database_management' %}active{% endif %}"
-           href="{{ url_for('database_management') }}">
-            <i class="fas fa-database nav-icon"></i>
-            <span class="nav-text">Veritabanı</span>
-            <div class="nav-tooltip">Veritabanı Yönetimi</div>
-        </a>
-    </div>
-    {% endif %}
+            <!-- Veritabanı Yönetimi -->
+            <div class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'database_management' %}active{% endif %}"
+                   href="{{ url_for('database_management') }}">
+                    <i class="fas fa-database nav-icon"></i>
+                    <span class="nav-text">Veritabanı</span>
+                    <div class="nav-tooltip">Veritabanı Yönetimi</div>
+                </a>
+            </div>
+            {% endif %}
 
-    <!-- Raporlar -->
-    <div class="nav-item">
-        <a class="nav-link" href="#" onclick="showReports()">
-            <i class="fas fa-chart-bar nav-icon"></i>
-            <span class="nav-text">Raporlar</span>
-            <div class="nav-tooltip">Raporlar</div>
-        </a>
-    </div>
+            <!-- Raporlar -->
+            <div class="nav-item">
+                <a class="nav-link" href="#" onclick="showReports()">
+                    <i class="fas fa-chart-bar nav-icon"></i>
+                    <span class="nav-text">Raporlar</span>
+                    <div class="nav-tooltip">Raporlar</div>
+                </a>
+            </div>
 
-    <!-- Ayarlar -->
-    <div class="nav-item">
-        <a class="nav-link" href="#" onclick="showSettings()">
-            <i class="fas fa-cog nav-icon"></i>
-            <span class="nav-text">Ayarlar</span>
-            <div class="nav-tooltip">Ayarlar</div>
-        </a>
-    </div>
-</div>
+            <!-- Ayarlar -->
+            <div class="nav-item">
+                <a class="nav-link" href="#" onclick="showSettings()">
+                    <i class="fas fa-cog nav-icon"></i>
+                    <span class="nav-text">Ayarlar</span>
+                    <div class="nav-tooltip">Ayarlar</div>
+                </a>
+            </div>
+        </div>
         
         <!-- Logout Footer -->
         <div class="sidebar-footer">
@@ -485,6 +460,12 @@
             </a>
         </div>
     </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        {% include '_flash_messages.html' %}
+        {% block content %}{% endblock %}
+    </main>
 
     <!-- Scripts -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
