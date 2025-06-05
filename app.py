@@ -466,18 +466,22 @@ def inject_user():
     )
 
 
-# 2. ESP32'den iş emri alma endpoint'i
+# app.py - /data endpoint'inde timezone düzeltmesi
+
 @app.route('/data', methods=['POST'])
 def receive_data():
     data = request.get_json()
     if not data or 'cihaz_id' not in data:
         return jsonify({"status": "error", "message": "Geçersiz veri"}), 400
 
-    timestamp = int(time.time() * 1000)
+    # ✅ Türkiye saatiyle timestamp oluştur
+    turkey_tz = pytz.timezone('Europe/Istanbul')
+    current_time_turkey = datetime.now(turkey_tz)
+    timestamp = int(current_time_turkey.timestamp() * 1000)
 
     try:
         with get_db() as conn:
-            # Cihaz bilgilerini güncelle/ekle (değişmez)
+            # Cihaz bilgilerini güncelle/ekle
             cursor = conn.execute('''
                 UPDATE devices 
                 SET cihaz_adi = ?, fabrika_adi = ?, konum = ?, mac = ?, 
@@ -489,7 +493,7 @@ def receive_data():
                 data.get('konum', 'Bilinmeyen'),
                 data.get('mac', ''),
                 data.get('firmware_version', '1.0.0'),
-                timestamp,
+                timestamp,  # ✅ Türkiye saati timestamp
                 request.remote_addr,
                 data['cihaz_id']
             ))
@@ -506,17 +510,22 @@ def receive_data():
                     data.get('konum', 'Bilinmeyen'),
                     data.get('mac', ''),
                     data.get('firmware_version', '1.0.0'),
-                    timestamp,
+                    timestamp,  # ✅ Türkiye saati timestamp
                     request.remote_addr
                 ))
 
-            # *** GÜNCELLENMİŞ: İş emri verilerini kaydet (13 sensör verisi dahil) ***
+            # ✅ İŞ EMRİ VERİLERİNİ KAYDET - ESP32 ZAMANLARINI KORU
             if 'is_emri' in data:
                 is_emri = data['is_emri']
 
-                print(f"📋 İş emri verisi alındı: {is_emri}")  # Debug
+                # ESP32'den gelen zamanları direkt kullan (zaten Türkiye saati)
+                baslama_zamani = is_emri.get('baslama_zamani', '')
+                bitis_zamani = is_emri.get('bitis_zamani', '')
 
-                # Sensör verilerini hazırla (varsa al, yoksa 0)
+                # ✅ created_at için Türkiye saatini string olarak formatla
+                created_at_turkey = current_time_turkey.strftime('%Y-%m-%d %H:%M:%S')
+
+                # Sensör verilerini hazırla
                 sensor_values = {}
                 if 'veriler' in data:
                     for veri in data['veriler']:
@@ -524,92 +533,53 @@ def receive_data():
                         sensor_value = veri.get('deger', 0)
                         sensor_values[sensor_id] = sensor_value
 
-                print(f"📊 Sensör verileri: {sensor_values}")  # Debug
+                # İş emri verilerini kaydet
+                conn.execute('''
+                    INSERT INTO work_orders 
+                    (cihaz_id, is_emri_no, urun_tipi, hedef_urun, operator_ad, shift_bilgisi,
+                     baslama_zamani, bitis_zamani, makine_durumu, is_emri_durum, 
+                     gerceklesen_urun, fire_sayisi, created_at,
+                     sensor_sicaklik, sensor_nem, sensor_basinc, sensor_titresim, 
+                     sensor_guc, sensor_toplam_urun, sensor_kaliteli_urun, sensor_hatali_urun,
+                     sensor_hiz, sensor_torque, sensor_amper, sensor_voltaj, sensor_frekans)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    data['cihaz_id'],
+                    is_emri.get('is_emri_no', ''),
+                    is_emri.get('urun_tipi', ''),
+                    is_emri.get('hedef_urun', 0),
+                    is_emri.get('operator_ad', ''),
+                    is_emri.get('shift_bilgisi', ''),
+                    baslama_zamani,  # ✅ ESP32'den gelen zaman (Türkiye saati)
+                    bitis_zamani,  # ✅ ESP32'den gelen zaman (Türkiye saati)
+                    is_emri.get('makine_durumu', 0),
+                    is_emri.get('is_emri_durum', 0),
+                    is_emri.get('gerceklesen_urun', 0),
+                    is_emri.get('fire_sayisi', 0),
+                    created_at_turkey,  # ✅ Türkiye saati string
+                    sensor_values.get('sicaklik', 0),
+                    sensor_values.get('nem', 0),
+                    sensor_values.get('basinc', 0),
+                    sensor_values.get('titresim', 0),
+                    sensor_values.get('guc', 0),
+                    sensor_values.get('toplam_urun', 0),
+                    sensor_values.get('kaliteli_urun', 0),
+                    sensor_values.get('hatali_urun', 0),
+                    sensor_values.get('hiz', 0),
+                    sensor_values.get('torque', 0),
+                    sensor_values.get('amper', 0),
+                    sensor_values.get('voltaj', 0),
+                    sensor_values.get('frekans', 0)
+                ))
 
-                # Aktif iş emri var mı kontrol et
-                existing = conn.execute('''
-                    SELECT id FROM work_orders 
-                    WHERE cihaz_id = ? AND is_emri_no = ? AND is_emri_durum IN (0, 1)
-                ''', (data['cihaz_id'], is_emri.get('is_emri_no', ''))).fetchone()
+                print(f"✅ İş emri kaydedildi:")
+                print(f"   ├─ İş Emri No: {is_emri.get('is_emri_no', '')}")
+                print(f"   ├─ Başlama: {baslama_zamani}")
+                print(f"   ├─ Bitiş: {bitis_zamani}")
+                print(f"   ├─ Oluşturulma: {created_at_turkey}")
+                print(f"   └─ Durum: {is_emri.get('is_emri_durum', 0)}")
 
-                if existing:
-                    # *** GÜNCELLENMİŞ: Mevcut iş emrini güncelle (sensör verileri dahil) ***
-                    conn.execute('''
-                        UPDATE work_orders 
-                        SET urun_tipi = ?, hedef_urun = ?, operator_ad = ?, 
-                            shift_bilgisi = ?, baslama_zamani = ?, bitis_zamani = ?,
-                            makine_durumu = ?, is_emri_durum = ?,
-                            aktif_calisma = ?, toplam_calisma = ?, mola_dahil_durus = ?,
-                            plansiz_durus = ?, mola_durus = ?, toplam_urun = ?,
-                            tag_zamani = ?, hatali_urun = ?, saglam_urun = ?,
-                            kullanilabilirlik = ?, kalite = ?, performans = ?, oee = ?,
-                            updated_at = CURRENT_TIMESTAMP
-                        WHERE id = ?
-                    ''', (
-                        is_emri.get('urun_tipi', ''),
-                        is_emri.get('hedef_urun', 0),
-                        is_emri.get('operator_ad', ''),
-                        is_emri.get('shift_bilgisi', ''),
-                        is_emri.get('baslama_zamani', ''),
-                        is_emri.get('bitis_zamani', ''),
-                        is_emri.get('makine_durumu', 0),
-                        is_emri.get('is_emri_durum', 0),
-                        # 13 sensör verisi
-                        sensor_values.get('aktif_calisma', 0),
-                        sensor_values.get('toplam_calisma', 0),
-                        sensor_values.get('mola_dahil_durus', 0),
-                        sensor_values.get('plansiz_durus', 0),
-                        sensor_values.get('mola_durus', 0),
-                        sensor_values.get('toplam_urun', 0),
-                        sensor_values.get('tag_zamani', 0),
-                        sensor_values.get('hatali_urun', 0),
-                        sensor_values.get('saglam_urun', 0),
-                        sensor_values.get('kullanilabilirlik', 0),
-                        sensor_values.get('kalite', 0),
-                        sensor_values.get('performans', 0),
-                        sensor_values.get('OEE', 0),  # Büyük harfli OEE
-                        existing['id']
-                    ))
-                    print(f"✅ İş emri güncellendi: {existing['id']}")  # Debug
-                else:
-                    # *** GÜNCELLENMİŞ: Yeni iş emri oluştur (sensör verileri dahil) ***
-                    conn.execute('''
-                        INSERT INTO work_orders 
-                        (cihaz_id, is_emri_no, urun_tipi, hedef_urun, operator_ad, 
-                         shift_bilgisi, baslama_zamani, bitis_zamani, makine_durumu, is_emri_durum,
-                         aktif_calisma, toplam_calisma, mola_dahil_durus, plansiz_durus, mola_durus,
-                         toplam_urun, tag_zamani, hatali_urun, saglam_urun, kullanilabilirlik,
-                         kalite, performans, oee)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (
-                        data['cihaz_id'],
-                        is_emri.get('is_emri_no', ''),
-                        is_emri.get('urun_tipi', ''),
-                        is_emri.get('hedef_urun', 0),
-                        is_emri.get('operator_ad', ''),
-                        is_emri.get('shift_bilgisi', ''),
-                        is_emri.get('baslama_zamani', ''),
-                        is_emri.get('bitis_zamani', ''),
-                        is_emri.get('makine_durumu', 0),
-                        is_emri.get('is_emri_durum', 0),
-                        # 13 sensör verisi
-                        sensor_values.get('aktif_calisma', 0),
-                        sensor_values.get('toplam_calisma', 0),
-                        sensor_values.get('mola_dahil_durus', 0),
-                        sensor_values.get('plansiz_durus', 0),
-                        sensor_values.get('mola_durus', 0),
-                        sensor_values.get('toplam_urun', 0),
-                        sensor_values.get('tag_zamani', 0),
-                        sensor_values.get('hatali_urun', 0),
-                        sensor_values.get('saglam_urun', 0),
-                        sensor_values.get('kullanilabilirlik', 0),
-                        sensor_values.get('kalite', 0),
-                        sensor_values.get('performans', 0),
-                        sensor_values.get('OEE', 0)  # Büyük harfli OEE
-                    ))
-                    print(f"✅ Yeni iş emri oluşturuldu")  # Debug
-
-            # Sensör verileri kaydetme (değişmez)
+            # Sensör verileri kaydetme (eskisi gibi)
             if 'veriler' in data:
                 for veri in data['veriler']:
                     conn.execute('''
@@ -621,7 +591,7 @@ def receive_data():
                         veri.get('sensor_id', ''),
                         veri.get('deger', 0),
                         veri.get('birim', ''),
-                        timestamp
+                        timestamp  # ✅ Türkiye saati timestamp
                     ))
 
             conn.commit()
@@ -630,8 +600,6 @@ def receive_data():
     except Exception as e:
         logger.error(f"Data receive error: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
-
-
 
 
 # 3. İş emri görüntüleme sayfası
