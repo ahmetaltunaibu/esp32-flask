@@ -197,7 +197,7 @@
 
                     <!-- Performans Metrikleri -->
                     <!-- Performans Metrikleri - AKTİF VE TAMAMLANMIŞ İŞ EMİRLERİ İÇİN -->
-                    {% if (wo.is_emri_durum == 1 or wo.is_emri_durum == 2) and (wo.gerceklesen_urun or wo.fire_sayisi) %}
+                    {% if wo.is_emri_durum == 1 or (wo.gerceklesen_urun or wo.fire_sayisi) %}
                     <div class="row">
                         <div class="col-md-4">
                             <div class="metric-item">
