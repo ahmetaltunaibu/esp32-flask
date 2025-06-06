@@ -473,6 +473,9 @@ def inject_user():
     )
 
 
+# app.py'de /data endpoint'indeki logging bölümünü bu şekilde güncelleyin:
+
+
 @app.route('/data', methods=['POST'])
 def receive_data():
     data = request.get_json()
@@ -519,14 +522,14 @@ def receive_data():
                     request.remote_addr
                 ))
 
-            # ✅ AKILLI İŞ EMRİ LOGİĞİ
+            # ✅ GELİŞTİRİLMİŞ İŞ EMRİ LOGİĞİ VE LOGGING
             if 'is_emri' in data:
                 is_emri = data['is_emri']
                 is_emri_no = is_emri.get('is_emri_no', '')
 
                 # Eğer iş emri no boşsa, işlem yapma
                 if not is_emri_no:
-                    logger.warning("⚠️ İş emri numarası boş, atlanıyor")
+                    logger.warning(f"⚠️ {data['cihaz_id']}: İş emri numarası boş, atlanıyor")
                 else:
                     created_at_turkey = current_time_turkey.strftime('%Y-%m-%d %H:%M:%S')
 
@@ -565,20 +568,59 @@ def receive_data():
                             elif 'frekans' in sensor_id or 'frequency' in sensor_id:
                                 sensor_values['sensor_frekans'] = sensor_value
 
-                    # ✅ MEVCUT İŞ EMRİNİ KONTROL ET
+                    # MEVCUT İŞ EMRİNİ KONTROL ET
                     cursor = conn.execute('''
-                        SELECT id, is_emri_durum FROM work_orders 
+                        SELECT id, is_emri_durum, gerceklesen_urun, fire_sayisi 
+                        FROM work_orders 
                         WHERE cihaz_id = ? AND is_emri_no = ? 
                         ORDER BY id DESC LIMIT 1
                     ''', (data['cihaz_id'], is_emri_no))
 
                     existing_work_order = cursor.fetchone()
+                    new_durum = int(is_emri.get('is_emri_durum', 0))
 
                     if existing_work_order:
-                        # ✅ MEVCUT İŞ EMRİ VAR - UPDATE YAP
+                        # MEVCUT İŞ EMRİ VAR - UPDATE YAP
                         work_order_id = existing_work_order[0]
-                        current_durum = existing_work_order[1]
-                        new_durum = int(is_emri.get('is_emri_durum', current_durum))
+                        old_durum = existing_work_order[1]
+                        old_gerceklesen = existing_work_order[2] or 0
+                        old_fire = existing_work_order[3] or 0
+
+                        new_gerceklesen = is_emri.get('gerceklesen_urun', old_gerceklesen)
+                        new_fire = is_emri.get('fire_sayisi', old_fire)
+
+                        # DURUM DEĞİŞİKLİĞİ LOGLA
+                        if old_durum != new_durum:
+                            status_texts = {0: 'Bekliyor', 1: 'Başladı', 2: 'Tamamlandı', 3: 'İptal'}
+                            old_status = status_texts.get(old_durum, f'Durum-{old_durum}')
+                            new_status = status_texts.get(new_durum, f'Durum-{new_durum}')
+
+                            logger.info(f"🔄 İŞ EMRİ DURUM DEĞİŞİKLİĞİ:")
+                            logger.info(f"   📱 Cihaz: {data.get('cihaz_adi', data['cihaz_id'])}")
+                            logger.info(f"   📋 İş Emri: {is_emri_no}")
+                            logger.info(f"   🔀 Durum: {old_status} → {new_status}")
+                            logger.info(f"   ⏰ Zaman: {created_at_turkey}")
+
+                            if new_durum == 1:  # Başlatıldı
+                                logger.info(f"   ▶️ İŞ EMRİ BAŞLATILDI")
+                                logger.info(f"      • Operator: {is_emri.get('operator_ad', 'Belirtilmemiş')}")
+                                logger.info(f"      • Ürün: {is_emri.get('urun_tipi', 'Belirtilmemiş')}")
+                                logger.info(f"      • Hedef: {is_emri.get('hedef_urun', 0)} adet")
+                            elif new_durum == 2:  # Tamamlandı
+                                logger.info(f"   ✅ İŞ EMRİ TAMAMLANDI")
+                                logger.info(f"      • Gerçekleşen: {new_gerceklesen} adet")
+                                logger.info(f"      • Fire: {new_fire} adet")
+                                efficiency = (new_gerceklesen * 100 / is_emri.get('hedef_urun', 1)) if is_emri.get(
+                                    'hedef_urun', 0) > 0 else 0
+                                logger.info(f"      • Verimlilik: {efficiency:.1f}%")
+
+                        # ÜRETİM ARTIŞI LOGLA
+                        if new_gerceklesen > old_gerceklesen:
+                            artan_uretim = new_gerceklesen - old_gerceklesen
+                            logger.info(f"📈 ÜRETİM ARTIŞI:")
+                            logger.info(f"   📱 Cihaz: {data.get('cihaz_adi', data['cihaz_id'])}")
+                            logger.info(f"   📋 İş Emri: {is_emri_no}")
+                            logger.info(f"   📦 Önceki: {old_gerceklesen} → Yeni: {new_gerceklesen} (+{artan_uretim})")
 
                         # Sensör değerleri ile birlikte güncelle
                         conn.execute('''
@@ -600,8 +642,8 @@ def receive_data():
                             is_emri.get('bitis_zamani', ''),
                             is_emri.get('makine_durumu', 0),
                             new_durum,
-                            is_emri.get('gerceklesen_urun', 0),
-                            is_emri.get('fire_sayisi', 0),
+                            new_gerceklesen,
+                            new_fire,
                             created_at_turkey,
                             sensor_values.get('sensor_sicaklik', 0),
                             sensor_values.get('sensor_nem', 0),
@@ -619,10 +661,17 @@ def receive_data():
                             work_order_id
                         ))
 
-                        logger.info(f"🔄 İş emri güncellendi: {is_emri_no} (ID: {work_order_id}) - Durum: {new_durum}")
+                        logger.info(f"🔄 İş emri güncellendi: {is_emri_no} (ID: {work_order_id})")
 
                     else:
-                        # ✅ YENİ İŞ EMRİ - INSERT YAP
+                        # YENİ İŞ EMRİ - INSERT YAP
+                        logger.info(f"✨ YENİ İŞ EMRİ OLUŞTURULUYOR:")
+                        logger.info(f"   📱 Cihaz: {data.get('cihaz_adi', data['cihaz_id'])}")
+                        logger.info(f"   📋 İş Emri: {is_emri_no}")
+                        logger.info(f"   👤 Operator: {is_emri.get('operator_ad', 'Belirtilmemiş')}")
+                        logger.info(f"   📦 Ürün: {is_emri.get('urun_tipi', 'Belirtilmemiş')}")
+                        logger.info(f"   🎯 Hedef: {is_emri.get('hedef_urun', 0)} adet")
+
                         conn.execute('''
                             INSERT INTO work_orders 
                             (cihaz_id, is_emri_no, urun_tipi, hedef_urun, operator_ad, shift_bilgisi,
@@ -663,7 +712,7 @@ def receive_data():
 
                         logger.info(f"✅ Yeni iş emri oluşturuldu: {is_emri_no} - {created_at_turkey}")
 
-            # ✅ SENSÖR VERİLERİNİ AYRI TABLODA DA KAYDET (tarihsel veri için)
+            # SENSÖR VERİLERİNİ AYRI TABLODA DA KAYDET (tarihsel veri için)
             if 'veriler' in data:
                 for veri in data['veriler']:
                     conn.execute('''
@@ -678,11 +727,13 @@ def receive_data():
                         timestamp
                     ))
 
+                logger.info(f"📊 {len(data['veriler'])} sensör verisi kaydedildi: {data['cihaz_id']}")
+
             conn.commit()
             return jsonify({"status": "success", "message": "Veri alındı ve işlendi"})
 
     except Exception as e:
-        logger.error(f"Data receive error: {str(e)}")
+        logger.error(f"❌ Data receive error: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
