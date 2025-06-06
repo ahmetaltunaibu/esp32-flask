@@ -902,7 +902,7 @@ def update_work_order(work_order_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-# 2. İş Emri Silme API  
+# 2. İş Emri Silme API
 @app.route('/admin/api/work_orders/<int:work_order_id>', methods=['DELETE'])
 @login_required
 @admin_required
