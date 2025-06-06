@@ -578,7 +578,7 @@ def receive_data():
                         # ✅ MEVCUT İŞ EMRİ VAR - UPDATE YAP
                         work_order_id = existing_work_order[0]
                         current_durum = existing_work_order[1]
-                        new_durum = is_emri.get('is_emri_durum', current_durum)
+                        new_durum = int(is_emri.get('is_emri_durum', current_durum))
 
                         # Sensör değerleri ile birlikte güncelle
                         conn.execute('''
