@@ -825,8 +825,313 @@ def api_work_orders(cihaz_id):
         })
 
 
-# 6. İş emri özet endpoint'i
-# app.py'de work_order_summary() fonksiyonunu değiştir:
+# app.py dosyasına eklenecek yeni endpoint'ler
+
+# 1. İş Emri Güncelleme API
+@app.route('/admin/api/work_orders/<int:work_order_id>', methods=['PUT'])
+@login_required
+@admin_required
+def update_work_order(work_order_id):
+    """Admin: İş emrini güncelle"""
+    try:
+        data = request.get_json()
+
+        with get_db() as conn:
+            # İş emri var mı kontrol et
+            work_order = conn.execute('''
+                SELECT wo.*, d.cihaz_adi 
+                FROM work_orders wo
+                LEFT JOIN devices d ON wo.cihaz_id = d.cihaz_id
+                WHERE wo.id = ?
+            ''', (work_order_id,)).fetchone()
+
+            if not work_order:
+                return jsonify({'success': False, 'error': 'İş emri bulunamadı'}), 404
+
+            # Güncelleme alanları
+            update_fields = []
+            params = []
+
+            # Güncellenebilir alanlar
+            updatable_fields = {
+                'is_emri_no': 'is_emri_no',
+                'urun_tipi': 'urun_tipi',
+                'hedef_urun': 'hedef_urun',
+                'operator_ad': 'operator_ad',
+                'shift_bilgisi': 'shift_bilgisi',
+                'baslama_zamani': 'baslama_zamani',
+                'bitis_zamani': 'bitis_zamani',
+                'makine_durumu': 'makine_durumu',
+                'is_emri_durum': 'is_emri_durum',
+                'gerceklesen_urun': 'gerceklesen_urun',
+                'fire_sayisi': 'fire_sayisi'
+            }
+
+            for field, db_column in updatable_fields.items():
+                if field in data:
+                    update_fields.append(f'{db_column} = ?')
+                    params.append(data[field])
+
+            if not update_fields:
+                return jsonify({'success': False, 'error': 'Güncellenecek alan bulunamadı'}), 400
+
+            # Güncelleme yap
+            params.append(work_order_id)
+            query = f"UPDATE work_orders SET {', '.join(update_fields)} WHERE id = ?"
+            conn.execute(query, params)
+            conn.commit()
+
+            # Aktivite logu
+            changes = [f"{k}={v}" for k, v in data.items()]
+            log_user_activity(
+                user_id=session.get('user_id', 1),
+                activity_type='work_order_updated',
+                description=f"İş emri güncellendi: {work_order['is_emri_no']} - {', '.join(changes)}",
+                conn=conn
+            )
+
+            logger.info(f"✅ Work order updated: {work_order_id} by {session.get('username')}")
+
+            return jsonify({
+                'success': True,
+                'message': 'İş emri başarıyla güncellendi'
+            })
+
+    except Exception as e:
+        logger.error(f"❌ Update work order error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# 2. İş Emri Silme API  
+@app.route('/admin/api/work_orders/<int:work_order_id>', methods=['DELETE'])
+@login_required
+@admin_required
+def delete_work_order(work_order_id):
+    """Admin: İş emrini sil"""
+    try:
+        with get_db() as conn:
+            # İş emri var mı kontrol et
+            work_order = conn.execute('''
+                SELECT wo.*, d.cihaz_adi 
+                FROM work_orders wo
+                LEFT JOIN devices d ON wo.cihaz_id = d.cihaz_id
+                WHERE wo.id = ?
+            ''', (work_order_id,)).fetchone()
+
+            if not work_order:
+                return jsonify({'success': False, 'error': 'İş emri bulunamadı'}), 404
+
+            # Güvenlik kontrolü: Aktif iş emrini silmeden önce uyar
+            if work_order['is_emri_durum'] == 1:  # Aktif
+                confirm = request.args.get('confirm_active', 'false').lower()
+                if confirm != 'true':
+                    return jsonify({
+                        'success': False,
+                        'error': 'Bu iş emri halen aktif! Silmek için onay gerekli.',
+                        'requires_confirmation': True
+                    }), 400
+
+            # İş emrini sil
+            conn.execute('DELETE FROM work_orders WHERE id = ?', (work_order_id,))
+            conn.commit()
+
+            # Aktivite logu
+            log_user_activity(
+                user_id=session.get('user_id', 1),
+                activity_type='work_order_deleted',
+                description=f"İş emri silindi: {work_order['is_emri_no']} ({work_order['cihaz_adi']})",
+                conn=conn
+            )
+
+            logger.info(f"✅ Work order deleted: {work_order_id} by {session.get('username')}")
+
+            return jsonify({
+                'success': True,
+                'message': f"İş emri '{work_order['is_emri_no']}' başarıyla silindi"
+            })
+
+    except Exception as e:
+        logger.error(f"❌ Delete work order error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# 3. İş Emri Detay Getirme API
+@app.route('/admin/api/work_orders/<int:work_order_id>', methods=['GET'])
+@login_required
+@admin_required
+def get_work_order_detail(work_order_id):
+    """Admin: İş emri detaylarını getir"""
+    try:
+        with get_db() as conn:
+            work_order = conn.execute('''
+                SELECT wo.*, d.cihaz_adi, d.konum, d.fabrika_adi
+                FROM work_orders wo
+                LEFT JOIN devices d ON wo.cihaz_id = d.cihaz_id
+                WHERE wo.id = ?
+            ''', (work_order_id,)).fetchone()
+
+            if not work_order:
+                return jsonify({'success': False, 'error': 'İş emri bulunamadı'}), 404
+
+            return jsonify({
+                'success': True,
+                'work_order': dict(work_order)
+            })
+
+    except Exception as e:
+        logger.error(f"❌ Get work order detail error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# 4. İş Emri Durumu Değiştirme API
+@app.route('/admin/api/work_orders/<int:work_order_id>/status', methods=['PUT'])
+@login_required
+@admin_required
+def change_work_order_status(work_order_id):
+    """Admin: İş emri durumunu değiştir"""
+    try:
+        data = request.get_json()
+        new_status = data.get('status')
+
+        if new_status not in [0, 1, 2, 3]:  # Bekliyor, Aktif, Tamamlandı, İptal
+            return jsonify({'success': False, 'error': 'Geçersiz durum değeri'}), 400
+
+        with get_db() as conn:
+            work_order = conn.execute('''
+                SELECT wo.*, d.cihaz_adi 
+                FROM work_orders wo
+                LEFT JOIN devices d ON wo.cihaz_id = d.cihaz_id
+                WHERE wo.id = ?
+            ''', (work_order_id,)).fetchone()
+
+            if not work_order:
+                return jsonify({'success': False, 'error': 'İş emri bulunamadı'}), 404
+
+            old_status = work_order['is_emri_durum']
+            status_names = {0: 'Bekliyor', 1: 'Aktif', 2: 'Tamamlandı', 3: 'İptal'}
+
+            # Durumu güncelle
+            update_fields = ['is_emri_durum = ?']
+            params = [new_status]
+
+            # Eğer tamamlandı yapılıyorsa ve bitiş zamanı yoksa ekle
+            if new_status == 2 and not work_order['bitis_zamani']:
+                update_fields.append('bitis_zamani = ?')
+                params.append(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+            params.append(work_order_id)
+
+            conn.execute(f'''
+                UPDATE work_orders 
+                SET {', '.join(update_fields)}
+                WHERE id = ?
+            ''', params)
+            conn.commit()
+
+            # Aktivite logu
+            log_user_activity(
+                user_id=session.get('user_id', 1),
+                activity_type='work_order_status_changed',
+                description=f"İş emri durumu değiştirildi: {work_order['is_emri_no']} - {status_names.get(old_status)} → {status_names.get(new_status)}",
+                conn=conn
+            )
+
+            logger.info(f"✅ Work order status changed: {work_order_id} - {old_status} → {new_status}")
+
+            return jsonify({
+                'success': True,
+                'message': f"İş emri durumu '{status_names.get(new_status)}' olarak değiştirildi"
+            })
+
+    except Exception as e:
+        logger.error(f"❌ Change work order status error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# 5. Toplu İş Emri İşlemleri API
+@app.route('/admin/api/work_orders/bulk', methods=['POST'])
+@login_required
+@admin_required
+def bulk_work_order_operations():
+    """Admin: Toplu iş emri işlemleri"""
+    try:
+        data = request.get_json()
+        action = data.get('action')  # 'delete', 'change_status', 'export'
+        work_order_ids = data.get('work_order_ids', [])
+
+        if not work_order_ids:
+            return jsonify({'success': False, 'error': 'İş emri seçilmedi'}), 400
+
+        with get_db() as conn:
+            if action == 'delete':
+                # Toplu silme
+                placeholders = ','.join(['?'] * len(work_order_ids))
+
+                # Silinecek iş emirlerini al (log için)
+                work_orders = conn.execute(f'''
+                    SELECT wo.is_emri_no, d.cihaz_adi 
+                    FROM work_orders wo
+                    LEFT JOIN devices d ON wo.cihaz_id = d.cihaz_id
+                    WHERE wo.id IN ({placeholders})
+                ''', work_order_ids).fetchall()
+
+                # Sil
+                cursor = conn.execute(f'DELETE FROM work_orders WHERE id IN ({placeholders})', work_order_ids)
+                deleted_count = cursor.rowcount
+
+                # Aktivite logu
+                work_order_names = [wo['is_emri_no'] for wo in work_orders]
+                log_user_activity(
+                    user_id=session.get('user_id', 1),
+                    activity_type='bulk_work_order_delete',
+                    description=f"Toplu iş emri silme: {deleted_count} adet - {', '.join(work_order_names)}",
+                    conn=conn
+                )
+
+                conn.commit()
+                return jsonify({
+                    'success': True,
+                    'message': f'{deleted_count} iş emri başarıyla silindi'
+                })
+
+            elif action == 'change_status':
+                # Toplu durum değiştirme
+                new_status = data.get('new_status')
+                if new_status not in [0, 1, 2, 3]:
+                    return jsonify({'success': False, 'error': 'Geçersiz durum değeri'}), 400
+
+                placeholders = ','.join(['?'] * len(work_order_ids))
+                params = [new_status] + work_order_ids
+
+                cursor = conn.execute(f'''
+                    UPDATE work_orders 
+                    SET is_emri_durum = ?
+                    WHERE id IN ({placeholders})
+                ''', params)
+                updated_count = cursor.rowcount
+
+                status_names = {0: 'Bekliyor', 1: 'Aktif', 2: 'Tamamlandı', 3: 'İptal'}
+
+                # Aktivite logu
+                log_user_activity(
+                    user_id=session.get('user_id', 1),
+                    activity_type='bulk_work_order_status_change',
+                    description=f"Toplu durum değiştirme: {updated_count} iş emri → {status_names.get(new_status)}",
+                    conn=conn
+                )
+
+                conn.commit()
+                return jsonify({
+                    'success': True,
+                    'message': f'{updated_count} iş emrinin durumu değiştirildi'
+                })
+
+            else:
+                return jsonify({'success': False, 'error': 'Geçersiz işlem'}), 400
+
+    except Exception as e:
+        logger.error(f"❌ Bulk work order operations error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/work_order_summary/<cihaz_id>')
 @login_required
