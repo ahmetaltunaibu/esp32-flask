@@ -31,7 +31,7 @@
     .status-active { background: #00b894; color: white; }
     .status-completed { background: #0984e3; color: white; }
     .status-cancelled { background: #e17055; color: white; }
-    
+
     .metric-item {
         text-align: center;
         padding: 15px;
@@ -50,7 +50,7 @@
         text-transform: uppercase;
         margin-top: 5px;
     }
-    
+
     .filter-section {
         background: white;
         padding: 20px;
@@ -123,8 +123,8 @@
     <!-- İş Emri Kartları -->
     <div class="row" id="workOrderContainer">
         {% for wo in work_orders %}
-        <div class="col-lg-6 work-order-item" 
-             data-device="{{ wo.cihaz_adi }}" 
+        <div class="col-lg-6 work-order-item"
+             data-device="{{ wo.cihaz_adi }}"
              data-status="{{ wo.is_emri_durum }}"
              data-date="{{ wo.created_at }}">
             <div class="work-order-card card">
@@ -229,17 +229,27 @@
 
                     <!-- Aksiyonlar -->
                     <div class="mt-3 d-flex gap-2">
-                        <a href="{{ url_for('device_work_orders', cihaz_id=wo.cihaz_id) }}" 
+                        <a href="{{ url_for('device_work_orders', cihaz_id=wo.cihaz_id) }}"
                            class="btn btn-sm btn-outline-primary">
                             <i class="fas fa-eye"></i> Detaylar
                         </a>
-                        <a href="{{ url_for('cihaz_detay', cihaz_id=wo.cihaz_id) }}" 
+                        <a href="{{ url_for('cihaz_detay', cihaz_id=wo.cihaz_id) }}"
                            class="btn btn-sm btn-outline-info">
                             <i class="fas fa-chart-line"></i> Cihaz
                         </a>
                         {% if wo.is_emri_durum == 2 %}
                         <button class="btn btn-sm btn-outline-success" onclick="downloadReport('{{ wo.id }}')">
                             <i class="fas fa-download"></i> Rapor
+                        </button>
+                        {% endif %}
+
+                        <!-- ✅ ADMIN BUTONLARI -->
+                        {% if is_admin %}
+                        <button class="btn btn-sm btn-outline-warning" onclick="editWorkOrder({{ wo.id }})">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteWorkOrder({{ wo.id }}, '{{ wo.is_emri_no }}')">
+                            <i class="fas fa-trash"></i>
                         </button>
                         {% endif %}
                     </div>
@@ -277,35 +287,35 @@ function applyFilters() {
     const startDate = document.getElementById('startDate').value;
     const endDate = document.getElementById('endDate').value;
     const searchTerm = document.getElementById('searchInput').value.toLowerCase();
-    
+
     const items = document.querySelectorAll('.work-order-item');
     let visibleCount = 0;
-    
+
     items.forEach(item => {
         const device = item.dataset.device.toLowerCase();
         const status = item.dataset.status;
         const date = item.dataset.date;
         const text = item.textContent.toLowerCase();
-        
+
         let show = true;
-        
+
         // Cihaz filtresi
         if (deviceFilter && !device.includes(deviceFilter)) show = false;
-        
+
         // Durum filtresi
         if (statusFilter && status !== statusFilter) show = false;
-        
+
         // Tarih filtresi
         if (startDate && date < startDate) show = false;
         if (endDate && date > endDate + ' 23:59:59') show = false;
-        
+
         // Arama filtresi
         if (searchTerm && !text.includes(searchTerm)) show = false;
-        
+
         item.style.display = show ? 'block' : 'none';
         if (show) visibleCount++;
     });
-    
+
     // Sonuç sayısını güncelle
     document.querySelector('.badge').textContent = `${visibleCount} iş emri`;
 }
@@ -316,12 +326,12 @@ function clearFilters() {
     document.getElementById('startDate').value = '';
     document.getElementById('endDate').value = '';
     document.getElementById('searchInput').value = '';
-    
+
     // Tüm öğeleri göster
     document.querySelectorAll('.work-order-item').forEach(item => {
         item.style.display = 'block';
     });
-    
+
     // Orijinal sayıyı geri yükle
     document.querySelector('.badge').textContent = `{{ work_orders|length }} iş emri`;
 }
@@ -333,5 +343,45 @@ function downloadReport(workOrderId) {
 
 // Gerçek zamanlı arama
 document.getElementById('searchInput').addEventListener('input', applyFilters);
+
+// ✅ ADMIN FONKSİYONLARI
+{% if is_admin %}
+function editWorkOrder(id) {
+    const newData = prompt('Yeni gerçekleşen üretim miktarını girin:');
+    if (newData && !isNaN(newData)) {
+        fetch(`/admin/api/work_orders/${id}`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({gerceklesen_urun: parseInt(newData)})
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('✅ Güncellendi!');
+                location.reload();
+            } else {
+                alert('❌ Hata: ' + data.error);
+            }
+        })
+        .catch(error => alert('❌ Bağlantı hatası'));
+    }
+}
+
+function deleteWorkOrder(id, name) {
+    if (confirm(`⚠️ '${name}' iş emrini silmek istediğinize emin misiniz?\n\nBu işlem geri alınamaz!`)) {
+        fetch(`/admin/api/work_orders/${id}`, {method: 'DELETE'})
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('✅ Silindi!');
+                location.reload();
+            } else {
+                alert('❌ Hata: ' + data.error);
+            }
+        })
+        .catch(error => alert('❌ Bağlantı hatası'));
+    }
+}
+{% endif %}
 </script>
 {% endblock %}
