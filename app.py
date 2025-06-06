@@ -533,8 +533,11 @@ def receive_data():
                 else:
                     created_at_turkey = current_time_turkey.strftime('%Y-%m-%d %H:%M:%S')
 
-                    # Sensör verilerini hazırla
+                    # 🔧 SENSÖR VERİLERİNİ HAZIRLA VE PERFORMANS METRİKLERİNİ HESAPLA
                     sensor_values = {}
+                    sensor_toplam_urun = 0
+                    sensor_hatali_urun = 0
+
                     if 'veriler' in data:
                         for veri in data['veriler']:
                             sensor_id = veri.get('sensor_id', '').lower()
@@ -553,10 +556,12 @@ def receive_data():
                                 sensor_values['sensor_guc'] = sensor_value
                             elif 'toplam_urun' in sensor_id:
                                 sensor_values['sensor_toplam_urun'] = sensor_value
+                                sensor_toplam_urun = sensor_value  # 🔧 BURADA KAYDET
                             elif 'kaliteli_urun' in sensor_id:
                                 sensor_values['sensor_kaliteli_urun'] = sensor_value
                             elif 'hatali_urun' in sensor_id:
                                 sensor_values['sensor_hatali_urun'] = sensor_value
+                                sensor_hatali_urun = sensor_value  # 🔧 BURADA KAYDET
                             elif 'hiz' in sensor_id or 'speed' in sensor_id:
                                 sensor_values['sensor_hiz'] = sensor_value
                             elif 'torque' in sensor_id:
@@ -586,8 +591,16 @@ def receive_data():
                         old_gerceklesen = existing_work_order[2] or 0
                         old_fire = existing_work_order[3] or 0
 
-                        new_gerceklesen = is_emri.get('gerceklesen_urun', old_gerceklesen)
-                        new_fire = is_emri.get('fire_sayisi', old_fire)
+                        # 🔧 ÖNEMLİ: SENSÖR VERİLERİNİ KULLAN!
+                        # HMI'den gelen veri varsa onu kullan, yoksa sensörden al
+                        new_gerceklesen = is_emri.get('gerceklesen_urun')
+                        new_fire = is_emri.get('fire_sayisi')
+
+                        # Eğer HMI'den veri gelmemişse veya 0 ise sensör verilerini kullan
+                        if new_gerceklesen is None or new_gerceklesen == 0:
+                            new_gerceklesen = sensor_toplam_urun
+                        if new_fire is None or new_fire == 0:
+                            new_fire = sensor_hatali_urun
 
                         # DURUM DEĞİŞİKLİĞİ LOGLA
                         if old_durum != new_durum:
@@ -621,8 +634,10 @@ def receive_data():
                             logger.info(f"   📱 Cihaz: {data.get('cihaz_adi', data['cihaz_id'])}")
                             logger.info(f"   📋 İş Emri: {is_emri_no}")
                             logger.info(f"   📦 Önceki: {old_gerceklesen} → Yeni: {new_gerceklesen} (+{artan_uretim})")
+                            logger.info(
+                                f"   🔧 Kaynak: Sensör(toplam={sensor_toplam_urun}) + HMI(gerceklesen={is_emri.get('gerceklesen_urun')})")
 
-                        # Sensör değerleri ile birlikte güncelle
+                        # 🔧 Sensör değerleri ile birlikte güncelle
                         conn.execute('''
                             UPDATE work_orders SET
                                 urun_tipi = ?, hedef_urun = ?, operator_ad = ?, shift_bilgisi = ?,
@@ -642,8 +657,8 @@ def receive_data():
                             is_emri.get('bitis_zamani', ''),
                             is_emri.get('makine_durumu', 0),
                             new_durum,
-                            new_gerceklesen,
-                            new_fire,
+                            new_gerceklesen,  # 🔧 Sensörden veya HMI'den gelen veri
+                            new_fire,  # 🔧 Sensörden veya HMI'den gelen veri
                             created_at_turkey,
                             sensor_values.get('sensor_sicaklik', 0),
                             sensor_values.get('sensor_nem', 0),
@@ -662,6 +677,7 @@ def receive_data():
                         ))
 
                         logger.info(f"🔄 İş emri güncellendi: {is_emri_no} (ID: {work_order_id})")
+                        logger.info(f"📊 Performans: Gerçekleşen={new_gerceklesen}, Fire={new_fire}")
 
                     else:
                         # YENİ İŞ EMRİ - INSERT YAP
@@ -671,6 +687,10 @@ def receive_data():
                         logger.info(f"   👤 Operator: {is_emri.get('operator_ad', 'Belirtilmemiş')}")
                         logger.info(f"   📦 Ürün: {is_emri.get('urun_tipi', 'Belirtilmemiş')}")
                         logger.info(f"   🎯 Hedef: {is_emri.get('hedef_urun', 0)} adet")
+
+                        # Başlangıç değerleri için sensör verilerini kullan
+                        initial_gerceklesen = is_emri.get('gerceklesen_urun', sensor_toplam_urun)
+                        initial_fire = is_emri.get('fire_sayisi', sensor_hatali_urun)
 
                         conn.execute('''
                             INSERT INTO work_orders 
@@ -692,8 +712,8 @@ def receive_data():
                             is_emri.get('bitis_zamani', ''),
                             is_emri.get('makine_durumu', 0),
                             is_emri.get('is_emri_durum', 0),
-                            is_emri.get('gerceklesen_urun', 0),
-                            is_emri.get('fire_sayisi', 0),
+                            initial_gerceklesen,  # 🔧 Sensörden başlangıç değeri
+                            initial_fire,  # 🔧 Sensörden başlangıç değeri
                             created_at_turkey,
                             sensor_values.get('sensor_sicaklik', 0),
                             sensor_values.get('sensor_nem', 0),
@@ -711,6 +731,7 @@ def receive_data():
                         ))
 
                         logger.info(f"✅ Yeni iş emri oluşturuldu: {is_emri_no} - {created_at_turkey}")
+                        logger.info(f"📊 Başlangıç performans: Gerçekleşen={initial_gerceklesen}, Fire={initial_fire}")
 
             # SENSÖR VERİLERİNİ AYRI TABLODA DA KAYDET (tarihsel veri için)
             if 'veriler' in data:
@@ -735,7 +756,6 @@ def receive_data():
     except Exception as e:
         logger.error(f"❌ Data receive error: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
-
 
 
 
