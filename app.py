@@ -377,16 +377,16 @@ def format_time_only(timestamp):
         return "N/A"
 
 
-# YENİ: ESP32'den gelen datetime string'leri için
+# ESP32'den gelen datetime string'leri için
 @app.template_filter('format_work_order_time')
 def format_work_order_time(datetime_str):
-    """ESP32'den gelen datetime string'ini formatla"""
+    """ESP32'den gelen datetime string'ini formatla - TIMEZONE FİX"""
     try:
         if not datetime_str or datetime_str in ['', 'Devam ediyor', 'Başlamamış']:
             return datetime_str or 'Belirtilmemiş'
 
         # ESP32'den gelen format: "2025-06-05 09:51:53"
-        # Bu zaten Türkiye saati olduğu için direkt parse et
+        # Bu ZATEN Türkiye saati, UTC'ye çevirme!
         dt = datetime.strptime(datetime_str, '%Y-%m-%d %H:%M:%S')
         return dt.strftime('%d.%m.%Y %H:%M:%S')
 
@@ -417,10 +417,6 @@ def format_db_datetime(datetime_str):
     except Exception as e:
         print(f"DB datetime format error: {e}, value: {datetime_str}")
         return datetime_str
-
-
-# app.py'ye bu endpoint'i ekle:
-
 
 # Authentication Decorators
 def login_required(f):
@@ -472,17 +468,14 @@ def inject_user():
         is_admin=is_admin
     )
 
-
-# app.py'de /data endpoint'indeki logging bölümünü bu şekilde güncelleyin:
-
-
+# esp32 den alının iş emrileri fonksiyonu
 @app.route('/data', methods=['POST'])
 def receive_data():
     data = request.get_json()
     if not data or 'cihaz_id' not in data:
         return jsonify({"status": "error", "message": "Geçersiz veri"}), 400
 
-    # Türkiye saatiyle timestamp oluştur
+    # ✅ ESP32'den gelen tarih zaten Türkiye saati - timestamp için Türkiye saati kullan
     turkey_tz = pytz.timezone('Europe/Istanbul')
     current_time_turkey = datetime.now(turkey_tz)
     timestamp = int(current_time_turkey.timestamp() * 1000)
@@ -522,7 +515,7 @@ def receive_data():
                     request.remote_addr
                 ))
 
-            # ✅ GELİŞTİRİLMİŞ İŞ EMRİ LOGİĞİ VE LOGGING
+            # ✅ İŞ EMRİ İŞLEME - ESP32'den gelen tarih zaten Türkiye saati
             if 'is_emri' in data:
                 is_emri = data['is_emri']
                 is_emri_no = is_emri.get('is_emri_no', '')
@@ -531,7 +524,12 @@ def receive_data():
                 if not is_emri_no:
                     logger.warning(f"⚠️ {data['cihaz_id']}: İş emri numarası boş, atlanıyor")
                 else:
-                    created_at_turkey = current_time_turkey.strftime('%Y-%m-%d %H:%M:%S')
+                    # ✅ ESP32'den gelen created_at zaten Türkiye saati, direkt kullan
+                    # Eğer ESP32'den tarih geliyorsa onu kullan, yoksa şimdiki zamanı kullan
+                    if 'created_at' in is_emri and is_emri['created_at']:
+                        created_at_turkey = is_emri['created_at']  # ESP32'den gelen tarih (zaten Türkiye saati)
+                    else:
+                        created_at_turkey = current_time_turkey.strftime('%Y-%m-%d %H:%M:%S')
 
                     # 🔧 SENSÖR VERİLERİNİ HAZIRLA VE PERFORMANS METRİKLERİNİ HESAPLA
                     sensor_values = {}
@@ -556,12 +554,12 @@ def receive_data():
                                 sensor_values['sensor_guc'] = sensor_value
                             elif 'toplam_urun' in sensor_id:
                                 sensor_values['sensor_toplam_urun'] = sensor_value
-                                sensor_toplam_urun = sensor_value  # 🔧 BURADA KAYDET
+                                sensor_toplam_urun = sensor_value
                             elif 'kaliteli_urun' in sensor_id:
                                 sensor_values['sensor_kaliteli_urun'] = sensor_value
                             elif 'hatali_urun' in sensor_id:
                                 sensor_values['sensor_hatali_urun'] = sensor_value
-                                sensor_hatali_urun = sensor_value  # 🔧 BURADA KAYDET
+                                sensor_hatali_urun = sensor_value
                             elif 'hiz' in sensor_id or 'speed' in sensor_id:
                                 sensor_values['sensor_hiz'] = sensor_value
                             elif 'torque' in sensor_id:
@@ -591,7 +589,6 @@ def receive_data():
                         old_gerceklesen = existing_work_order[2] or 0
                         old_fire = existing_work_order[3] or 0
 
-                        # 🔧 ÖNEMLİ: SENSÖR VERİLERİNİ KULLAN!
                         # HMI'den gelen veri varsa onu kullan, yoksa sensörden al
                         new_gerceklesen = is_emri.get('gerceklesen_urun')
                         new_fire = is_emri.get('fire_sayisi')
@@ -601,6 +598,10 @@ def receive_data():
                             new_gerceklesen = sensor_toplam_urun
                         if new_fire is None or new_fire == 0:
                             new_fire = sensor_hatali_urun
+
+                        # ✅ ESP32'den gelen zamanlar zaten Türkiye saati - direkt kullan
+                        baslama_zamani = is_emri.get('baslama_zamani', '')
+                        bitis_zamani = is_emri.get('bitis_zamani', '')
 
                         # DURUM DEĞİŞİKLİĞİ LOGLA
                         if old_durum != new_durum:
@@ -612,19 +613,22 @@ def receive_data():
                             logger.info(f"   📱 Cihaz: {data.get('cihaz_adi', data['cihaz_id'])}")
                             logger.info(f"   📋 İş Emri: {is_emri_no}")
                             logger.info(f"   🔀 Durum: {old_status} → {new_status}")
-                            logger.info(f"   ⏰ Zaman: {created_at_turkey}")
+                            logger.info(f"   ⏰ Zaman: {created_at_turkey} (Türkiye Saati)")
 
                             if new_durum == 1:  # Başlatıldı
                                 logger.info(f"   ▶️ İŞ EMRİ BAŞLATILDI")
                                 logger.info(f"      • Operator: {is_emri.get('operator_ad', 'Belirtilmemiş')}")
                                 logger.info(f"      • Ürün: {is_emri.get('urun_tipi', 'Belirtilmemiş')}")
                                 logger.info(f"      • Hedef: {is_emri.get('hedef_urun', 0)} adet")
+                                if baslama_zamani:
+                                    logger.info(f"      • Başlama: {baslama_zamani} (Türkiye Saati)")
                             elif new_durum == 2:  # Tamamlandı
                                 logger.info(f"   ✅ İŞ EMRİ TAMAMLANDI")
                                 logger.info(f"      • Gerçekleşen: {new_gerceklesen} adet")
                                 logger.info(f"      • Fire: {new_fire} adet")
-                                efficiency = (new_gerceklesen * 100 / is_emri.get('hedef_urun', 1)) if is_emri.get(
-                                    'hedef_urun', 0) > 0 else 0
+                                if bitis_zamani:
+                                    logger.info(f"      • Bitiş: {bitis_zamani} (Türkiye Saati)")
+                                efficiency = (new_gerceklesen * 100 / is_emri.get('hedef_urun', 1)) if is_emri.get('hedef_urun', 0) > 0 else 0
                                 logger.info(f"      • Verimlilik: {efficiency:.1f}%")
 
                         # ÜRETİM ARTIŞI LOGLA
@@ -634,8 +638,6 @@ def receive_data():
                             logger.info(f"   📱 Cihaz: {data.get('cihaz_adi', data['cihaz_id'])}")
                             logger.info(f"   📋 İş Emri: {is_emri_no}")
                             logger.info(f"   📦 Önceki: {old_gerceklesen} → Yeni: {new_gerceklesen} (+{artan_uretim})")
-                            logger.info(
-                                f"   🔧 Kaynak: Sensör(toplam={sensor_toplam_urun}) + HMI(gerceklesen={is_emri.get('gerceklesen_urun')})")
 
                         # 🔧 Sensör değerleri ile birlikte güncelle
                         conn.execute('''
@@ -653,13 +655,13 @@ def receive_data():
                             is_emri.get('hedef_urun', 0),
                             is_emri.get('operator_ad', ''),
                             is_emri.get('shift_bilgisi', ''),
-                            is_emri.get('baslama_zamani', ''),
-                            is_emri.get('bitis_zamani', ''),
+                            baslama_zamani,  # ✅ ESP32'den gelen zaman (zaten Türkiye saati)
+                            bitis_zamani,   # ✅ ESP32'den gelen zaman (zaten Türkiye saati)
                             is_emri.get('makine_durumu', 0),
                             new_durum,
-                            new_gerceklesen,  # 🔧 Sensörden veya HMI'den gelen veri
-                            new_fire,  # 🔧 Sensörden veya HMI'den gelen veri
-                            created_at_turkey,
+                            new_gerceklesen,
+                            new_fire,
+                            created_at_turkey,  # ✅ Türkiye saati
                             sensor_values.get('sensor_sicaklik', 0),
                             sensor_values.get('sensor_nem', 0),
                             sensor_values.get('sensor_basinc', 0),
@@ -692,6 +694,10 @@ def receive_data():
                         initial_gerceklesen = is_emri.get('gerceklesen_urun', sensor_toplam_urun)
                         initial_fire = is_emri.get('fire_sayisi', sensor_hatali_urun)
 
+                        # ✅ ESP32'den gelen zamanlar zaten Türkiye saati
+                        baslama_zamani = is_emri.get('baslama_zamani', '')
+                        bitis_zamani = is_emri.get('bitis_zamani', '')
+
                         conn.execute('''
                             INSERT INTO work_orders 
                             (cihaz_id, is_emri_no, urun_tipi, hedef_urun, operator_ad, shift_bilgisi,
@@ -708,13 +714,13 @@ def receive_data():
                             is_emri.get('hedef_urun', 0),
                             is_emri.get('operator_ad', ''),
                             is_emri.get('shift_bilgisi', ''),
-                            is_emri.get('baslama_zamani', ''),
-                            is_emri.get('bitis_zamani', ''),
+                            baslama_zamani,  # ✅ ESP32'den gelen zaman (zaten Türkiye saati)
+                            bitis_zamani,   # ✅ ESP32'den gelen zaman (zaten Türkiye saati)
                             is_emri.get('makine_durumu', 0),
                             is_emri.get('is_emri_durum', 0),
-                            initial_gerceklesen,  # 🔧 Sensörden başlangıç değeri
-                            initial_fire,  # 🔧 Sensörden başlangıç değeri
-                            created_at_turkey,
+                            initial_gerceklesen,
+                            initial_fire,
+                            created_at_turkey,  # ✅ Türkiye saati
                             sensor_values.get('sensor_sicaklik', 0),
                             sensor_values.get('sensor_nem', 0),
                             sensor_values.get('sensor_basinc', 0),
@@ -730,7 +736,7 @@ def receive_data():
                             sensor_values.get('sensor_frekans', 0)
                         ))
 
-                        logger.info(f"✅ Yeni iş emri oluşturuldu: {is_emri_no} - {created_at_turkey}")
+                        logger.info(f"✅ Yeni iş emri oluşturuldu: {is_emri_no} - {created_at_turkey} (Türkiye Saati)")
                         logger.info(f"📊 Başlangıç performans: Gerçekleşen={initial_gerceklesen}, Fire={initial_fire}")
 
             # SENSÖR VERİLERİNİ AYRI TABLODA DA KAYDET (tarihsel veri için)
@@ -756,7 +762,6 @@ def receive_data():
     except Exception as e:
         logger.error(f"❌ Data receive error: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
-
 
 
 # 3. İş emri görüntüleme sayfası
@@ -830,11 +835,12 @@ def api_work_orders(cihaz_id):
 # 1. İş Emri Güncelleme API
 # app.py dosyasındaki mevcut update_work_order fonksiyonunu bu şekilde güncelleyin:
 
+# iş emri güncelleme fonksiyonu
 @app.route('/admin/api/work_orders/<int:work_order_id>', methods=['PUT'])
 @login_required
 @admin_required
 def update_work_order(work_order_id):
-    """Admin: İş emrini güncelle - GELİŞTİRİLMİŞ VERSİYON"""
+    """Admin: İş emrini güncelle - TIMEZONE FİX"""
     try:
         data = request.get_json()
 
@@ -855,25 +861,46 @@ def update_work_order(work_order_id):
             params = []
             changes_log = []
 
-            # Güncellenebilir alanlar - GENİŞLETİLMİŞ
+            # Güncellenebilir alanlar
             updatable_fields = {
                 'is_emri_no': 'is_emri_no',
                 'urun_tipi': 'urun_tipi',
                 'hedef_urun': 'hedef_urun',
                 'operator_ad': 'operator_ad',
                 'shift_bilgisi': 'shift_bilgisi',
-                'baslama_zamani': 'baslama_zamani',  # ✅ YENİ
-                'bitis_zamani': 'bitis_zamani',  # ✅ YENİ
+                'baslama_zamani': 'baslama_zamani',
+                'bitis_zamani': 'bitis_zamani',
                 'makine_durumu': 'makine_durumu',
                 'is_emri_durum': 'is_emri_durum',
                 'gerceklesen_urun': 'gerceklesen_urun',
-                'fire_sayisi': 'fire_sayisi'  # ✅ YENİ
+                'fire_sayisi': 'fire_sayisi'
             }
 
             for field, db_column in updatable_fields.items():
                 if field in data:
                     old_value = work_order[db_column]
                     new_value = data[field]
+
+                    # ✅ TIMEZONE FİX: Tarih alanları için özel işlem
+                    if field in ['baslama_zamani', 'bitis_zamani'] and new_value:
+                        try:
+                            # Frontend'den gelen: "2025-06-07 14:30:00"
+                            # Bu zaten Türkiye saati, UTC'ye çevirme!
+                            # Direkt olarak kaydet
+                            processed_value = new_value
+
+                            # Geçerli tarih formatı kontrolü
+                            datetime.strptime(processed_value, '%Y-%m-%d %H:%M:%S')
+
+                            logger.info(f"🕒 {field} güncelleniyor: {old_value} → {processed_value} (Türkiye Saati)")
+
+                        except ValueError:
+                            return jsonify({
+                                'success': False,
+                                'error': f'Geçersiz tarih formatı: {new_value} (YYYY-MM-DD HH:MM:SS bekleniyor)'
+                            }), 400
+
+                        new_value = processed_value
 
                     # Değer değişti mi kontrol et
                     if old_value != new_value:
@@ -902,7 +929,7 @@ def update_work_order(work_order_id):
             if not update_fields:
                 return jsonify({'success': False, 'error': 'Güncellenecek alan bulunamadı'}), 400
 
-            # ✅ ÖZEL DOĞRULAMA KURALARI
+            # Validation
             validation_errors = []
 
             # Fire sayısı kontrolü
@@ -926,15 +953,15 @@ def update_work_order(work_order_id):
 
             # Zaman doğrulaması
             if 'baslama_zamani' in data and 'bitis_zamani' in data:
-                try:
-                    baslama = datetime.strptime(data['baslama_zamani'], '%Y-%m-%d %H:%M:%S')
-                    bitis = datetime.strptime(data['bitis_zamani'], '%Y-%m-%d %H:%M:%S')
-                    if baslama >= bitis:
-                        validation_errors.append("Başlama zamanı bitiş zamanından önce olmalı")
-                except ValueError:
-                    validation_errors.append("Geçersiz tarih formatı (YYYY-MM-DD HH:MM:SS olmalı)")
+                if data['baslama_zamani'] and data['bitis_zamani']:
+                    try:
+                        baslama = datetime.strptime(data['baslama_zamani'], '%Y-%m-%d %H:%M:%S')
+                        bitis = datetime.strptime(data['bitis_zamani'], '%Y-%m-%d %H:%M:%S')
+                        if baslama >= bitis:
+                            validation_errors.append("Başlama zamanı bitiş zamanından önce olmalı")
+                    except ValueError:
+                        validation_errors.append("Geçersiz tarih formatı (YYYY-MM-DD HH:MM:SS olmalı)")
 
-            # Doğrulama hataları varsa dön
             if validation_errors:
                 return jsonify({
                     'success': False,
@@ -943,12 +970,24 @@ def update_work_order(work_order_id):
                 }), 400
 
             # ✅ OTOMATIK DURUM GÜNCELLEMESİ
-            # Eğer bitiş zamanı giriliyorsa ve henüz tamamlanmamışsa, otomatik tamamla
             if 'bitis_zamani' in data and data['bitis_zamani'] and work_order['is_emri_durum'] != 2:
-                if 'is_emri_durum' not in data:  # Manuel durum değişikliği yoksa
+                if 'is_emri_durum' not in data:
                     update_fields.append('is_emri_durum = ?')
                     params.append(2)  # Tamamlandı
                     changes_log.append("Durum: Otomatik → Tamamlandı (bitiş zamanı girildi)")
+
+            # ✅ OTOMATIK BİTİŞ ZAMANI (Durum tamamlandı yapılırsa)
+            if 'is_emri_durum' in data and data['is_emri_durum'] == 2:  # Tamamlandı
+                if not work_order['bitis_zamani'] and 'bitis_zamani' not in data:
+                    # Şu anki Türkiye saati
+                    turkey_tz = pytz.timezone('Europe/Istanbul')
+                    current_turkey_time = datetime.now(turkey_tz).strftime('%Y-%m-%d %H:%M:%S')
+
+                    update_fields.append('bitis_zamani = ?')
+                    params.append(current_turkey_time)
+                    changes_log.append(f"Bitiş zamanı: Otomatik → {current_turkey_time} (Türkiye saati)")
+
+                    logger.info(f"🕒 Otomatik bitiş zamanı eklendi: {current_turkey_time} (Türkiye saati)")
 
             # Güncelleme yap
             params.append(work_order_id)
@@ -956,7 +995,7 @@ def update_work_order(work_order_id):
             conn.execute(query, params)
             conn.commit()
 
-            # ✅ DETAYLI AKTİVİTE LOGU
+            # Aktivite logu
             changes_summary = "; ".join(changes_log) if changes_log else "Değişiklik bulunamadı"
             log_user_activity(
                 user_id=session.get('user_id', 1),
@@ -968,7 +1007,6 @@ def update_work_order(work_order_id):
             logger.info(f"✅ Work order updated: {work_order_id} by {session.get('username')}")
             logger.info(f"📝 Changes: {changes_summary}")
 
-            # ✅ GELİŞTİRİLMİŞ BAŞARI SONUCU
             return jsonify({
                 'success': True,
                 'message': 'İş emri başarıyla güncellendi',
@@ -990,7 +1028,7 @@ def update_work_order(work_order_id):
         }), 500
 
 
-# 2. İş Emri Silme API
+# iş emri silme fonksiyonu
 @app.route('/admin/api/work_orders/<int:work_order_id>', methods=['DELETE'])
 @login_required
 @admin_required
@@ -1043,7 +1081,7 @@ def delete_work_order(work_order_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-# 3. İş Emri Detay Getirme API
+# iş emri detay fonksiyonu
 @app.route('/admin/api/work_orders/<int:work_order_id>', methods=['GET'])
 @login_required
 @admin_required
@@ -1071,7 +1109,7 @@ def get_work_order_detail(work_order_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-# 4. İş Emri Durumu Değiştirme API
+# iş emri durumu değiştirme fonksiyonu
 @app.route('/admin/api/work_orders/<int:work_order_id>/status', methods=['PUT'])
 @login_required
 @admin_required
@@ -1136,7 +1174,7 @@ def change_work_order_status(work_order_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-# 5. Toplu İş Emri İşlemleri API
+# toplu iş emirleri fonksiyonu
 @app.route('/admin/api/work_orders/bulk', methods=['POST'])
 @login_required
 @admin_required
@@ -1221,6 +1259,7 @@ def bulk_work_order_operations():
         logger.error(f"❌ Bulk work order operations error: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+#iş emri özeti fonksiyonu
 @app.route('/api/work_order_summary/<cihaz_id>')
 @login_required
 def work_order_summary(cihaz_id):
@@ -4261,5 +4300,3 @@ if __name__ == '__main__':
         debug=debug_mode,
         threaded=True
     )
-
-
