@@ -828,11 +828,13 @@ def api_work_orders(cihaz_id):
 # app.py dosyasına eklenecek yeni endpoint'ler
 
 # 1. İş Emri Güncelleme API
+# app.py dosyasındaki mevcut update_work_order fonksiyonunu bu şekilde güncelleyin:
+
 @app.route('/admin/api/work_orders/<int:work_order_id>', methods=['PUT'])
 @login_required
 @admin_required
 def update_work_order(work_order_id):
-    """Admin: İş emrini güncelle"""
+    """Admin: İş emrini güncelle - GELİŞTİRİLMİŞ VERSİYON"""
     try:
         data = request.get_json()
 
@@ -851,29 +853,102 @@ def update_work_order(work_order_id):
             # Güncelleme alanları
             update_fields = []
             params = []
+            changes_log = []
 
-            # Güncellenebilir alanlar
+            # Güncellenebilir alanlar - GENİŞLETİLMİŞ
             updatable_fields = {
                 'is_emri_no': 'is_emri_no',
                 'urun_tipi': 'urun_tipi',
                 'hedef_urun': 'hedef_urun',
                 'operator_ad': 'operator_ad',
                 'shift_bilgisi': 'shift_bilgisi',
-                'baslama_zamani': 'baslama_zamani',
-                'bitis_zamani': 'bitis_zamani',
+                'baslama_zamani': 'baslama_zamani',  # ✅ YENİ
+                'bitis_zamani': 'bitis_zamani',  # ✅ YENİ
                 'makine_durumu': 'makine_durumu',
                 'is_emri_durum': 'is_emri_durum',
                 'gerceklesen_urun': 'gerceklesen_urun',
-                'fire_sayisi': 'fire_sayisi'
+                'fire_sayisi': 'fire_sayisi'  # ✅ YENİ
             }
 
             for field, db_column in updatable_fields.items():
                 if field in data:
-                    update_fields.append(f'{db_column} = ?')
-                    params.append(data[field])
+                    old_value = work_order[db_column]
+                    new_value = data[field]
+
+                    # Değer değişti mi kontrol et
+                    if old_value != new_value:
+                        update_fields.append(f'{db_column} = ?')
+                        params.append(new_value)
+
+                        # Değişiklik logunu hazırla
+                        if field == 'baslama_zamani':
+                            changes_log.append(f"Başlama: {old_value or 'Boş'} → {new_value or 'Boş'}")
+                        elif field == 'bitis_zamani':
+                            changes_log.append(f"Bitiş: {old_value or 'Boş'} → {new_value or 'Boş'}")
+                        elif field == 'fire_sayisi':
+                            changes_log.append(f"Fire: {old_value or 0} → {new_value or 0}")
+                        elif field == 'gerceklesen_urun':
+                            changes_log.append(f"Gerçekleşen: {old_value or 0} → {new_value or 0}")
+                        elif field == 'hedef_urun':
+                            changes_log.append(f"Hedef: {old_value or 0} → {new_value or 0}")
+                        elif field == 'is_emri_durum':
+                            status_map = {0: 'Bekliyor', 1: 'Aktif', 2: 'Tamamlandı', 3: 'İptal'}
+                            old_status = status_map.get(old_value, f'Durum-{old_value}')
+                            new_status = status_map.get(new_value, f'Durum-{new_value}')
+                            changes_log.append(f"Durum: {old_status} → {new_status}")
+                        else:
+                            changes_log.append(f"{field}: {old_value} → {new_value}")
 
             if not update_fields:
                 return jsonify({'success': False, 'error': 'Güncellenecek alan bulunamadı'}), 400
+
+            # ✅ ÖZEL DOĞRULAMA KURALARI
+            validation_errors = []
+
+            # Fire sayısı kontrolü
+            if 'fire_sayisi' in data:
+                fire_sayisi = data['fire_sayisi']
+                gerceklesen_urun = data.get('gerceklesen_urun', work_order['gerceklesen_urun'] or 0)
+
+                if fire_sayisi < 0:
+                    validation_errors.append("Fire sayısı negatif olamaz")
+                elif fire_sayisi > gerceklesen_urun:
+                    validation_errors.append(
+                        f"Fire sayısı ({fire_sayisi}) gerçekleşen üründen ({gerceklesen_urun}) büyük olamaz")
+
+            # Hedef ürün kontrolü
+            if 'hedef_urun' in data and data['hedef_urun'] < 0:
+                validation_errors.append("Hedef ürün negatif olamaz")
+
+            # Gerçekleşen ürün kontrolü
+            if 'gerceklesen_urun' in data and data['gerceklesen_urun'] < 0:
+                validation_errors.append("Gerçekleşen ürün negatif olamaz")
+
+            # Zaman doğrulaması
+            if 'baslama_zamani' in data and 'bitis_zamani' in data:
+                try:
+                    baslama = datetime.strptime(data['baslama_zamani'], '%Y-%m-%d %H:%M:%S')
+                    bitis = datetime.strptime(data['bitis_zamani'], '%Y-%m-%d %H:%M:%S')
+                    if baslama >= bitis:
+                        validation_errors.append("Başlama zamanı bitiş zamanından önce olmalı")
+                except ValueError:
+                    validation_errors.append("Geçersiz tarih formatı (YYYY-MM-DD HH:MM:SS olmalı)")
+
+            # Doğrulama hataları varsa dön
+            if validation_errors:
+                return jsonify({
+                    'success': False,
+                    'error': 'Doğrulama hataları',
+                    'validation_errors': validation_errors
+                }), 400
+
+            # ✅ OTOMATIK DURUM GÜNCELLEMESİ
+            # Eğer bitiş zamanı giriliyorsa ve henüz tamamlanmamışsa, otomatik tamamla
+            if 'bitis_zamani' in data and data['bitis_zamani'] and work_order['is_emri_durum'] != 2:
+                if 'is_emri_durum' not in data:  # Manuel durum değişikliği yoksa
+                    update_fields.append('is_emri_durum = ?')
+                    params.append(2)  # Tamamlandı
+                    changes_log.append("Durum: Otomatik → Tamamlandı (bitiş zamanı girildi)")
 
             # Güncelleme yap
             params.append(work_order_id)
@@ -881,25 +956,38 @@ def update_work_order(work_order_id):
             conn.execute(query, params)
             conn.commit()
 
-            # Aktivite logu
-            changes = [f"{k}={v}" for k, v in data.items()]
+            # ✅ DETAYLI AKTİVİTE LOGU
+            changes_summary = "; ".join(changes_log) if changes_log else "Değişiklik bulunamadı"
             log_user_activity(
                 user_id=session.get('user_id', 1),
                 activity_type='work_order_updated',
-                description=f"İş emri güncellendi: {work_order['is_emri_no']} - {', '.join(changes)}",
+                description=f"İş emri güncellendi: {work_order['is_emri_no']} ({work_order['cihaz_adi']}) - {changes_summary}",
                 conn=conn
             )
 
             logger.info(f"✅ Work order updated: {work_order_id} by {session.get('username')}")
+            logger.info(f"📝 Changes: {changes_summary}")
 
+            # ✅ GELİŞTİRİLMİŞ BAŞARI SONUCU
             return jsonify({
                 'success': True,
-                'message': 'İş emri başarıyla güncellendi'
+                'message': 'İş emri başarıyla güncellendi',
+                'changes': changes_log,
+                'updated_fields': list(data.keys()),
+                'work_order': {
+                    'id': work_order_id,
+                    'is_emri_no': work_order['is_emri_no'],
+                    'cihaz_adi': work_order['cihaz_adi']
+                }
             })
 
     except Exception as e:
         logger.error(f"❌ Update work order error: {str(e)}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({
+            'success': False,
+            'error': 'İş emri güncellenirken hata oluştu',
+            'details': str(e)
+        }), 500
 
 
 # 2. İş Emri Silme API
