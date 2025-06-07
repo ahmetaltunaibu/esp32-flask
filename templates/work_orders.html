@@ -347,24 +347,100 @@ document.getElementById('searchInput').addEventListener('input', applyFilters);
 // ✅ ADMIN FONKSİYONLARI
 {% if is_admin %}
 function editWorkOrder(id) {
-    const newData = prompt('Yeni gerçekleşen üretim miktarını girin:');
-    if (newData && !isNaN(newData)) {
-        fetch(`/admin/api/work_orders/${id}`, {
-            method: 'PUT',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({gerceklesen_urun: parseInt(newData)})
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                alert('✅ Güncellendi!');
-                location.reload();
-            } else {
-                alert('❌ Hata: ' + data.error);
-            }
-        })
-        .catch(error => alert('❌ Bağlantı hatası'));
+    // İş emri detaylarını al ve modal göster
+    fetch(`/admin/api/work_orders/${id}`, {method: 'GET'})
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showEditModal(data.work_order);
+        } else {
+            alert('❌ Detaylar alınamadı: ' + data.error);
+        }
+    })
+    .catch(error => alert('❌ Bağlantı hatası'));
+}
+
+function showEditModal(wo) {
+    const modalHTML = `
+        <div class="modal fade" id="editModal" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Düzenle: ${wo.is_emri_no}</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">Gerçekleşen Ürün</label>
+                            <input type="number" class="form-control" id="editGerceklesen" value="${wo.gerceklesen_urun || 0}" min="0">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Fire Sayısı</label>
+                            <input type="number" class="form-control" id="editFire" value="${wo.fire_sayisi || 0}" min="0">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Başlama Zamanı</label>
+                            <input type="datetime-local" class="form-control" id="editBaslama" value="${formatForInput(wo.baslama_zamani)}">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Bitiş Zamanı</label>
+                            <input type="datetime-local" class="form-control" id="editBitis" value="${formatForInput(wo.bitis_zamani)}">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                        <button type="button" class="btn btn-primary" onclick="updateWorkOrder(${wo.id})">Güncelle</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    new bootstrap.Modal(document.getElementById('editModal')).show();
+}
+
+function formatForInput(dateStr) {
+    if (!dateStr || dateStr === 'Devam ediyor' || dateStr === 'Başlamamış') return '';
+    try {
+        const date = new Date(dateStr);
+        return date.toISOString().slice(0, 16);
+    } catch (e) {
+        return '';
     }
+}
+
+function updateWorkOrder(id) {
+    const data = {
+        gerceklesen_urun: parseInt(document.getElementById('editGerceklesen').value) || 0,
+        fire_sayisi: parseInt(document.getElementById('editFire').value) || 0,
+        baslama_zamani: document.getElementById('editBaslama').value ? 
+            document.getElementById('editBaslama').value.replace('T', ' ') + ':00' : null,
+        bitis_zamani: document.getElementById('editBitis').value ? 
+            document.getElementById('editBitis').value.replace('T', ' ') + ':00' : null
+    };
+    
+    if (data.fire_sayisi > data.gerceklesen_urun) {
+        alert('❌ Fire sayısı gerçekleşen üründen büyük olamaz!');
+        return;
+    }
+    
+    fetch(`/admin/api/work_orders/${id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            alert('✅ Güncellendi!');
+            bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+            location.reload();
+        } else {
+            alert('❌ Hata: ' + result.error);
+        }
+    })
+    .catch(error => alert('❌ Bağlantı hatası'));
 }
 
 function deleteWorkOrder(id, name) {
