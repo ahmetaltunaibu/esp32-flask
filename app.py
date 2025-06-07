@@ -140,7 +140,7 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
-
+# database oluşturma
 def init_db():
     """Database'i başlat - tüm tabloları oluştur"""
     with get_db() as conn:
@@ -215,10 +215,13 @@ def init_db():
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
+                password TEXT NOT NULL,
+                name TEXT,
                 email TEXT,
                 role TEXT DEFAULT 'user',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                is_active INTEGER DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_login TIMESTAMP
             )
         ''')
 
@@ -271,9 +274,9 @@ def init_db():
                 # Şifre: admin123
                 password_hash = generate_password_hash('admin123')
                 conn.execute('''
-                    INSERT INTO users (username, password_hash, email, role)
-                    VALUES (?, ?, ?, ?)
-                ''', ('admin', password_hash, 'admin@system.com', 'admin'))
+                            INSERT INTO users (username, password, name, email, role, is_active)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        ''', ('admin', password_hash, 'System Admin', 'admin@system.com', 'admin', 1))
                 print("✅ Varsayılan admin kullanıcısı oluşturuldu (admin/admin123)")
         except Exception as e:
             print(f"❌ Admin kullanıcısı oluşturulurken hata: {e}")
@@ -4300,3 +4303,5 @@ if __name__ == '__main__':
         debug=debug_mode,
         threaded=True
     )
+
+
