@@ -865,27 +865,24 @@ function toggleUser(userId) {
         return;
     }
 
-    // Kendi hesabını deaktive etmesin
-    if (user.username === 'admin' && user.id === getCurrentUserId()) {
-        showNotification('warning', 'Kendi admin hesabınızı deaktive edemezsiniz');
-        return;
-    }
-
     const newStatus = !user.is_active;
     const action = newStatus ? 'aktif' : 'pasif';
+    
+    // ✅ DOĞRU URL'LER
+    const endpoint = newStatus ? 
+        `/admin/api/users/${userId}/activate` : 
+        `/admin/api/users/${userId}/deactivate`;
 
     if (confirm(`${user.name || user.username} kullanıcısını ${action} yapmak istediğinizden emin misiniz?`)) {
-        fetch(`/admin/api/users/${userId}/toggle`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ is_active: newStatus })
+        fetch(endpoint, {
+            method: 'POST',  // ✅ POST metodu
+            headers: { 'Content-Type': 'application/json' }
         })
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                showNotification('success', `Kullanıcı başarıyla ${action} yapıldı`);
+                showNotification('success', data.message);
                 loadUsers(); // Listeyi yenile
-                logActivity('user_toggle', `${user.username} kullanıcısı ${action} yapıldı`);
             } else {
                 showNotification('error', data.error || 'Durum güncellenemedi');
             }
