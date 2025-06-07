@@ -395,7 +395,7 @@ function showEditModal(wo) {
             </div>
         </div>
     `;
-    
+
     document.body.insertAdjacentHTML('beforeend', modalHTML);
     new bootstrap.Modal(document.getElementById('editModal')).show();
 }
@@ -403,9 +403,27 @@ function showEditModal(wo) {
 function formatForInput(dateStr) {
     if (!dateStr || dateStr === 'Devam ediyor' || dateStr === 'Başlamamış') return '';
     try {
-        const date = new Date(dateStr);
-        return date.toISOString().slice(0, 16);
+        // ESP32'den gelen format: "2025-06-07 10:23:50" (zaten Türkiye saati)
+        // Bu veriyi timezone çevirisi yapmadan direkt datetime-local formatına çevir
+        
+        // Sadece tarih/saat kısmını al, timezone bilgisi ekleme
+        const cleanDateStr = dateStr.replace(/\.\d{3}/, '').replace('Z', '').trim();
+        
+        // "2025-06-07 10:23:50" -> "2025-06-07T10:23"
+        if (cleanDateStr.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)) {
+            return cleanDateStr.slice(0, 16).replace(' ', 'T');
+        }
+        
+        // Fallback: Eğer farklı format gelirse
+        const parts = cleanDateStr.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/);
+        if (parts) {
+            const [, year, month, day, hour, minute] = parts;
+            return `${year}-${month}-${day}T${hour}:${minute}`;
+        }
+        
+        return '';
     } catch (e) {
+        console.warn('Date format error:', e, dateStr);
         return '';
     }
 }
@@ -414,17 +432,17 @@ function updateWorkOrder(id) {
     const data = {
         gerceklesen_urun: parseInt(document.getElementById('editGerceklesen').value) || 0,
         fire_sayisi: parseInt(document.getElementById('editFire').value) || 0,
-        baslama_zamani: document.getElementById('editBaslama').value ? 
+        baslama_zamani: document.getElementById('editBaslama').value ?
             document.getElementById('editBaslama').value.replace('T', ' ') + ':00' : null,
-        bitis_zamani: document.getElementById('editBitis').value ? 
+        bitis_zamani: document.getElementById('editBitis').value ?
             document.getElementById('editBitis').value.replace('T', ' ') + ':00' : null
     };
-    
+
     if (data.fire_sayisi > data.gerceklesen_urun) {
         alert('❌ Fire sayısı gerçekleşen üründen büyük olamaz!');
         return;
     }
-    
+
     fetch(`/admin/api/work_orders/${id}`, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
