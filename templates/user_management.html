@@ -832,10 +832,128 @@ function showNotification(type, message) {
 }
 
 // Placeholder fonksiyonlar (tam implementasyon için)
-function editUser(userId) { showNotification('info', 'Edit özelliği API tamamlandıktan sonra aktif olacak'); }
-function toggleUser(userId) { showNotification('info', 'Toggle özelliği API tamamlandıktan sonra aktif olacak'); }
-function deleteUser(userId) { showNotification('info', 'Delete özelliği API tamamlandıktan sonra aktif olacak'); }
-function viewUserActivity(userId) { showNotification('info', 'Activity özelliği API tamamlandıktan sonra aktif olacak'); }
+
+// ✅ KULLANICI DÜZENLEMe FONKSİYONLARI - AKTİF
+function editUser(userId) {
+    const user = users.find(u => u.id === userId);
+    if (!user) {
+        showNotification('error', 'Kullanıcı bulunamadı');
+        return;
+    }
+
+    // Modal formunu doldur
+    const form = document.getElementById('editUserForm');
+    form.querySelector('input[name="user_id"]').value = user.id;
+    form.querySelector('input[name="name"]').value = user.name || '';
+    form.querySelector('input[name="username"]').value = user.username;
+    form.querySelector('input[name="email"]').value = user.email || '';
+    form.querySelector('select[name="role"]').value = user.role;
+    form.querySelector('input[name="is_active"]').checked = user.is_active;
+
+    // Şifre alanını temizle
+    form.querySelector('input[name="password"]').value = '';
+
+    // Modal'ı aç
+    const modal = new bootstrap.Modal(document.getElementById('editUserModal'));
+    modal.show();
+}
+
+function toggleUser(userId) {
+    const user = users.find(u => u.id === userId);
+    if (!user) {
+        showNotification('error', 'Kullanıcı bulunamadı');
+        return;
+    }
+
+    // Kendi hesabını deaktive etmesin
+    if (user.username === 'admin' && user.id === getCurrentUserId()) {
+        showNotification('warning', 'Kendi admin hesabınızı deaktive edemezsiniz');
+        return;
+    }
+
+    const newStatus = !user.is_active;
+    const action = newStatus ? 'aktif' : 'pasif';
+
+    if (confirm(`${user.name || user.username} kullanıcısını ${action} yapmak istediğinizden emin misiniz?`)) {
+        fetch(`/admin/api/users/${userId}/toggle`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ is_active: newStatus })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showNotification('success', `Kullanıcı başarıyla ${action} yapıldı`);
+                loadUsers(); // Listeyi yenile
+                logActivity('user_toggle', `${user.username} kullanıcısı ${action} yapıldı`);
+            } else {
+                showNotification('error', data.error || 'Durum güncellenemedi');
+            }
+        })
+        .catch(error => {
+            console.error('Toggle error:', error);
+            showNotification('error', 'Durum güncellenirken hata oluştu');
+        });
+    }
+}
+
+function deleteUser(userId) {
+    const user = users.find(u => u.id === userId);
+    if (!user) {
+        showNotification('error', 'Kullanıcı bulunamadı');
+        return;
+    }
+
+    // Admin kendini silemez
+    if (user.username === 'admin' && user.id === getCurrentUserId()) {
+        showNotification('warning', 'Kendi admin hesabınızı silemezsiniz');
+        return;
+    }
+
+    // Son admin'i silmeyi engelle
+    const adminCount = users.filter(u => u.role === 'admin' && u.is_active).length;
+    if (user.role === 'admin' && adminCount <= 1) {
+        showNotification('warning', 'Son admin kullanıcısını silemezsiniz');
+        return;
+    }
+
+    const userName = user.name || user.username;
+    if (confirm(`⚠️ ${userName} kullanıcısını kalıcı olarak silmek istediğinizden emin misiniz?\n\nBu işlem geri alınamaz!`)) {
+        fetch(`/admin/api/users/${userId}`, {
+            method: 'DELETE'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showNotification('success', 'Kullanıcı başarıyla silindi');
+                loadUsers(); // Listeyi yenile
+                logActivity('user_delete', `${user.username} kullanıcısı silindi`);
+            } else {
+                showNotification('error', data.error || 'Kullanıcı silinemedi');
+            }
+        })
+        .catch(error => {
+            console.error('Delete error:', error);
+            showNotification('error', 'Kullanıcı silinirken hata oluştu');
+        });
+    }
+}
+
+function viewUserActivity(userId) {
+    const user = users.find(u => u.id === userId);
+    if (!user) {
+        showNotification('error', 'Kullanıcı bulunamadı');
+        return;
+    }
+
+    // Aktivite sayfasına yönlendir veya modal aç
+    showNotification('info', `${user.name || user.username} kullanıcısının aktivite geçmişi yükleniyor...`);
+
+    // TODO: Aktivite modal'ı veya sayfası implementasyonu
+    setTimeout(() => {
+        showNotification('warning', 'Aktivite geçmişi özelliği yakında eklenecek');
+    }, 1000);
+}
 function renderActivities() { document.getElementById('activityLog').innerHTML = '<p class="text-muted">Aktiviteler yükleniyor...</p>'; }
 function logActivity(type, desc) { console.log('Activity:', type, desc); }
 
