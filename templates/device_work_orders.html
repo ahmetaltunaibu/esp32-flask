@@ -503,27 +503,27 @@ function toggleDowntimes(workOrderId) {
 function loadDowntimes(workOrderId) {
     const contentElement = document.getElementById(`downtime-content-${workOrderId}`);
 
-    contentElement.innerHTML = '<div class="text-center py-2"><small>Yükleniyor...</small></div>';
+    fetch(`/api/downtimes/${workOrderId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.downtimes.length > 0) {
+                let html = '';
+                let totalMinutes = 0;
 
-    // Basit SQL sorgusu ile duruş verilerini al
-    fetch('/admin/db_dump')
-        .then(response => response.text())
-        .then(html => {
-            // Bu basit bir çözüm - gerçekte SQL sorgusu yapılmalı
-            contentElement.innerHTML = `
-                <div class="downtime-item">
-                    <small><strong>Duruş 1:</strong> Makine arızası - 15 dakika</small>
-                </div>
-                <div class="downtime-item">
-                    <small><strong>Duruş 2:</strong> Operatör molası - 10 dakika</small>
-                </div>
-                <div class="text-center mt-2">
-                    <small class="text-muted">Toplam: 25 dakika duruş</small>
-                </div>
-            `;
-        })
-        .catch(error => {
-            contentElement.innerHTML = '<div class="text-center py-2"><small class="text-danger">Yüklenemedi</small></div>';
+                data.downtimes.forEach(d => {
+                    totalMinutes += d.sure_dakika || 0;
+                    html += `
+                        <div class="downtime-item">
+                            <small><strong>${d.downtime_id}:</strong> ${d.neden_aciklama} - ${d.sure_dakika} dakika</small>
+                        </div>
+                    `;
+                });
+
+                html += `<div class="text-center mt-2"><small class="text-muted">Toplam: ${totalMinutes} dakika duruş</small></div>`;
+                contentElement.innerHTML = html;
+            } else {
+                contentElement.innerHTML = '<small class="text-muted">Henüz duruş verisi yok</small>';
+            }
         });
 }
 
