@@ -147,20 +147,18 @@ def init_db():
 
         # 1. DEVICES TABLOSU
         conn.execute('''
-            CREATE TABLE IF NOT EXISTS devices (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                cihaz_id TEXT UNIQUE NOT NULL,
-                cihaz_adi TEXT,
-                fabrika_adi TEXT,
-                konum TEXT,
-                mac TEXT,
-                firmware_version TEXT DEFAULT '1.0.0',
-                last_seen INTEGER,
-                online_status INTEGER DEFAULT 0,
-                ip_address TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
+                    CREATE TABLE IF NOT EXISTS cihazlar (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        cihaz_id TEXT UNIQUE NOT NULL,
+                        cihaz_adi TEXT NOT NULL,
+                        konum TEXT,
+                        firmware_version TEXT DEFAULT '1.0.0',
+                        target_firmware TEXT,
+                        online_status INTEGER DEFAULT 0,
+                        last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
 
         # 2. SENSOR_DATA TABLOSU
         conn.execute('''
