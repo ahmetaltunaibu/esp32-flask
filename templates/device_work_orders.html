@@ -499,31 +499,110 @@ function toggleDowntimes(workOrderId) {
     }
 }
 
-// Basit duruş verileri yükleme
+// Duruş verileri yükleme - GERÇEK VERİ
 function loadDowntimes(workOrderId) {
     const contentElement = document.getElementById(`downtime-content-${workOrderId}`);
-
+    
+    contentElement.innerHTML = '<div class="text-center py-2"><small>Yükleniyor...</small></div>';
+    
     fetch(`/api/downtimes/${workOrderId}`)
         .then(response => response.json())
         .then(data => {
-            if (data.success && data.downtimes.length > 0) {
+            if (data.success) {
+                const downtimes = data.downtimes;
+                
+                if (downtimes.length === 0) {
+                    contentElement.innerHTML = '<div class="text-center py-2"><small class="text-muted">Henüz duruş verisi yok</small></div>';
+                    return;
+                }
+                
                 let html = '';
-                let totalMinutes = 0;
-
-                data.downtimes.forEach(d => {
-                    totalMinutes += d.sure_dakika || 0;
+                let totalSeconds = 0;
+                
+                downtimes.forEach((d, index) => {
+                    const seconds = d.sure_saniye || 0;
+                    totalSeconds += seconds;
+                    
+                    // Süreyi saat:dakika:saniye formatına çevir
+                    const hours = Math.floor(seconds / 3600);
+                    const minutes = Math.floor((seconds % 3600) / 60);
+                    const secs = seconds % 60;
+                    const timeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                    
+                    // Duruş tipine göre ikon seç
+                    let icon = 'fas fa-tools';
+                    if (d.neden_kodu == 1) icon = 'fas fa-wrench';
+                    else if (d.neden_kodu == 2) icon = 'fas fa-user-clock';
+                    else if (d.neden_kodu == 3) icon = 'fas fa-exclamation-triangle';
+                    
                     html += `
-                        <div class="downtime-item">
-                            <small><strong>${d.downtime_id}:</strong> ${d.neden_aciklama} - ${d.sure_dakika} dakika</small>
+                        <div class="downtime-item border-start border-3 border-warning ps-3 mb-2">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div class="flex-grow-1">
+                                    <div class="d-flex align-items-center mb-1">
+                                        <i class="${icon} me-2 text-warning"></i>
+                                        <strong>${d.downtime_id || `Duruş ${index + 1}`}</strong>
+                                        <span class="badge bg-danger ms-2">${timeStr}</span>
+                                    </div>
+                                    
+                                    ${d.neden_aciklama ? `
+                                    <div class="mb-1">
+                                        <small><strong>Neden:</strong> ${d.neden_aciklama}</small>
+                                    </div>
+                                    ` : ''}
+                                    
+                                    ${d.yapilan_islem ? `
+                                    <div class="mb-1">
+                                        <small><strong>Yapılan İşlem:</strong> ${d.yapilan_islem}</small>
+                                    </div>
+                                    ` : ''}
+                                    
+                                    ${d.neden_kodu ? `
+                                    <div class="mb-1">
+                                        <small><strong>Neden Kodu:</strong> ${d.neden_kodu}</small>
+                                    </div>
+                                    ` : ''}
+                                    
+                                    <div class="small text-muted">
+                                        <i class="fas fa-clock me-1"></i>
+                                        ${d.baslama_zamani || 'Başlangıç bilinmiyor'} 
+                                        ${d.bitis_zamani ? `→ ${d.bitis_zamani}` : '(Devam ediyor)'}
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     `;
                 });
-
-                html += `<div class="text-center mt-2"><small class="text-muted">Toplam: ${totalMinutes} dakika duruş</small></div>`;
+                
+                // Toplam süreyi hesapla (saat:dakika:saniye)
+                const totalHours = Math.floor(totalSeconds / 3600);
+                const totalMinutes = Math.floor((totalSeconds % 3600) / 60);
+                const totalSecsRemainder = totalSeconds % 60;
+                const totalTimeStr = `${totalHours.toString().padStart(2, '0')}:${totalMinutes.toString().padStart(2, '0')}:${totalSecsRemainder.toString().padStart(2, '0')}`;
+                
+                html += `
+                    <div class="mt-3 p-2 bg-light rounded border-start border-3 border-danger">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <strong><i class="fas fa-calculator me-2"></i>Toplam Duruş Süresi:</strong>
+                            <span class="badge bg-danger fs-6">${totalTimeStr}</span>
+                        </div>
+                        <small class="text-muted">
+                            ${downtimes.length} adet duruş • 
+                            ${totalHours > 0 ? `${totalHours} saat ` : ''}
+                            ${totalMinutes > 0 ? `${totalMinutes} dakika ` : ''}
+                            ${totalSecsRemainder > 0 ? `${totalSecsRemainder} saniye` : ''}
+                        </small>
+                    </div>
+                `;
+                
                 contentElement.innerHTML = html;
             } else {
-                contentElement.innerHTML = '<small class="text-muted">Henüz duruş verisi yok</small>';
+                contentElement.innerHTML = `<div class="text-center py-2"><small class="text-danger">Hata: ${data.error}</small></div>`;
             }
+        })
+        .catch(error => {
+            console.error('Downtime loading error:', error);
+            contentElement.innerHTML = '<div class="text-center py-2"><small class="text-danger">Bağlantı hatası</small></div>';
         });
 }
 
