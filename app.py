@@ -145,20 +145,23 @@ def init_db():
     """Database'i başlat - tüm tabloları oluştur"""
     with get_db() as conn:
 
-        # 1. DEVICES TABLOSU
+        # 1. DEVICES TABLOSU - TÜM KOLONLAR İLE
         conn.execute('''
-                    CREATE TABLE IF NOT EXISTS devices (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        cihaz_id TEXT UNIQUE NOT NULL,
-                        cihaz_adi TEXT NOT NULL,
-                        konum TEXT,
-                        firmware_version TEXT DEFAULT '1.0.0',
-                        target_firmware TEXT,
-                        online_status INTEGER DEFAULT 0,
-                        last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                ''')
+            CREATE TABLE IF NOT EXISTS devices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cihaz_id TEXT UNIQUE NOT NULL,
+                cihaz_adi TEXT NOT NULL,
+                fabrika_adi TEXT,
+                konum TEXT,
+                mac TEXT,
+                firmware_version TEXT DEFAULT '1.0.0',
+                target_firmware TEXT,
+                online_status INTEGER DEFAULT 0,
+                last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                ip_address TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
 
         # 2. SENSOR_DATA TABLOSU
         conn.execute('''
@@ -174,7 +177,7 @@ def init_db():
             )
         ''')
 
-        # 3. WORK_ORDERS TABLOSU - ✅ ARDUINO SENSÖR KOLONLARI İLE
+        # 3. WORK_ORDERS TABLOSU - Arduino sensörleri ile
         conn.execute('''
             CREATE TABLE IF NOT EXISTS work_orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -231,25 +234,26 @@ def init_db():
                 activity_type TEXT,
                 description TEXT,
                 ip_address TEXT,
+                user_agent TEXT,
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
         ''')
 
-        # 6. FIRMWARE_VERSIONS TABLOSU
+        # 6. FIRMWARE_VERSIONS TABLOSU - DÜZELTİLMİŞ
         conn.execute('''
-                    CREATE TABLE IF NOT EXISTS firmware_versions (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        version TEXT UNIQUE NOT NULL,
-                        filename TEXT NOT NULL,
-                        file_path TEXT,
-                        signature_path TEXT,
-                        file_size INTEGER,
-                        release_notes TEXT,
-                        is_active INTEGER DEFAULT 0,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                ''')
+            CREATE TABLE IF NOT EXISTS firmware_versions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                version TEXT UNIQUE NOT NULL,
+                filename TEXT NOT NULL,
+                file_path TEXT,
+                signature_path TEXT,
+                file_size INTEGER,
+                release_notes TEXT,
+                is_active INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
 
         # 7. UPDATE_HISTORY TABLOSU
         conn.execute('''
@@ -266,7 +270,7 @@ def init_db():
             )
         ''')
 
-        # 8. DOWNTIMES (DURUŞLAR) TABLOSU
+        # 8. DOWNTIMES TABLOSU
         conn.execute('''
             CREATE TABLE IF NOT EXISTS downtimes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -295,9 +299,9 @@ def init_db():
                 # Şifre: admin123
                 password_hash = generate_password_hash('admin123')
                 conn.execute('''
-                            INSERT INTO users (username, password, name, email, role, is_active)
-                            VALUES (?, ?, ?, ?, ?, ?)
-                        ''', ('admin', password_hash, 'System Admin', 'admin@system.com', 'admin', 1))
+                    INSERT INTO users (username, password, name, email, role, is_active)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', ('admin', password_hash, 'System Admin', 'admin@system.com', 'admin', 1))
                 print("✅ Varsayılan admin kullanıcısı oluşturuldu (admin/admin123)")
         except Exception as e:
             print(f"❌ Admin kullanıcısı oluşturulurken hata: {e}")
@@ -2666,32 +2670,69 @@ def check_firmware(cihaz_id):
 
     try:
         with get_db() as conn:
-            # HATALI sorgu (d.target_firmware kolonu yok):
-            # device_query = '''SELECT d.target_firmware FROM devices d WHERE d.cihaz_id = ?'''
-
-            # DÜZELTİLMİŞ sorgu (sadece mevcut kolonları kullan):
+            # ✅ DÜZELTİLMİŞ SORGU - target_firmware kolonu artık var
             device = conn.execute('''
-                SELECT cihaz_id, cihaz_adi, firmware_version as current_version
+                SELECT firmware_version, target_firmware 
                 FROM devices 
                 WHERE cihaz_id = ?
             ''', (cihaz_id,)).fetchone()
 
             if not device:
-                return jsonify({
-                    "update_available": False,
-                    "current_version": "1.0.0",
-                    "latest_version": "1.0.0",
-                    "debug": "Device not found"
-                })
+                # Cihaz yoksa ekle
+                conn.execute('''
+                    INSERT INTO devices (cihaz_id, cihaz_adi, firmware_version, online_status, last_seen)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (cihaz_id, cihaz_id, '1.0.0', 1, datetime.now()))
 
-            current_version = device['current_version'] or "1.0.0"
+                current_version = '1.0.0'
+                target_version = None
+                logger.info(f"✅ Yeni cihaz eklendi (firmware check): {cihaz_id}")
+            else:
+                current_version = device['firmware_version']
+                target_version = device['target_firmware']
 
-            # Şimdilik firmware update yok (target_firmware sistemi henüz yok)
+                # Last seen güncelle
+                conn.execute('''
+                    UPDATE devices 
+                    SET last_seen = ?, online_status = 1 
+                    WHERE cihaz_id = ?
+                ''', (datetime.now(), cihaz_id))
+
+            conn.commit()
+
+            # Firmware güncellemesi gerekli mi?
+            if target_version and target_version != current_version:
+                # Aktif firmware bilgilerini al
+                firmware = conn.execute('''
+                    SELECT version, file_path, signature_path, release_notes, is_active
+                    FROM firmware_versions 
+                    WHERE version = ? AND is_active = 1
+                ''', (target_version,)).fetchone()
+
+                if firmware:
+                    # Tam URL'ler oluştur
+                    base_url = f"https://{request.host}"
+                    firmware_url = f"{base_url}/firmware/download/{firmware['version']}?api_key=GUVENLI_ANAHTAR_123"
+                    signature_url = f"{base_url}/firmware/signature/{firmware['version']}?api_key=GUVENLI_ANAHTAR_123"
+
+                    logger.info(f"📦 Firmware güncellemesi: {cihaz_id} v{current_version} → v{target_version}")
+
+                    return jsonify({
+                        "update_available": True,
+                        "current_version": current_version,
+                        "latest_version": target_version,
+                        "firmware_url": firmware_url,
+                        "signature_url": signature_url,
+                        "release_notes": firmware.get('release_notes', ''),
+                        "file_size": firmware.get('file_size', 0)
+                    })
+
+            # Güncelleme yok
             return jsonify({
                 "update_available": False,
                 "current_version": current_version,
                 "latest_version": current_version,
-                "debug": "No firmware update system yet"
+                "message": "En güncel firmware kullanılıyor"
             })
 
     except Exception as e:
