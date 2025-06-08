@@ -878,10 +878,21 @@ def receive_data():
 
 @app.route('/api/downtimes/<int:work_order_id>')
 @login_required
-def get_simple_downtimes(work_order_id):
-    with get_db() as conn:
-        downtimes = conn.execute('SELECT * FROM downtimes WHERE work_order_id = ?', (work_order_id,)).fetchall()
-        return jsonify([dict(d) for d in downtimes])
+def get_downtimes(work_order_id):
+    try:
+        with get_db() as conn:
+            downtimes = conn.execute('''
+                SELECT * FROM downtimes 
+                WHERE work_order_id = ? 
+                ORDER BY baslama_zamani
+            ''', (work_order_id,)).fetchall()
+
+            return jsonify({
+                'success': True,
+                'downtimes': [dict(d) for d in downtimes]
+            })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 # 3. İş emri görüntüleme sayfası
 @app.route('/work_orders')
