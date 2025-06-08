@@ -147,7 +147,7 @@ def init_db():
 
         # 1. DEVICES TABLOSU
         conn.execute('''
-                    CREATE TABLE IF NOT EXISTS cihazlar (
+                    CREATE TABLE IF NOT EXISTS devices (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         cihaz_id TEXT UNIQUE NOT NULL,
                         cihaz_adi TEXT NOT NULL,
@@ -2470,9 +2470,24 @@ def excel_export(cihaz_id):
 @admin_required
 def firmware_management():
     with get_db() as conn:
-        versions = conn.execute('SELECT * FROM firmware_versions ORDER BY created_at DESC').fetchall()
-        cihazlar = conn.execute('SELECT * FROM devices ORDER BY cihaz_adi').fetchall()
-    return render_template('firmware_management.html', versions=versions, cihazlar=cihazlar)
+        versions = conn.execute('''
+            SELECT version, filename, file_path, signature_path, file_size, 
+                   release_notes, is_active, created_at 
+            FROM firmware_versions 
+            ORDER BY created_at DESC
+        ''').fetchall()
+
+        # DEĞİŞTİ: cihazlar → devices
+        cihazlar = conn.execute('''
+            SELECT cihaz_id, cihaz_adi, firmware_version, target_firmware, 
+                   online_status, last_seen 
+            FROM devices 
+            ORDER BY cihaz_adi
+        ''').fetchall()
+
+    return render_template('firmware_management.html',
+                           versions=versions,
+                           cihazlar=cihazlar)
 
 
 def allowed_file(filename):
@@ -2584,155 +2599,64 @@ def upload_firmware():
         return redirect(url_for('firmware_management'))
 
 
-# 🚀 DÜZELTME: Firmware atama endpoint'i - TAMAMEN YENİ
 @app.route('/assign_firmware', methods=['POST'])
+@login_required
 @admin_required
 def assign_firmware():
-    """
-    🎯 Cihaza firmware ata - debug mesajlarıyla
-    """
-    data = request.get_json()
-    logger.info(f"🔍 Assign firmware request: {data}")
-
-    if not data or 'device_id' not in data or 'version' not in data:
-        logger.error("❌ Invalid request data")
-        return jsonify({"error": "Geçersiz istek - device_id ve version gerekli"}), 400
-
-    device_id = data['device_id']
-    version = data['version']
-
-    logger.info(f"📱 Device ID: {device_id}")
-    logger.info(f"💾 Version: {version}")
-
     try:
+        data = request.get_json()
+        device_id = data.get('device_id')
+        version = data.get('version')
+
+        if not device_id or not version:
+            return jsonify({
+                'error': 'Cihaz ID ve versiyon gerekli',
+                'details': f'device_id: {device_id}, version: {version}'
+            }), 400
+
         with get_db() as conn:
-            # Transaction başlat
-            conn.execute('BEGIN IMMEDIATE')
-            logger.info("🔄 Transaction started")
-
-            # 1. Firmware versiyonunu kontrol et
-            firmware = conn.execute('''
-                SELECT version, file_path, file_size, is_active 
-                FROM firmware_versions 
-                WHERE version = ?
-            ''', (version,)).fetchone()
-
-            logger.info(f"🔍 Firmware found: {firmware is not None}")
-            if firmware:
-                logger.info(
-                    f"📋 Firmware details: version={firmware['version']}, active={firmware['is_active']}, file_exists={os.path.exists(firmware['file_path'])}")
-
-            if not firmware:
-                conn.rollback()
-                return jsonify({"error": f"Firmware v{version} bulunamadı"}), 404
-
-            if not firmware['is_active']:
-                conn.rollback()
-                return jsonify({"error": f"Firmware v{version} aktif değil"}), 400
-
-            # 2. Cihazı kontrol et
-            device = conn.execute('''
-                SELECT cihaz_id, cihaz_adi, firmware_version, target_firmware
-                FROM devices 
-                WHERE cihaz_id = ?
-            ''', (device_id,)).fetchone()
-
-            logger.info(f"🔍 Device found: {device is not None}")
-            if device:
-                logger.info(
-                    f"📋 Device details: id={device['cihaz_id']}, name={device['cihaz_adi']}, current={device['firmware_version']}, target={device['target_firmware']}")
+            # DEĞİŞTİ: cihazlar → devices
+            device = conn.execute(
+                'SELECT cihaz_adi, firmware_version FROM devices WHERE cihaz_id = ?',
+                (device_id,)
+            ).fetchone()
 
             if not device:
-                conn.rollback()
-                return jsonify({"error": f"Cihaz bulunamadı: {device_id}"}), 404
+                return jsonify({'error': f'Cihaz bulunamadı: {device_id}'}), 404
 
-            # 3. Güncelleme gerekli mi kontrol et
-            if device['firmware_version'] == version:
-                conn.rollback()
-                return jsonify({"error": f"Cihaz zaten v{version} kullanıyor"}), 400
+            firmware = conn.execute(
+                'SELECT version FROM firmware_versions WHERE version = ?',
+                (version,)
+            ).fetchone()
 
-            # 4. Target firmware'i güncelle
-            logger.info(f"🔄 Updating device {device['cihaz_id']} with target firmware {firmware['version']}")
+            if not firmware:
+                return jsonify({'error': f'Firmware bulunamadı: v{version}'}), 404
 
-            cursor = conn.execute('''
-                UPDATE devices 
-                SET target_firmware = ?, last_update = CURRENT_TIMESTAMP
-                WHERE cihaz_id = ?
-            ''', (firmware['version'], device['cihaz_id']))
-
-            rows_affected = cursor.rowcount
-            logger.info(f"📊 Update result - rows affected: {rows_affected}")
-
-            if rows_affected == 0:
-                conn.rollback()
-                return jsonify({"error": "Cihaz güncellenemedi - rowcount = 0"}), 500
-
-            # 5. Güncelleme geçmişine kaydet
-            conn.execute('''
-                INSERT INTO update_history (cihaz_id, old_version, new_version, status, timestamp)
-                VALUES (?, ?, ?, 'pending', ?)
-            ''', (device['cihaz_id'], device['firmware_version'], firmware['version'], int(time.time() * 1000)))
-
-            # 6. Sonucu doğrula
-            updated_device = conn.execute('''
-                SELECT target_firmware FROM devices WHERE cihaz_id = ?
-            ''', (device['cihaz_id'],)).fetchone()
-
-            logger.info(
-                f"✅ Verification - target_firmware: {updated_device['target_firmware'] if updated_device else 'NOT FOUND'}")
-
-            if not updated_device or updated_device['target_firmware'] != firmware['version']:
-                conn.rollback()
-                return jsonify({"error": "Güncelleme doğrulanamadı"}), 500
-
-            # 7. Transaction'ı commit et
+            # DEĞİŞTİ: cihazlar → devices
+            conn.execute(
+                'UPDATE devices SET target_firmware = ? WHERE cihaz_id = ?',
+                (version, device_id)
+            )
             conn.commit()
-            logger.info("✅ Transaction committed successfully")
 
-            # 8. Başarı sonucu döndür
-            result = {
-                "success": True,
-                "message": f"{device['cihaz_adi']} cihazına v{firmware['version']} başarıyla atandı",
-                "device": device['cihaz_adi'],
-                "device_id": device['cihaz_id'],
-                "version": firmware['version'],
-                "current_version": device['firmware_version'],
-                "file_size": firmware['file_size'],
-                "debug": {
-                    "rows_affected": rows_affected,
-                    "verified_target": updated_device['target_firmware']
-                }
-            }
+            logger.info(f"✅ Firmware atandı: {device_id} → v{version}")
 
-            logger.info(f"🎉 Assignment successful: {result}")
-            return jsonify(result)
+            return jsonify({
+                'success': True,
+                'message': f'Firmware başarıyla atandı',
+                'device': device['cihaz_adi'],
+                'current_version': device['firmware_version'],
+                'version': version,
+                'device_id': device_id
+            })
 
-    except sqlite3.Error as e:
-        logger.error(f"❌ Database error: {str(e)}")
-        try:
-            conn.rollback()
-        except:
-            pass
-        return jsonify({
-            "error": "Veritabanı hatası",
-            "details": str(e)
-        }), 500
     except Exception as e:
-        logger.error(f"❌ Unexpected error: {str(e)}")
-        try:
-            conn.rollback()
-        except:
-            pass
+        logger.error(f"❌ Firmware atama hatası: {str(e)}")
         return jsonify({
-            "error": "Beklenmeyen hata",
-            "details": str(e)
+            'error': 'Firmware atama sırasında hata oluştu',
+            'details': str(e)
         }), 500
 
-
-# 🔍 Firmware kontrol endpoint'i - debug mesajlarıyla
-
-
-# app.py'de check_firmware() fonksiyonundaki sorguyu düzelt:
 
 @app.route('/firmware/check/<cihaz_id>')
 def check_firmware(cihaz_id):
@@ -3066,6 +2990,31 @@ def admin_db_dump():
         firmwareler = conn.execute('SELECT * FROM firmware_versions').fetchall()
 
     return render_template('db_debug.html', cihazlar=cihazlar, firmwareler=firmwareler)
+
+
+# Debug sayfası için:
+@app.route('/admin/db_dump')
+@login_required
+@admin_required
+def db_debug():
+    with get_db() as conn:
+        # DEĞİŞTİ: cihazlar → devices
+        cihazlar = conn.execute('''
+            SELECT cihaz_id, cihaz_adi, firmware_version, target_firmware, 
+                   online_status, last_seen 
+            FROM devices 
+            ORDER BY last_seen DESC
+        ''').fetchall()
+
+        firmwareler = conn.execute('''
+            SELECT id, version, file_path, file_size, is_active, created_at 
+            FROM firmware_versions 
+            ORDER BY created_at DESC
+        ''').fetchall()
+
+    return render_template('db_debug.html',
+                           cihazlar=cihazlar,
+                           firmwareler=firmwareler)
 
 
 @app.route('/admin/download_db')
