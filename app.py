@@ -240,16 +240,18 @@ def init_db():
 
         # 6. FIRMWARE_VERSIONS TABLOSU
         conn.execute('''
-            CREATE TABLE IF NOT EXISTS firmware_versions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                version TEXT UNIQUE NOT NULL,
-                filename TEXT NOT NULL,
-                file_size INTEGER,
-                release_notes TEXT,
-                is_active INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
+                    CREATE TABLE IF NOT EXISTS firmware_versions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        version TEXT UNIQUE NOT NULL,
+                        filename TEXT NOT NULL,
+                        file_path TEXT,
+                        signature_path TEXT,
+                        file_size INTEGER,
+                        release_notes TEXT,
+                        is_active INTEGER DEFAULT 0,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
 
         # 7. UPDATE_HISTORY TABLOSU
         conn.execute('''
@@ -2560,13 +2562,14 @@ def upload_firmware():
         with open(sig_path, 'wb') as f:
             f.write(signature)
 
-        # Save to database - güncellenmiş açıklama ile
+        # Save to database - DÜZELTİLMİŞ SÜTUN İSİMLERİ
         with get_db() as conn:
             try:
                 conn.execute('''
-                    INSERT INTO firmware_versions (version, release_notes, file_path, file_size, signature_path)
-                    VALUES (?, ?, ?, ?, ?)
-                ''', (version, final_release_notes, file_path, file_size, sig_path))
+                    INSERT INTO firmware_versions 
+                    (version, filename, file_path, signature_path, file_size, release_notes, is_active)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (version, filename, file_path, sig_path, file_size, final_release_notes, 0))
                 conn.commit()
 
                 flash(f'Firmware başarıyla yüklendi (v{version})', 'success')
