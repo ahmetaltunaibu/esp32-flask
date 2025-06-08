@@ -176,7 +176,7 @@ def init_db():
             )
         ''')
 
-        # 3. WORK_ORDERS TABLOSU - ✅ SENSÖR KOLONLARI İLE
+        # 3. WORK_ORDERS TABLOSU - ✅ ARDUINO SENSÖR KOLONLARI İLE
         conn.execute('''
             CREATE TABLE IF NOT EXISTS work_orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -193,19 +193,19 @@ def init_db():
                 gerceklesen_urun INTEGER DEFAULT 0,
                 fire_sayisi INTEGER DEFAULT 0,
                 created_at TEXT,
-                sensor_sicaklik REAL DEFAULT 0,
-                sensor_nem REAL DEFAULT 0,
-                sensor_basinc REAL DEFAULT 0,
-                sensor_titresim REAL DEFAULT 0,
-                sensor_guc REAL DEFAULT 0,
+                sensor_aktif_calisma REAL DEFAULT 0,
+                sensor_toplam_calisma REAL DEFAULT 0,
+                sensor_mola_dahil_durus REAL DEFAULT 0,
+                sensor_plansiz_durus REAL DEFAULT 0,
+                sensor_mola_durus REAL DEFAULT 0,
                 sensor_toplam_urun REAL DEFAULT 0,
-                sensor_kaliteli_urun REAL DEFAULT 0,
+                sensor_tag_zamani REAL DEFAULT 0,
                 sensor_hatali_urun REAL DEFAULT 0,
-                sensor_hiz REAL DEFAULT 0,
-                sensor_torque REAL DEFAULT 0,
-                sensor_amper REAL DEFAULT 0,
-                sensor_voltaj REAL DEFAULT 0,
-                sensor_frekans REAL DEFAULT 0,
+                sensor_saglam_urun REAL DEFAULT 0,
+                sensor_kullanilabilirlik REAL DEFAULT 0,
+                sensor_kalite REAL DEFAULT 0,
+                sensor_performans REAL DEFAULT 0,
+                sensor_oee REAL DEFAULT 0,
                 FOREIGN KEY (cihaz_id) REFERENCES devices (cihaz_id)
             )
         ''')
@@ -266,7 +266,28 @@ def init_db():
             )
         ''')
 
-        # ✅ VARSAYILAN ADMIN KULLANICISINI OLUŞTUR
+        # 8. DOWNTIMES (DURUŞLAR) TABLOSU
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS downtimes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                work_order_id INTEGER NOT NULL,
+                cihaz_id TEXT NOT NULL,
+                is_emri_no TEXT NOT NULL,
+                downtime_id TEXT NOT NULL,
+                baslama_zamani TEXT NOT NULL,
+                bitis_zamani TEXT,
+                neden_kodu INTEGER,
+                neden_aciklama TEXT,
+                yapilan_islem TEXT,
+                sure_saniye INTEGER DEFAULT 0,
+                sure_dakika INTEGER DEFAULT 0,
+                sure_str TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (work_order_id) REFERENCES work_orders (id),
+                FOREIGN KEY (cihaz_id) REFERENCES devices (cihaz_id)
+            )
+        ''')
+
         try:
             # Admin kullanıcısı var mı kontrol et
             cursor = conn.execute('SELECT COUNT(*) FROM users WHERE username = ?', ('admin',))
@@ -472,6 +493,8 @@ def inject_user():
     )
 
 # esp32 den alının iş emrileri fonksiyonu
+
+# app.py'deki receive_data fonksiyonunun tam kodu - Arduino sensörleri ile
 @app.route('/data', methods=['POST'])
 def receive_data():
     data = request.get_json()
@@ -485,7 +508,7 @@ def receive_data():
 
     try:
         with get_db() as conn:
-            # Cihaz bilgilerini güncelle/ekle
+            # ✅ CİHAZ BİLGİLERİNİ GÜNCELLE/EKLE
             cursor = conn.execute('''
                 UPDATE devices 
                 SET cihaz_adi = ?, fabrika_adi = ?, konum = ?, mac = ?, 
@@ -528,51 +551,54 @@ def receive_data():
                     logger.warning(f"⚠️ {data['cihaz_id']}: İş emri numarası boş, atlanıyor")
                 else:
                     # ✅ ESP32'den gelen created_at zaten Türkiye saati, direkt kullan
-                    # Eğer ESP32'den tarih geliyorsa onu kullan, yoksa şimdiki zamanı kullan
                     if 'created_at' in is_emri and is_emri['created_at']:
                         created_at_turkey = is_emri['created_at']  # ESP32'den gelen tarih (zaten Türkiye saati)
                     else:
                         created_at_turkey = current_time_turkey.strftime('%Y-%m-%d %H:%M:%S')
 
-                    # 🔧 SENSÖR VERİLERİNİ HAZIRLA VE PERFORMANS METRİKLERİNİ HESAPLA
+                    # 🔧 ARDUINO SENSÖR VERİLERİNİ HAZIRLA
                     sensor_values = {}
                     sensor_toplam_urun = 0
                     sensor_hatali_urun = 0
 
-                    if 'veriler' in data:
-                        for veri in data['veriler']:
+                    # sensor_verileri listesinden verileri al
+                    if 'sensor_verileri' in data:
+                        for veri in data['sensor_verileri']:
                             sensor_id = veri.get('sensor_id', '').lower()
                             sensor_value = veri.get('deger', 0)
 
-                            # Sensör ID'lerini doğru kolona eşle
-                            if 'sicaklik' in sensor_id or 'temperature' in sensor_id:
-                                sensor_values['sensor_sicaklik'] = sensor_value
-                            elif 'nem' in sensor_id or 'humidity' in sensor_id:
-                                sensor_values['sensor_nem'] = sensor_value
-                            elif 'basinc' in sensor_id or 'pressure' in sensor_id:
-                                sensor_values['sensor_basinc'] = sensor_value
-                            elif 'titresim' in sensor_id or 'vibration' in sensor_id:
-                                sensor_values['sensor_titresim'] = sensor_value
-                            elif 'guc' in sensor_id or 'power' in sensor_id:
-                                sensor_values['sensor_guc'] = sensor_value
-                            elif 'toplam_urun' in sensor_id:
+                            # ✅ ARDUINO SENSÖR İSİMLERİNE GÖRE EŞLEŞTİRME
+                            if sensor_id == 'aktif_calisma':
+                                sensor_values['sensor_aktif_calisma'] = sensor_value
+                            elif sensor_id == 'toplam_calisma':
+                                sensor_values['sensor_toplam_calisma'] = sensor_value
+                            elif sensor_id == 'mola_dahil_durus':
+                                sensor_values['sensor_mola_dahil_durus'] = sensor_value
+                            elif sensor_id == 'plansiz_durus':
+                                sensor_values['sensor_plansiz_durus'] = sensor_value
+                            elif sensor_id == 'mola_durus':
+                                sensor_values['sensor_mola_durus'] = sensor_value
+                            elif sensor_id == 'toplam_urun':
                                 sensor_values['sensor_toplam_urun'] = sensor_value
-                                sensor_toplam_urun = sensor_value
-                            elif 'kaliteli_urun' in sensor_id:
-                                sensor_values['sensor_kaliteli_urun'] = sensor_value
-                            elif 'hatali_urun' in sensor_id:
+                                sensor_toplam_urun = sensor_value  # İş emri hesaplamaları için
+                            elif sensor_id == 'tag_zamani':
+                                sensor_values['sensor_tag_zamani'] = sensor_value
+                            elif sensor_id == 'hatali_urun':
                                 sensor_values['sensor_hatali_urun'] = sensor_value
-                                sensor_hatali_urun = sensor_value
-                            elif 'hiz' in sensor_id or 'speed' in sensor_id:
-                                sensor_values['sensor_hiz'] = sensor_value
-                            elif 'torque' in sensor_id:
-                                sensor_values['sensor_torque'] = sensor_value
-                            elif 'amper' in sensor_id or 'current' in sensor_id:
-                                sensor_values['sensor_amper'] = sensor_value
-                            elif 'voltaj' in sensor_id or 'voltage' in sensor_id:
-                                sensor_values['sensor_voltaj'] = sensor_value
-                            elif 'frekans' in sensor_id or 'frequency' in sensor_id:
-                                sensor_values['sensor_frekans'] = sensor_value
+                                sensor_hatali_urun = sensor_value  # İş emri hesaplamaları için
+                            elif sensor_id == 'saglam_urun':
+                                sensor_values['sensor_saglam_urun'] = sensor_value
+                            elif sensor_id == 'kullanilabilirlik':
+                                sensor_values['sensor_kullanilabilirlik'] = sensor_value
+                            elif sensor_id == 'kalite':
+                                sensor_values['sensor_kalite'] = sensor_value
+                            elif sensor_id == 'performans':
+                                sensor_values['sensor_performans'] = sensor_value
+                            elif sensor_id == 'oee':
+                                sensor_values['sensor_oee'] = sensor_value
+                            else:
+                                # Bilinmeyen sensör ID'si için uyarı
+                                logger.warning(f"⚠️ Bilinmeyen sensör ID: {sensor_id} = {sensor_value}")
 
                     # MEVCUT İŞ EMRİNİ KONTROL ET
                     cursor = conn.execute('''
@@ -586,7 +612,7 @@ def receive_data():
                     new_durum = int(is_emri.get('is_emri_durum', 0))
 
                     if existing_work_order:
-                        # MEVCUT İŞ EMRİ VAR - UPDATE YAP
+                        # ✅ MEVCUT İŞ EMRİ VAR - UPDATE YAP
                         work_order_id = existing_work_order[0]
                         old_durum = existing_work_order[1]
                         old_gerceklesen = existing_work_order[2] or 0
@@ -631,7 +657,8 @@ def receive_data():
                                 logger.info(f"      • Fire: {new_fire} adet")
                                 if bitis_zamani:
                                     logger.info(f"      • Bitiş: {bitis_zamani} (Türkiye Saati)")
-                                efficiency = (new_gerceklesen * 100 / is_emri.get('hedef_urun', 1)) if is_emri.get('hedef_urun', 0) > 0 else 0
+                                efficiency = (new_gerceklesen * 100 / is_emri.get('hedef_urun', 1)) if is_emri.get(
+                                    'hedef_urun', 0) > 0 else 0
                                 logger.info(f"      • Verimlilik: {efficiency:.1f}%")
 
                         # ÜRETİM ARTIŞI LOGLA
@@ -642,16 +669,17 @@ def receive_data():
                             logger.info(f"   📋 İş Emri: {is_emri_no}")
                             logger.info(f"   📦 Önceki: {old_gerceklesen} → Yeni: {new_gerceklesen} (+{artan_uretim})")
 
-                        # 🔧 Sensör değerleri ile birlikte güncelle
+                        # 🔧 Arduino sensör değerleri ile birlikte güncelle
                         conn.execute('''
                             UPDATE work_orders SET
                                 urun_tipi = ?, hedef_urun = ?, operator_ad = ?, shift_bilgisi = ?,
                                 baslama_zamani = ?, bitis_zamani = ?, makine_durumu = ?, 
                                 is_emri_durum = ?, gerceklesen_urun = ?, fire_sayisi = ?,
                                 created_at = ?,
-                                sensor_sicaklik = ?, sensor_nem = ?, sensor_basinc = ?, sensor_titresim = ?,
-                                sensor_guc = ?, sensor_toplam_urun = ?, sensor_kaliteli_urun = ?, sensor_hatali_urun = ?,
-                                sensor_hiz = ?, sensor_torque = ?, sensor_amper = ?, sensor_voltaj = ?, sensor_frekans = ?
+                                sensor_aktif_calisma = ?, sensor_toplam_calisma = ?, sensor_mola_dahil_durus = ?, 
+                                sensor_plansiz_durus = ?, sensor_mola_durus = ?, sensor_toplam_urun = ?, 
+                                sensor_tag_zamani = ?, sensor_hatali_urun = ?, sensor_saglam_urun = ?,
+                                sensor_kullanilabilirlik = ?, sensor_kalite = ?, sensor_performans = ?, sensor_oee = ?
                             WHERE id = ?
                         ''', (
                             is_emri.get('urun_tipi', ''),
@@ -659,25 +687,25 @@ def receive_data():
                             is_emri.get('operator_ad', ''),
                             is_emri.get('shift_bilgisi', ''),
                             baslama_zamani,  # ✅ ESP32'den gelen zaman (zaten Türkiye saati)
-                            bitis_zamani,   # ✅ ESP32'den gelen zaman (zaten Türkiye saati)
+                            bitis_zamani,  # ✅ ESP32'den gelen zaman (zaten Türkiye saati)
                             is_emri.get('makine_durumu', 0),
                             new_durum,
                             new_gerceklesen,
                             new_fire,
                             created_at_turkey,  # ✅ Türkiye saati
-                            sensor_values.get('sensor_sicaklik', 0),
-                            sensor_values.get('sensor_nem', 0),
-                            sensor_values.get('sensor_basinc', 0),
-                            sensor_values.get('sensor_titresim', 0),
-                            sensor_values.get('sensor_guc', 0),
+                            sensor_values.get('sensor_aktif_calisma', 0),
+                            sensor_values.get('sensor_toplam_calisma', 0),
+                            sensor_values.get('sensor_mola_dahil_durus', 0),
+                            sensor_values.get('sensor_plansiz_durus', 0),
+                            sensor_values.get('sensor_mola_durus', 0),
                             sensor_values.get('sensor_toplam_urun', 0),
-                            sensor_values.get('sensor_kaliteli_urun', 0),
+                            sensor_values.get('sensor_tag_zamani', 0),
                             sensor_values.get('sensor_hatali_urun', 0),
-                            sensor_values.get('sensor_hiz', 0),
-                            sensor_values.get('sensor_torque', 0),
-                            sensor_values.get('sensor_amper', 0),
-                            sensor_values.get('sensor_voltaj', 0),
-                            sensor_values.get('sensor_frekans', 0),
+                            sensor_values.get('sensor_saglam_urun', 0),
+                            sensor_values.get('sensor_kullanilabilirlik', 0),
+                            sensor_values.get('sensor_kalite', 0),
+                            sensor_values.get('sensor_performans', 0),
+                            sensor_values.get('sensor_oee', 0),
                             work_order_id
                         ))
 
@@ -685,7 +713,7 @@ def receive_data():
                         logger.info(f"📊 Performans: Gerçekleşen={new_gerceklesen}, Fire={new_fire}")
 
                     else:
-                        # YENİ İŞ EMRİ - INSERT YAP
+                        # ✅ YENİ İŞ EMRİ - INSERT YAP
                         logger.info(f"✨ YENİ İŞ EMRİ OLUŞTURULUYOR:")
                         logger.info(f"   📱 Cihaz: {data.get('cihaz_adi', data['cihaz_id'])}")
                         logger.info(f"   📋 İş Emri: {is_emri_no}")
@@ -701,14 +729,15 @@ def receive_data():
                         baslama_zamani = is_emri.get('baslama_zamani', '')
                         bitis_zamani = is_emri.get('bitis_zamani', '')
 
-                        conn.execute('''
+                        cursor = conn.execute('''
                             INSERT INTO work_orders 
                             (cihaz_id, is_emri_no, urun_tipi, hedef_urun, operator_ad, shift_bilgisi,
                              baslama_zamani, bitis_zamani, makine_durumu, is_emri_durum, 
                              gerceklesen_urun, fire_sayisi, created_at,
-                             sensor_sicaklik, sensor_nem, sensor_basinc, sensor_titresim,
-                             sensor_guc, sensor_toplam_urun, sensor_kaliteli_urun, sensor_hatali_urun,
-                             sensor_hiz, sensor_torque, sensor_amper, sensor_voltaj, sensor_frekans)
+                             sensor_aktif_calisma, sensor_toplam_calisma, sensor_mola_dahil_durus,
+                             sensor_plansiz_durus, sensor_mola_durus, sensor_toplam_urun,
+                             sensor_tag_zamani, sensor_hatali_urun, sensor_saglam_urun,
+                             sensor_kullanilabilirlik, sensor_kalite, sensor_performans, sensor_oee)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ''', (
                             data['cihaz_id'],
@@ -718,32 +747,112 @@ def receive_data():
                             is_emri.get('operator_ad', ''),
                             is_emri.get('shift_bilgisi', ''),
                             baslama_zamani,  # ✅ ESP32'den gelen zaman (zaten Türkiye saati)
-                            bitis_zamani,   # ✅ ESP32'den gelen zaman (zaten Türkiye saati)
+                            bitis_zamani,  # ✅ ESP32'den gelen zaman (zaten Türkiye saati)
                             is_emri.get('makine_durumu', 0),
                             is_emri.get('is_emri_durum', 0),
                             initial_gerceklesen,
                             initial_fire,
                             created_at_turkey,  # ✅ Türkiye saati
-                            sensor_values.get('sensor_sicaklik', 0),
-                            sensor_values.get('sensor_nem', 0),
-                            sensor_values.get('sensor_basinc', 0),
-                            sensor_values.get('sensor_titresim', 0),
-                            sensor_values.get('sensor_guc', 0),
+                            sensor_values.get('sensor_aktif_calisma', 0),
+                            sensor_values.get('sensor_toplam_calisma', 0),
+                            sensor_values.get('sensor_mola_dahil_durus', 0),
+                            sensor_values.get('sensor_plansiz_durus', 0),
+                            sensor_values.get('sensor_mola_durus', 0),
                             sensor_values.get('sensor_toplam_urun', 0),
-                            sensor_values.get('sensor_kaliteli_urun', 0),
+                            sensor_values.get('sensor_tag_zamani', 0),
                             sensor_values.get('sensor_hatali_urun', 0),
-                            sensor_values.get('sensor_hiz', 0),
-                            sensor_values.get('sensor_torque', 0),
-                            sensor_values.get('sensor_amper', 0),
-                            sensor_values.get('sensor_voltaj', 0),
-                            sensor_values.get('sensor_frekans', 0)
+                            sensor_values.get('sensor_saglam_urun', 0),
+                            sensor_values.get('sensor_kullanilabilirlik', 0),
+                            sensor_values.get('sensor_kalite', 0),
+                            sensor_values.get('sensor_performans', 0),
+                            sensor_values.get('sensor_oee', 0)
                         ))
 
-                        logger.info(f"✅ Yeni iş emri oluşturuldu: {is_emri_no} - {created_at_turkey} (Türkiye Saati)")
+                        work_order_id = cursor.lastrowid
+                        logger.info(
+                            f"✅ Yeni iş emri oluşturuldu: {is_emri_no} (ID: {work_order_id}) - {created_at_turkey} (Türkiye Saati)")
                         logger.info(f"📊 Başlangıç performans: Gerçekleşen={initial_gerceklesen}, Fire={initial_fire}")
 
-            # SENSÖR VERİLERİNİ AYRI TABLODA DA KAYDET (tarihsel veri için)
-            if 'veriler' in data:
+                    # ✅ DURUŞ VERİLERİNİ İŞLE - YENİ!
+                    if 'duruslar' in is_emri and is_emri['duruslar']:
+                        duruslar = is_emri['duruslar']
+                        logger.info(f"🔧 {len(duruslar)} duruş verisi işleniyor...")
+
+                        # İş emri ID'sini al (mevcut veya yeni oluşturulan)
+                        if 'work_order_id' not in locals():
+                            work_order = conn.execute('''
+                                SELECT id FROM work_orders 
+                                WHERE cihaz_id = ? AND is_emri_no = ? 
+                                ORDER BY id DESC LIMIT 1
+                            ''', (data['cihaz_id'], is_emri_no)).fetchone()
+
+                            if work_order:
+                                work_order_id = work_order['id']
+                            else:
+                                logger.warning(f"⚠️ İş emri bulunamadı, duruş verileri kaydedilemedi: {is_emri_no}")
+                                work_order_id = None
+
+                        if work_order_id:
+                            # Mevcut duruşları sil (güncellenmiş veri için)
+                            conn.execute('''
+                                DELETE FROM downtimes 
+                                WHERE work_order_id = ? AND is_emri_no = ?
+                            ''', (work_order_id, is_emri_no))
+
+                            # Yeni duruş verilerini ekle
+                            duruslar_sayisi = 0
+                            for durus in duruslar:
+                                try:
+                                    conn.execute('''
+                                        INSERT INTO downtimes (
+                                            work_order_id, cihaz_id, is_emri_no, downtime_id,
+                                            baslama_zamani, bitis_zamani, neden_kodu, neden_aciklama,
+                                            yapilan_islem, sure_saniye, sure_dakika, sure_str
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    ''', (
+                                        work_order_id,
+                                        data['cihaz_id'],
+                                        is_emri_no,
+                                        durus.get('id', ''),
+                                        durus.get('baslama_zamani', ''),
+                                        durus.get('bitis_zamani', ''),
+                                        durus.get('neden_kodu', 0),
+                                        durus.get('neden_aciklama', ''),
+                                        durus.get('yapilan_islem', ''),
+                                        durus.get('sure_saniye', 0),
+                                        durus.get('sure_dakika', 0),
+                                        durus.get('sure_str', '')
+                                    ))
+
+                                    duruslar_sayisi += 1
+                                    logger.info(
+                                        f"✅ Duruş kaydedildi: {durus.get('id')} - {durus.get('neden_aciklama')} ({durus.get('sure_str')})")
+
+                                except Exception as e:
+                                    logger.error(f"❌ Duruş kayıt hatası: {str(e)} - {durus}")
+
+                            logger.info(f"🔧 Toplam {duruslar_sayisi}/{len(duruslar)} duruş verisi başarıyla işlendi")
+
+            # ✅ SENSÖR VERİLERİNİ AYRI TABLODA DA KAYDET (tarihsel veri için)
+            # 'sensor_verileri' kullan (Arduino'dan gelen format)
+            if 'sensor_verileri' in data:
+                for veri in data['sensor_verileri']:
+                    conn.execute('''
+                        INSERT INTO sensor_data 
+                        (cihaz_id, sensor_id, sensor_value, sensor_unit, timestamp)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (
+                        data['cihaz_id'],
+                        veri.get('sensor_id', ''),
+                        veri.get('deger', 0),
+                        veri.get('birim', ''),
+                        timestamp
+                    ))
+
+                logger.info(f"📊 {len(data['sensor_verileri'])} sensör verisi kaydedildi: {data['cihaz_id']}")
+
+            # Eski format desteği (geriye uyumluluk)
+            elif 'veriler' in data:
                 for veri in data['veriler']:
                     conn.execute('''
                         INSERT INTO sensor_data 
@@ -757,7 +866,7 @@ def receive_data():
                         timestamp
                     ))
 
-                logger.info(f"📊 {len(data['veriler'])} sensör verisi kaydedildi: {data['cihaz_id']}")
+                logger.info(f"📊 {len(data['veriler'])} sensör verisi kaydedildi: {data['cihaz_id']} (eski format)")
 
             conn.commit()
             return jsonify({"status": "success", "message": "Veri alındı ve işlendi"})
@@ -766,6 +875,13 @@ def receive_data():
         logger.error(f"❌ Data receive error: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+
+@app.route('/api/downtimes/<int:work_order_id>')
+@login_required
+def get_simple_downtimes(work_order_id):
+    with get_db() as conn:
+        downtimes = conn.execute('SELECT * FROM downtimes WHERE work_order_id = ?', (work_order_id,)).fetchall()
+        return jsonify([dict(d) for d in downtimes])
 
 # 3. İş emri görüntüleme sayfası
 @app.route('/work_orders')
@@ -4269,7 +4385,6 @@ if __name__ == '__main__':
     try:
         logger.info("🔄 Database initialization başlıyor...")
         init_db()  # Tabloları oluştur
-        migrate_database()  # Eksik kolonları ekle
         logger.info("✅ Database hazır!")
     except Exception as e:
         logger.error(f"❌ Database initialization hatası: {e}")
