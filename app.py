@@ -2670,7 +2670,7 @@ def check_firmware(cihaz_id):
 
     try:
         with get_db() as conn:
-            # ✅ DÜZELTİLMİŞ SORGU - target_firmware kolonu artık var
+            # ✅ DÜZELTİLMİŞ SORGU - dict() ile sqlite3.Row objesini dictionary'ye çevir
             device = conn.execute('''
                 SELECT firmware_version, target_firmware 
                 FROM devices 
@@ -2688,8 +2688,10 @@ def check_firmware(cihaz_id):
                 target_version = None
                 logger.info(f"✅ Yeni cihaz eklendi (firmware check): {cihaz_id}")
             else:
-                current_version = device['firmware_version']
-                target_version = device['target_firmware']
+                # ✅ BU SATIR DEĞİŞTİ - dict() ile dictionary'ye çevir
+                device_dict = dict(device)
+                current_version = device_dict['firmware_version']
+                target_version = device_dict['target_firmware']
 
                 # Last seen güncelle
                 conn.execute('''
@@ -2704,16 +2706,19 @@ def check_firmware(cihaz_id):
             if target_version and target_version != current_version:
                 # Aktif firmware bilgilerini al
                 firmware = conn.execute('''
-                    SELECT version, file_path, signature_path, release_notes, is_active
+                    SELECT version, file_path, signature_path, release_notes, is_active, file_size
                     FROM firmware_versions 
                     WHERE version = ? AND is_active = 1
                 ''', (target_version,)).fetchone()
 
                 if firmware:
+                    # ✅ BU SATIRLAR DA DEĞİŞTİ - dict() kullan
+                    firmware_dict = dict(firmware)
+
                     # Tam URL'ler oluştur
                     base_url = f"https://{request.host}"
-                    firmware_url = f"{base_url}/firmware/download/{firmware['version']}?api_key=GUVENLI_ANAHTAR_123"
-                    signature_url = f"{base_url}/firmware/signature/{firmware['version']}?api_key=GUVENLI_ANAHTAR_123"
+                    firmware_url = f"{base_url}/firmware/download/{firmware_dict['version']}?api_key=GUVENLI_ANAHTAR_123"
+                    signature_url = f"{base_url}/firmware/signature/{firmware_dict['version']}?api_key=GUVENLI_ANAHTAR_123"
 
                     logger.info(f"📦 Firmware güncellemesi: {cihaz_id} v{current_version} → v{target_version}")
 
@@ -2723,8 +2728,8 @@ def check_firmware(cihaz_id):
                         "latest_version": target_version,
                         "firmware_url": firmware_url,
                         "signature_url": signature_url,
-                        "release_notes": firmware.get('release_notes', ''),
-                        "file_size": firmware.get('file_size', 0)
+                        "release_notes": firmware_dict.get('release_notes', ''),
+                        "file_size": firmware_dict.get('file_size', 0)
                     })
 
             # Güncelleme yok
@@ -2742,6 +2747,60 @@ def check_firmware(cihaz_id):
             "update_available": False,
             "debug": f"Exception occurred: {str(e)}"
         }), 500
+
+
+# app.py dosyasındaki download fonksiyonlarını da düzelt:
+
+@app.route('/firmware/download/<version>')
+def download_firmware(version):
+    api_key = request.args.get('api_key')
+    if api_key != "GUVENLI_ANAHTAR_123":
+        return jsonify({"error": "Yetkisiz erişim"}), 401
+
+    with get_db() as conn:
+        firmware = conn.execute('''
+            SELECT file_path FROM firmware_versions 
+            WHERE version = ?
+        ''', (version,)).fetchone()
+
+        if not firmware:
+            return jsonify({"error": "Firmware bulunamadı"}), 404
+
+        # ✅ DÜZELTİLDİ - dict() kullan
+        firmware_dict = dict(firmware)
+        file_path = firmware_dict['file_path']
+
+        if not os.path.exists(file_path):
+            return jsonify({"error": "Firmware dosyası bulunamadı"}), 404
+
+        logger.info(f"📥 Firmware download: v{version}")
+        return send_file(file_path, as_attachment=True)
+
+
+@app.route('/firmware/signature/<version>')
+def download_signature(version):
+    api_key = request.args.get('api_key')
+    if api_key != "GUVENLI_ANAHTAR_123":
+        return jsonify({"error": "Yetkisiz erişim"}), 401
+
+    with get_db() as conn:
+        firmware = conn.execute('''
+            SELECT signature_path FROM firmware_versions 
+            WHERE version = ?
+        ''', (version,)).fetchone()
+
+        if not firmware:
+            return jsonify({"error": "Signature bulunamadı"}), 404
+
+        # ✅ DÜZELTİLDİ - dict() kullan
+        firmware_dict = dict(firmware)
+        signature_path = firmware_dict['signature_path']
+
+        if not os.path.exists(signature_path):
+            return jsonify({"error": "Signature dosyası bulunamadı"}), 404
+
+        logger.info(f"🔐 Signature download: v{version}")
+        return send_file(signature_path, as_attachment=True)
 
 @app.route('/firmware/delete', methods=['POST'])
 @admin_required
@@ -2895,44 +2954,6 @@ def set_firmware_status():
             "error": "Durum değiştirilemedi",
             "details": str(e)
         }), 500
-
-
-@app.route('/firmware/download/<version>')
-def download_firmware(version):
-    api_key = request.args.get('api_key')
-    if api_key != "GUVENLI_ANAHTAR_123":
-        return jsonify({"error": "Yetkisiz erişim"}), 401
-
-    with get_db() as conn:
-        firmware = conn.execute('''
-            SELECT file_path FROM firmware_versions 
-            WHERE version = ?
-        ''', (version,)).fetchone()
-
-        if not firmware or not os.path.exists(firmware['file_path']):
-            return jsonify({"error": "Firmware bulunamadı"}), 404
-
-        logger.info(f"📥 Firmware download: v{version}")
-        return send_file(firmware['file_path'], as_attachment=True)
-
-
-@app.route('/firmware/signature/<version>')
-def download_signature(version):
-    api_key = request.args.get('api_key')
-    if api_key != "GUVENLI_ANAHTAR_123":
-        return jsonify({"error": "Yetkisiz erişim"}), 401
-
-    with get_db() as conn:
-        firmware = conn.execute('''
-            SELECT signature_path FROM firmware_versions 
-            WHERE version = ?
-        ''', (version,)).fetchone()
-
-        if not firmware or not os.path.exists(firmware['signature_path']):
-            return jsonify({"error": "Signature bulunamadı"}), 404
-
-        logger.info(f"🔐 Signature download: v{version}")
-        return send_file(firmware['signature_path'], as_attachment=True)
 
 
 # 🔧 DEBUG ENDPOINT'LERİ
