@@ -2592,75 +2592,92 @@ def assign_firmware():
             'details': str(e)
         }), 500
 
-@app.route('/firmware/check/<path:device_name>', methods=['GET'])
-def check_firmware(device_name):
+
+@app.route('/firmware/check/<cihaz_id>')
+def check_firmware(cihaz_id):
     api_key = request.args.get('api_key')
-    if api_key != 'GUVENLI_ANAHTAR_123':
-        return jsonify({'error': 'Yetkisiz erişim'}), 401
+    if api_key != "GUVENLI_ANAHTAR_123":
+        return jsonify({"error": "Yetkisiz erişim"}), 401
 
     try:
         with get_db() as conn:
-            # Cihaz bilgilerini al
-            device = conn.execute(
-                'SELECT * FROM devices WHERE cihaz_id = ?',
-                (device_name,)
-            ).fetchone()
+            # ✅ DÜZELTİLMİŞ SORGU - dict() ile sqlite3.Row objesini dictionary'ye çevir
+            device = conn.execute('''
+                SELECT firmware_version, target_firmware 
+                FROM devices 
+                WHERE cihaz_id = ?
+            ''', (cihaz_id,)).fetchone()
 
             if not device:
-                return jsonify({'error': 'Cihaz bulunamadı'}), 404
+                # Cihaz yoksa ekle
+                conn.execute('''
+                    INSERT INTO devices (cihaz_id, cihaz_adi, firmware_version, online_status, last_seen)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (cihaz_id, cihaz_id, '1.0.0', 1, datetime.now()))
 
-            cihaz_id = device['cihaz_id']
-            current_version = device['firmware_version'] or '1.0.0'
-            target_firmware = device['target_firmware']
+                current_version = '1.0.0'
+                target_version = None
+                logger.info(f"✅ Yeni cihaz eklendi (firmware check): {cihaz_id}")
+            else:
+                # ✅ BU SATIR DEĞİŞTİ - dict() ile dictionary'ye çevir
+                device_dict = dict(device)
+                current_version = device_dict['firmware_version']
+                target_version = device_dict['target_firmware']
 
-            # Cihazın last_seen'ini güncelle
-            conn.execute('''
-                UPDATE devices 
-                SET last_seen = ?, online_status = 1 
-                WHERE cihaz_id = ?
-            ''', (int(time.time() * 1000), cihaz_id))
+                # Last seen güncelle
+                conn.execute('''
+                    UPDATE devices 
+                    SET last_seen = ?, online_status = 1 
+                    WHERE cihaz_id = ?
+                ''', (datetime.now(), cihaz_id))
 
-            # Eğer hedef firmware varsa ve mevcut versiyondan farklıysa güncelleme öner
-            if target_firmware and target_firmware != current_version:
-                # ✅ DÜZELTİLMİŞ: 'status' yerine 'is_active' kullan
+            conn.commit()
+
+            # Firmware güncellemesi gerekli mi?
+            if target_version and target_version != current_version:
+                # Aktif firmware bilgilerini al
                 firmware = conn.execute('''
-                    SELECT * FROM firmware_versions 
+                    SELECT version, file_path, signature_path, release_notes, is_active, file_size
+                    FROM firmware_versions 
                     WHERE version = ? AND is_active = 1
-                ''', (target_firmware,)).fetchone()
+                ''', (target_version,)).fetchone()
 
                 if firmware:
-                    logger.info(f"📦 Firmware güncellemesi: {cihaz_id} {current_version} → {firmware['version']}")
+                    # ✅ BU SATIRLAR DA DEĞİŞTİ - dict() kullan
+                    firmware_dict = dict(firmware)
 
-                    # Update history'ye kaydet
-                    conn.execute('''
-                        INSERT INTO update_history (cihaz_id, old_version, new_version, update_status, started_at)
-                        VALUES (?, ?, ?, 'pending', ?)
-                    ''', (cihaz_id, current_version, firmware['version'], datetime.now().isoformat()))
+                    # Tam URL'ler oluştur
+                    base_url = f"https://{request.host}"
+                    firmware_url = f"{base_url}/firmware/download/{firmware_dict['version']}?api_key=GUVENLI_ANAHTAR_123"
+                    signature_url = f"{base_url}/firmware/signature/{firmware_dict['version']}?api_key=GUVENLI_ANAHTAR_123"
 
-                    conn.commit()
+                    logger.info(f"📦 Firmware güncellemesi: {cihaz_id} v{current_version} → v{target_version}")
 
                     return jsonify({
-                        'update_available': True,
-                        'version': firmware['version'],
-                        'download_url': f'/firmware/download/{firmware["version"]}?api_key=GUVENLI_ANAHTAR_123',
-                        'signature_url': f'/firmware/signature/{firmware["version"]}?api_key=GUVENLI_ANAHTAR_123',
-                        'file_size': firmware['file_size'],
-                        'release_notes': firmware['release_notes']
+                        "update_available": True,
+                        "current_version": current_version,
+                        "latest_version": target_version,
+                        "firmware_url": firmware_url,
+                        "signature_url": signature_url,
+                        "release_notes": firmware_dict.get('release_notes', ''),
+                        "file_size": firmware_dict.get('file_size', 0)
                     })
-                else:
-                    # Hedef firmware aktif değil veya bulunamadı
-                    logger.warning(f"⚠️ Hedef firmware bulunamadı veya aktif değil: {target_firmware}")
-                    return jsonify({'update_available': False, 'message': 'Hedef firmware aktif değil'})
-            else:
-                # Güncelleme gerekmiyor
-                conn.commit()
-                return jsonify({'update_available': False, 'message': 'Güncel versiyon kullanılıyor'})
+
+            # Güncelleme yok
+            return jsonify({
+                "update_available": False,
+                "current_version": current_version,
+                "latest_version": current_version,
+                "message": "En güncel firmware kullanılıyor"
+            })
 
     except Exception as e:
         logger.error(f"❌ Firmware check error: {str(e)}")
-        return jsonify({'error': 'Sunucu hatası', 'details': str(e)}), 500
-
-
+        return jsonify({
+            "error": str(e),
+            "update_available": False,
+            "debug": f"Exception occurred: {str(e)}"
+        }), 500
 
 
 @app.route('/firmware/download/<version>')
@@ -3069,8 +3086,6 @@ def test_insert():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-
-# Bu kodu app.py dosyasına ekleyin
 
 @app.route('/api/chart_data/<cihaz_id>')
 @login_required
