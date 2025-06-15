@@ -38,10 +38,8 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import base64
 
-
 # 🔐 Environment Variables Yükleme - BU SATIRLARI EKLE
 from dotenv import load_dotenv
-
 
 load_dotenv()  # .env dosyasını yükle
 
@@ -152,6 +150,7 @@ def get_db():
     conn = sqlite3.connect('sensor_data.db')
     conn.row_factory = sqlite3.Row
     return conn
+
 
 # database oluşturma
 def init_db():
@@ -340,7 +339,9 @@ def show_table_stats():
             except Exception as e:
                 print(f"❌ {table} tablosu kontrol edilemedi: {e}")
 
+
 init_db()  # Tabloları oluştur
+
 
 def is_ip_locked(ip_address):
     """IP adresinin kilitli olup olmadığını kontrol et"""
@@ -363,7 +364,6 @@ def clear_login_attempts(ip_address):
     """Başarılı login sonrası denemeleri temizle"""
     if ip_address in login_attempts:
         del login_attempts[ip_address]
-
 
 
 # Template Filters
@@ -399,322 +399,6 @@ def format_date_only(timestamp):
         return "N/A"
 
 
-@app.route('/api/work_order_report/<int:work_order_id>')
-@login_required
-def generate_work_order_pdf_report(work_order_id):
-    """İş emri PDF raporu oluştur"""
-    try:
-        with get_db() as conn:
-            # İş emri bilgilerini al
-            work_order = conn.execute('''
-                SELECT wo.*, d.cihaz_adi, d.konum, d.fabrika_adi
-                FROM work_orders wo
-                LEFT JOIN devices d ON wo.cihaz_id = d.cihaz_id
-                WHERE wo.id = ?
-            ''', (work_order_id,)).fetchone()
-            
-            if not work_order:
-                return jsonify({'error': 'İş emri bulunamadı'}), 404
-            
-            # Duruş verilerini al
-            downtimes = conn.execute('''
-                SELECT * FROM downtimes 
-                WHERE work_order_id = ? 
-                ORDER BY baslama_zamani
-            ''', (work_order_id,)).fetchall()
-            
-            # PDF oluştur
-            buffer = io.BytesIO()
-            doc = SimpleDocTemplate(buffer, pagesize=A4)
-            styles = getSampleStyleSheet()
-            story = []
-            
-            # Başlık
-            title_style = ParagraphStyle(
-                'CustomTitle',
-                parent=styles['Heading1'],
-                alignment=TA_CENTER,
-                fontSize=16,
-                spaceAfter=30
-            )
-            story.append(Paragraph(f"İŞ EMRİ RAPORU", title_style))
-            story.append(Paragraph(f"{work_order['is_emri_no']}", title_style))
-            story.append(Spacer(1, 20))
-            
-            # Temel Bilgiler Tablosu
-            basic_data = [
-                ['TEMEL BİLGİLER', ''],
-                ['İş Emri No:', work_order['is_emri_no'] or 'N/A'],
-                ['Cihaz:', work_order['cihaz_adi'] or 'N/A'],
-                ['Fabrika:', work_order['fabrika_adi'] or 'N/A'],
-                ['Konum:', work_order['konum'] or 'N/A'],
-                ['Ürün Tipi:', work_order['urun_tipi'] or 'N/A'],
-                ['Operatör:', work_order['operator_ad'] or 'N/A'],
-                ['Vardiya:', work_order['shift_bilgisi'] or 'N/A'],
-                ['Başlama:', work_order['baslama_zamani'] or 'N/A'],
-                ['Bitiş:', work_order['bitis_zamani'] or 'N/A'],
-            ]
-            
-            basic_table = Table(basic_data, colWidths=[2*inch, 3*inch])
-            basic_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 12),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black)
-            ]))
-            story.append(basic_table)
-            story.append(Spacer(1, 20))
-            
-            # Performans Bilgileri
-            if work_order['is_emri_durum'] == 2:  # Tamamlanmış ise
-                hedef = work_order['hedef_urun'] or 0
-                gerceklesen = work_order['gerceklesen_urun'] or 0
-                fire = work_order['fire_sayisi'] or 0
-                
-                verimlilik = (gerceklesen * 100 / hedef) if hedef > 0 else 0
-                kalite = ((gerceklesen - fire) * 100 / gerceklesen) if gerceklesen > 0 else 0
-                
-                performance_data = [
-                    ['PERFORMANS BİLGİLERİ', ''],
-                    ['Hedef Ürün:', f"{hedef:,} adet"],
-                    ['Gerçekleşen Ürün:', f"{gerceklesen:,} adet"],
-                    ['Fire Sayısı:', f"{fire:,} adet"],
-                    ['Sağlam Ürün:', f"{gerceklesen - fire:,} adet"],
-                    ['Verimlilik:', f"{verimlilik:.1f}%"],
-                    ['Kalite Oranı:', f"{kalite:.1f}%"],
-                ]
-                
-                # Arduino sensör verileri (varsa)
-                if work_order['sensor_oee']:
-                    performance_data.extend([
-                        ['Arduino OEE:', f"{work_order['sensor_oee']:.1f}%"],
-                        ['Kullanılabilirlik:', f"{work_order['sensor_kullanilabilirlik'] or 0:.1f}%"],
-                        ['Performans:', f"{work_order['sensor_performans'] or 0:.1f}%"],
-                        ['Kalite:', f"{work_order['sensor_kalite'] or 0:.1f}%"],
-                    ])
-                
-                performance_table = Table(performance_data, colWidths=[2*inch, 3*inch])
-                performance_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.green),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 12),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                    ('BACKGROUND', (0, 1), (-1, -1), colors.lightgreen),
-                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
-                ]))
-                story.append(performance_table)
-                story.append(Spacer(1, 20))
-            
-            # Duruş Bilgileri
-            if downtimes:
-                story.append(Paragraph("DURUŞ ANALİZİ", styles['Heading2']))
-                story.append(Spacer(1, 10))
-                
-                downtime_data = [['Duruş ID', 'Başlama', 'Bitiş', 'Süre', 'Neden', 'Açıklama']]
-                total_downtime = 0
-                
-                for dt in downtimes:
-                    downtime_data.append([
-                        dt['downtime_id'] or 'N/A',
-                        dt['baslama_zamani'] or 'N/A',
-                        dt['bitis_zamani'] or 'N/A',
-                        dt['sure_str'] or 'N/A',
-                        str(dt['neden_kodu']) if dt['neden_kodu'] else 'N/A',
-                        dt['neden_aciklama'] or 'N/A'
-                    ])
-                    total_downtime += dt['sure_saniye'] or 0
-                
-                # Toplam duruş süresi
-                hours = total_downtime // 3600
-                minutes = (total_downtime % 3600) // 60
-                total_time_str = f"{hours}:{minutes:02d}:00"
-                
-                downtime_data.append(['TOPLAM', '', '', total_time_str, f"{len(downtimes)} duruş", ''])
-                
-                downtime_table = Table(downtime_data, colWidths=[1*inch, 1.5*inch, 1.5*inch, 0.8*inch, 0.7*inch, 2*inch])
-                downtime_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.red),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, -1), 8),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                    ('BACKGROUND', (0, 1), (-1, -2), colors.lightcoral),
-                    ('BACKGROUND', (0, -1), (-1, -1), colors.orange),  # Toplam satırı
-                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
-                ]))
-                story.append(downtime_table)
-            else:
-                story.append(Paragraph("DURUŞ ANALİZİ: Bu iş emrinde duruş kaydı bulunmamaktadır.", styles['Normal']))
-            
-            story.append(Spacer(1, 20))
-            
-            # Rapor bilgileri
-            story.append(Paragraph(f"Rapor Tarihi: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}", styles['Normal']))
-            story.append(Paragraph(f"Raporu Oluşturan: {session.get('username', 'Sistem')}", styles['Normal']))
-            
-            # PDF'i oluştur
-            doc.build(story)
-            buffer.seek(0)
-            
-            return send_file(
-                buffer,
-                mimetype='application/pdf',
-                as_attachment=True,
-                download_name=f"is_emri_raporu_{work_order['is_emri_no']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-            )
-            
-    except Exception as e:
-        logger.error(f"❌ PDF report error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/work_order_excel/<int:work_order_id>')
-@login_required  
-def generate_work_order_excel_report(work_order_id):
-    """İş emri Excel raporu oluştur"""
-    try:
-        with get_db() as conn:
-            # İş emri bilgilerini al
-            work_order = conn.execute('''
-                SELECT wo.*, d.cihaz_adi, d.konum, d.fabrika_adi
-                FROM work_orders wo
-                LEFT JOIN devices d ON wo.cihaz_id = d.cihaz_id
-                WHERE wo.id = ?
-            ''', (work_order_id,)).fetchone()
-            
-            if not work_order:
-                return jsonify({'error': 'İş emri bulunamadı'}), 404
-            
-            # Duruş verilerini al
-            downtimes = conn.execute('''
-                SELECT * FROM downtimes 
-                WHERE work_order_id = ? 
-                ORDER BY baslama_zamani
-            ''', (work_order_id,)).fetchall()
-            
-            # Sensör verilerini al (iş emri süresince)
-            sensor_data = []
-            if work_order['baslama_zamani'] and work_order['bitis_zamani']:
-                try:
-                    start_time = datetime.strptime(work_order['baslama_zamani'], '%Y-%m-%d %H:%M:%S')
-                    end_time = datetime.strptime(work_order['bitis_zamani'], '%Y-%m-%d %H:%M:%S')
-                    
-                    start_timestamp = int(start_time.timestamp() * 1000)
-                    end_timestamp = int(end_time.timestamp() * 1000)
-                    
-                    sensor_data = conn.execute('''
-                        SELECT * FROM sensor_data 
-                        WHERE cihaz_id = ? AND timestamp >= ? AND timestamp <= ?
-                        ORDER BY timestamp
-                    ''', (work_order['cihaz_id'], start_timestamp, end_timestamp)).fetchall()
-                except:
-                    pass
-            
-            # Excel dosyası oluştur
-            output = io.BytesIO()
-            
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                # 1. İş Emri Özeti
-                summary_data = {
-                    'Alan': ['İş Emri No', 'Cihaz', 'Fabrika', 'Konum', 'Ürün Tipi', 'Operatör', 'Vardiya',
-                             'Başlama Zamanı', 'Bitiş Zamanı', 'Durum', 'Hedef Ürün', 'Gerçekleşen Ürün', 
-                             'Fire Sayısı', 'Sağlam Ürün', 'Verimlilik (%)', 'Kalite (%)'],
-                    'Değer': [
-                        work_order['is_emri_no'] or 'N/A',
-                        work_order['cihaz_adi'] or 'N/A', 
-                        work_order['fabrika_adi'] or 'N/A',
-                        work_order['konum'] or 'N/A',
-                        work_order['urun_tipi'] or 'N/A',
-                        work_order['operator_ad'] or 'N/A',
-                        work_order['shift_bilgisi'] or 'N/A',
-                        work_order['baslama_zamani'] or 'N/A',
-                        work_order['bitis_zamani'] or 'N/A',
-                        'Tamamlandı' if work_order['is_emri_durum'] == 2 else 'Aktif' if work_order['is_emri_durum'] == 1 else 'Bekliyor',
-                        work_order['hedef_urun'] or 0,
-                        work_order['gerceklesen_urun'] or 0,
-                        work_order['fire_sayisi'] or 0,
-                        (work_order['gerceklesen_urun'] or 0) - (work_order['fire_sayisi'] or 0),
-                        round((work_order['gerceklesen_urun'] or 0) * 100 / (work_order['hedef_urun'] or 1), 1) if work_order['hedef_urun'] else 0,
-                        round(((work_order['gerceklesen_urun'] or 0) - (work_order['fire_sayisi'] or 0)) * 100 / (work_order['gerceklesen_urun'] or 1), 1) if work_order['gerceklesen_urun'] else 0
-                    ]
-                }
-                
-                df_summary = pd.DataFrame(summary_data)
-                df_summary.to_excel(writer, sheet_name='İş Emri Özeti', index=False)
-                
-                # 2. Arduino Sensör Verileri (varsa)
-                if any([work_order[f'sensor_{sensor}'] for sensor in ['oee', 'kullanilabilirlik', 'kalite', 'performans', 'aktif_calisma', 'toplam_calisma', 'toplam_urun', 'hatali_urun', 'saglam_urun']]):
-                    arduino_data = {
-                        'Sensör': ['OEE', 'Kullanılabilirlik', 'Kalite', 'Performans', 'Aktif Çalışma', 'Toplam Çalışma', 'Toplam Ürün', 'Hatalı Ürün', 'Sağlam Ürün'],
-                        'Değer': [
-                            work_order['sensor_oee'] or 0,
-                            work_order['sensor_kullanilabilirlik'] or 0,
-                            work_order['sensor_kalite'] or 0,
-                            work_order['sensor_performans'] or 0,
-                            work_order['sensor_aktif_calisma'] or 0,
-                            work_order['sensor_toplam_calisma'] or 0,
-                            work_order['sensor_toplam_urun'] or 0,
-                            work_order['sensor_hatali_urun'] or 0,
-                            work_order['sensor_saglam_urun'] or 0
-                        ],
-                        'Birim': ['%', '%', '%', '%', 'dk', 'dk', 'adet', 'adet', 'adet']
-                    }
-                    
-                    df_arduino = pd.DataFrame(arduino_data)
-                    df_arduino.to_excel(writer, sheet_name='Arduino Sensör Verileri', index=False)
-                
-                # 3. Duruş Verileri
-                if downtimes:
-                    downtime_data = []
-                    for dt in downtimes:
-                        downtime_data.append({
-                            'Duruş ID': dt['downtime_id'] or 'N/A',
-                            'Başlama Zamanı': dt['baslama_zamani'] or 'N/A',
-                            'Bitiş Zamanı': dt['bitis_zamani'] or 'N/A',
-                            'Süre (Saniye)': dt['sure_saniye'] or 0,
-                            'Süre (Dakika)': dt['sure_dakika'] or 0,
-                            'Süre (Metin)': dt['sure_str'] or 'N/A',
-                            'Neden Kodu': dt['neden_kodu'] or 0,
-                            'Neden Açıklama': dt['neden_aciklama'] or 'N/A',
-                            'Yapılan İşlem': dt['yapilan_islem'] or 'N/A'
-                        })
-                    
-                    df_downtimes = pd.DataFrame(downtime_data)
-                    df_downtimes.to_excel(writer, sheet_name='Duruş Verileri', index=False)
-                
-                # 4. Sensör Ham Verileri (varsa)
-                if sensor_data:
-                    sensor_raw_data = []
-                    for sd in sensor_data:
-                        sensor_raw_data.append({
-                            'Tarih/Saat': datetime.fromtimestamp(sd['timestamp'] / 1000).strftime('%d.%m.%Y %H:%M:%S'),
-                            'Sensör ID': sd['sensor_id'],
-                            'Değer': sd['sensor_value'],
-                            'Birim': sd['sensor_unit'] or 'N/A'
-                        })
-                    
-                    df_sensor_raw = pd.DataFrame(sensor_raw_data)
-                    df_sensor_raw.to_excel(writer, sheet_name='Ham Sensör Verileri', index=False)
-            
-            output.seek(0)
-            
-            return send_file(
-                output,
-                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                as_attachment=True,
-                download_name=f"is_emri_excel_{work_order['is_emri_no']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            )
-            
-    except Exception as e:
-        logger.error(f"❌ Excel report error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
 
 @app.template_filter('format_time_only')
 def format_time_only(timestamp):
@@ -772,6 +456,7 @@ def format_db_datetime(datetime_str):
         print(f"DB datetime format error: {e}, value: {datetime_str}")
         return datetime_str
 
+
 # Authentication Decorators
 def login_required(f):
     @wraps(f)
@@ -795,6 +480,7 @@ def admin_required(f):
         return f(*args, **kwargs)
 
     return decorated_function
+
 
 # Context Processors
 @app.context_processor
@@ -821,6 +507,7 @@ def inject_user():
         current_user=dict(name=username),
         is_admin=is_admin
     )
+
 
 @app.route('/data', methods=['POST'])
 def receive_data():
@@ -1221,6 +908,7 @@ def get_downtimes(work_order_id):
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+
 # 3. İş emri görüntüleme sayfası
 @app.route('/work_orders')
 @login_required
@@ -1236,6 +924,7 @@ def work_orders():
         ''').fetchall()
 
         return render_template('work_orders.html', work_orders=work_orders)
+
 
 # 4. Cihaz bazlı iş emri görüntüleme
 @app.route('/work_orders/<cihaz_id>')
@@ -1631,6 +1320,332 @@ def change_work_order_status(work_order_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/work_order_report/<int:work_order_id>')
+@login_required
+def generate_work_order_pdf_report(work_order_id):
+    """İş emri PDF raporu oluştur"""
+    try:
+        with get_db() as conn:
+            # İş emri bilgilerini al
+            work_order = conn.execute('''
+                SELECT wo.*, d.cihaz_adi, d.konum, d.fabrika_adi
+                FROM work_orders wo
+                LEFT JOIN devices d ON wo.cihaz_id = d.cihaz_id
+                WHERE wo.id = ?
+            ''', (work_order_id,)).fetchone()
+
+            if not work_order:
+                return jsonify({'error': 'İş emri bulunamadı'}), 404
+
+            # Duruş verilerini al
+            downtimes = conn.execute('''
+                SELECT * FROM downtimes 
+                WHERE work_order_id = ? 
+                ORDER BY baslama_zamani
+            ''', (work_order_id,)).fetchall()
+
+            # PDF oluştur
+            buffer = io.BytesIO()
+            doc = SimpleDocTemplate(buffer, pagesize=A4)
+            styles = getSampleStyleSheet()
+            story = []
+
+            # Başlık
+            title_style = ParagraphStyle(
+                'CustomTitle',
+                parent=styles['Heading1'],
+                alignment=TA_CENTER,
+                fontSize=16,
+                spaceAfter=30
+            )
+            story.append(Paragraph(f"İŞ EMRİ RAPORU", title_style))
+            story.append(Paragraph(f"{work_order['is_emri_no']}", title_style))
+            story.append(Spacer(1, 20))
+
+            # Temel Bilgiler Tablosu
+            basic_data = [
+                ['TEMEL BİLGİLER', ''],
+                ['İş Emri No:', work_order['is_emri_no'] or 'N/A'],
+                ['Cihaz:', work_order['cihaz_adi'] or 'N/A'],
+                ['Fabrika:', work_order['fabrika_adi'] or 'N/A'],
+                ['Konum:', work_order['konum'] or 'N/A'],
+                ['Ürün Tipi:', work_order['urun_tipi'] or 'N/A'],
+                ['Operatör:', work_order['operator_ad'] or 'N/A'],
+                ['Vardiya:', work_order['shift_bilgisi'] or 'N/A'],
+                ['Başlama:', work_order['baslama_zamani'] or 'N/A'],
+                ['Bitiş:', work_order['bitis_zamani'] or 'N/A'],
+            ]
+
+            basic_table = Table(basic_data, colWidths=[2 * inch, 3 * inch])
+            basic_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 12),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ]))
+            story.append(basic_table)
+            story.append(Spacer(1, 20))
+
+            # Performans Bilgileri
+            if work_order['is_emri_durum'] == 2:  # Tamamlanmış ise
+                hedef = work_order['hedef_urun'] or 0
+                gerceklesen = work_order['gerceklesen_urun'] or 0
+                fire = work_order['fire_sayisi'] or 0
+
+                verimlilik = (gerceklesen * 100 / hedef) if hedef > 0 else 0
+                kalite = ((gerceklesen - fire) * 100 / gerceklesen) if gerceklesen > 0 else 0
+
+                performance_data = [
+                    ['PERFORMANS BİLGİLERİ', ''],
+                    ['Hedef Ürün:', f"{hedef:,} adet"],
+                    ['Gerçekleşen Ürün:', f"{gerceklesen:,} adet"],
+                    ['Fire Sayısı:', f"{fire:,} adet"],
+                    ['Sağlam Ürün:', f"{gerceklesen - fire:,} adet"],
+                    ['Verimlilik:', f"{verimlilik:.1f}%"],
+                    ['Kalite Oranı:', f"{kalite:.1f}%"],
+                ]
+
+                # Arduino sensör verileri (varsa)
+                if work_order['sensor_oee']:
+                    performance_data.extend([
+                        ['Arduino OEE:', f"{work_order['sensor_oee']:.1f}%"],
+                        ['Kullanılabilirlik:', f"{work_order['sensor_kullanilabilirlik'] or 0:.1f}%"],
+                        ['Performans:', f"{work_order['sensor_performans'] or 0:.1f}%"],
+                        ['Kalite:', f"{work_order['sensor_kalite'] or 0:.1f}%"],
+                    ])
+
+                performance_table = Table(performance_data, colWidths=[2 * inch, 3 * inch])
+                performance_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.green),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 12),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.lightgreen),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
+                ]))
+                story.append(performance_table)
+                story.append(Spacer(1, 20))
+
+            # Duruş Bilgileri
+            if downtimes:
+                story.append(Paragraph("DURUŞ ANALİZİ", styles['Heading2']))
+                story.append(Spacer(1, 10))
+
+                downtime_data = [['Duruş ID', 'Başlama', 'Bitiş', 'Süre', 'Neden', 'Açıklama']]
+                total_downtime = 0
+
+                for dt in downtimes:
+                    downtime_data.append([
+                        dt['downtime_id'] or 'N/A',
+                        dt['baslama_zamani'] or 'N/A',
+                        dt['bitis_zamani'] or 'N/A',
+                        dt['sure_str'] or 'N/A',
+                        str(dt['neden_kodu']) if dt['neden_kodu'] else 'N/A',
+                        dt['neden_aciklama'] or 'N/A'
+                    ])
+                    total_downtime += dt['sure_saniye'] or 0
+
+                # Toplam duruş süresi
+                hours = total_downtime // 3600
+                minutes = (total_downtime % 3600) // 60
+                total_time_str = f"{hours}:{minutes:02d}:00"
+
+                downtime_data.append(['TOPLAM', '', '', total_time_str, f"{len(downtimes)} duruş", ''])
+
+                downtime_table = Table(downtime_data,
+                                       colWidths=[1 * inch, 1.5 * inch, 1.5 * inch, 0.8 * inch, 0.7 * inch, 2 * inch])
+                downtime_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.red),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, -1), 8),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -2), colors.lightcoral),
+                    ('BACKGROUND', (0, -1), (-1, -1), colors.orange),  # Toplam satırı
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
+                ]))
+                story.append(downtime_table)
+            else:
+                story.append(Paragraph("DURUŞ ANALİZİ: Bu iş emrinde duruş kaydı bulunmamaktadır.", styles['Normal']))
+
+            story.append(Spacer(1, 20))
+
+            # Rapor bilgileri
+            story.append(Paragraph(f"Rapor Tarihi: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}", styles['Normal']))
+            story.append(Paragraph(f"Raporu Oluşturan: {session.get('username', 'Sistem')}", styles['Normal']))
+
+            # PDF'i oluştur
+            doc.build(story)
+            buffer.seek(0)
+
+            return send_file(
+                buffer,
+                mimetype='application/pdf',
+                as_attachment=True,
+                download_name=f"is_emri_raporu_{work_order['is_emri_no']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            )
+
+    except Exception as e:
+        logger.error(f"❌ PDF report error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/work_order_excel/<int:work_order_id>')
+@login_required
+def generate_work_order_excel_report(work_order_id):
+    """İş emri Excel raporu oluştur"""
+    try:
+        with get_db() as conn:
+            # İş emri bilgilerini al
+            work_order = conn.execute('''
+                SELECT wo.*, d.cihaz_adi, d.konum, d.fabrika_adi
+                FROM work_orders wo
+                LEFT JOIN devices d ON wo.cihaz_id = d.cihaz_id
+                WHERE wo.id = ?
+            ''', (work_order_id,)).fetchone()
+
+            if not work_order:
+                return jsonify({'error': 'İş emri bulunamadı'}), 404
+
+            # Duruş verilerini al
+            downtimes = conn.execute('''
+                SELECT * FROM downtimes 
+                WHERE work_order_id = ? 
+                ORDER BY baslama_zamani
+            ''', (work_order_id,)).fetchall()
+
+            # Sensör verilerini al (iş emri süresince)
+            sensor_data = []
+            if work_order['baslama_zamani'] and work_order['bitis_zamani']:
+                try:
+                    start_time = datetime.strptime(work_order['baslama_zamani'], '%Y-%m-%d %H:%M:%S')
+                    end_time = datetime.strptime(work_order['bitis_zamani'], '%Y-%m-%d %H:%M:%S')
+
+                    start_timestamp = int(start_time.timestamp() * 1000)
+                    end_timestamp = int(end_time.timestamp() * 1000)
+
+                    sensor_data = conn.execute('''
+                        SELECT * FROM sensor_data 
+                        WHERE cihaz_id = ? AND timestamp >= ? AND timestamp <= ?
+                        ORDER BY timestamp
+                    ''', (work_order['cihaz_id'], start_timestamp, end_timestamp)).fetchall()
+                except:
+                    pass
+
+            # Excel dosyası oluştur
+            output = io.BytesIO()
+
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                # 1. İş Emri Özeti
+                summary_data = {
+                    'Alan': ['İş Emri No', 'Cihaz', 'Fabrika', 'Konum', 'Ürün Tipi', 'Operatör', 'Vardiya',
+                             'Başlama Zamanı', 'Bitiş Zamanı', 'Durum', 'Hedef Ürün', 'Gerçekleşen Ürün',
+                             'Fire Sayısı', 'Sağlam Ürün', 'Verimlilik (%)', 'Kalite (%)'],
+                    'Değer': [
+                        work_order['is_emri_no'] or 'N/A',
+                        work_order['cihaz_adi'] or 'N/A',
+                        work_order['fabrika_adi'] or 'N/A',
+                        work_order['konum'] or 'N/A',
+                        work_order['urun_tipi'] or 'N/A',
+                        work_order['operator_ad'] or 'N/A',
+                        work_order['shift_bilgisi'] or 'N/A',
+                        work_order['baslama_zamani'] or 'N/A',
+                        work_order['bitis_zamani'] or 'N/A',
+                        'Tamamlandı' if work_order['is_emri_durum'] == 2 else 'Aktif' if work_order[
+                                                                                             'is_emri_durum'] == 1 else 'Bekliyor',
+                        work_order['hedef_urun'] or 0,
+                        work_order['gerceklesen_urun'] or 0,
+                        work_order['fire_sayisi'] or 0,
+                        (work_order['gerceklesen_urun'] or 0) - (work_order['fire_sayisi'] or 0),
+                        round((work_order['gerceklesen_urun'] or 0) * 100 / (work_order['hedef_urun'] or 1), 1) if
+                        work_order['hedef_urun'] else 0,
+                        round(((work_order['gerceklesen_urun'] or 0) - (work_order['fire_sayisi'] or 0)) * 100 / (
+                                    work_order['gerceklesen_urun'] or 1), 1) if work_order['gerceklesen_urun'] else 0
+                    ]
+                }
+
+                df_summary = pd.DataFrame(summary_data)
+                df_summary.to_excel(writer, sheet_name='İş Emri Özeti', index=False)
+
+                # 2. Arduino Sensör Verileri (varsa)
+                if any([work_order[f'sensor_{sensor}'] for sensor in
+                        ['oee', 'kullanilabilirlik', 'kalite', 'performans', 'aktif_calisma', 'toplam_calisma',
+                         'toplam_urun', 'hatali_urun', 'saglam_urun']]):
+                    arduino_data = {
+                        'Sensör': ['OEE', 'Kullanılabilirlik', 'Kalite', 'Performans', 'Aktif Çalışma',
+                                   'Toplam Çalışma', 'Toplam Ürün', 'Hatalı Ürün', 'Sağlam Ürün'],
+                        'Değer': [
+                            work_order['sensor_oee'] or 0,
+                            work_order['sensor_kullanilabilirlik'] or 0,
+                            work_order['sensor_kalite'] or 0,
+                            work_order['sensor_performans'] or 0,
+                            work_order['sensor_aktif_calisma'] or 0,
+                            work_order['sensor_toplam_calisma'] or 0,
+                            work_order['sensor_toplam_urun'] or 0,
+                            work_order['sensor_hatali_urun'] or 0,
+                            work_order['sensor_saglam_urun'] or 0
+                        ],
+                        'Birim': ['%', '%', '%', '%', 'dk', 'dk', 'adet', 'adet', 'adet']
+                    }
+
+                    df_arduino = pd.DataFrame(arduino_data)
+                    df_arduino.to_excel(writer, sheet_name='Arduino Sensör Verileri', index=False)
+
+                # 3. Duruş Verileri
+                if downtimes:
+                    downtime_data = []
+                    for dt in downtimes:
+                        downtime_data.append({
+                            'Duruş ID': dt['downtime_id'] or 'N/A',
+                            'Başlama Zamanı': dt['baslama_zamani'] or 'N/A',
+                            'Bitiş Zamanı': dt['bitis_zamani'] or 'N/A',
+                            'Süre (Saniye)': dt['sure_saniye'] or 0,
+                            'Süre (Dakika)': dt['sure_dakika'] or 0,
+                            'Süre (Metin)': dt['sure_str'] or 'N/A',
+                            'Neden Kodu': dt['neden_kodu'] or 0,
+                            'Neden Açıklama': dt['neden_aciklama'] or 'N/A',
+                            'Yapılan İşlem': dt['yapilan_islem'] or 'N/A'
+                        })
+
+                    df_downtimes = pd.DataFrame(downtime_data)
+                    df_downtimes.to_excel(writer, sheet_name='Duruş Verileri', index=False)
+
+                # 4. Sensör Ham Verileri (varsa)
+                if sensor_data:
+                    sensor_raw_data = []
+                    for sd in sensor_data:
+                        sensor_raw_data.append({
+                            'Tarih/Saat': datetime.fromtimestamp(sd['timestamp'] / 1000).strftime('%d.%m.%Y %H:%M:%S'),
+                            'Sensör ID': sd['sensor_id'],
+                            'Değer': sd['sensor_value'],
+                            'Birim': sd['sensor_unit'] or 'N/A'
+                        })
+
+                    df_sensor_raw = pd.DataFrame(sensor_raw_data)
+                    df_sensor_raw.to_excel(writer, sheet_name='Ham Sensör Verileri', index=False)
+
+            output.seek(0)
+
+            return send_file(
+                output,
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                as_attachment=True,
+                download_name=f"is_emri_excel_{work_order['is_emri_no']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            )
+
+    except Exception as e:
+        logger.error(f"❌ Excel report error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+
 # toplu iş emirleri fonksiyonu
 @app.route('/admin/api/work_orders/bulk', methods=['POST'])
 @login_required
@@ -1716,7 +1731,8 @@ def bulk_work_order_operations():
         logger.error(f"❌ Bulk work order operations error: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
-#iş emri özeti fonksiyonu
+
+# iş emri özeti fonksiyonu
 @app.route('/api/work_order_summary/<cihaz_id>')
 @login_required
 def work_order_summary(cihaz_id):
@@ -1747,6 +1763,7 @@ def work_order_summary(cihaz_id):
             'completed_last_30_days': completed['count'],
             'average_oee': round(avg_oee['avg_oee'] or 0, 1)
         })
+
 
 # RoutesYedekleme ve geri yükleme route'ları
 
@@ -2149,6 +2166,7 @@ def update_device_status():
         except Exception as e:
             app.logger.error(f"❌ Cihaz durum güncelleme hatası: {e}")
 
+
 @app.route('/debug/device_status')
 @login_required
 @admin_required
@@ -2183,6 +2201,7 @@ def debug_device_status():
     }
 
     return jsonify(debug_info)
+
 
 # Login route'unu güncelle - aktivite loglaması için
 @app.route('/login', methods=['GET', 'POST'])
@@ -3044,6 +3063,7 @@ def download_signature(version):
         logger.info(f"🔐 Signature download: v{version}")
         return send_file(signature_path, as_attachment=True)
 
+
 @app.route('/firmware/delete', methods=['POST'])
 @admin_required
 def delete_firmware():
@@ -3211,6 +3231,7 @@ def firmware_update_success(cihaz_id):
     except Exception as e:
         logger.error(f"❌ Update success notification error: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
 
 @app.route('/firmware/set_status', methods=['POST'])
 @admin_required
