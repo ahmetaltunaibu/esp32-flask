@@ -2600,7 +2600,7 @@ def check_firmware(device_name):
         return jsonify({'error': 'Yetkisiz erişim'}), 401
 
     try:
-        device_name = urllib.parse.unquote(device_name)
+        #device_name = urllib.parse.unquote(device_name)
 
         with get_db() as conn:
             device = conn.execute(
