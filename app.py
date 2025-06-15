@@ -1324,9 +1324,6 @@ def change_work_order_status(work_order_id):
 @login_required
 def generate_work_order_pdf_report(work_order_id):
     """İş emri PDF raporu oluştur - Türkçe karakter destekli"""
-    if not REPORTS_AVAILABLE:
-        return jsonify({'error': 'PDF rapor kütüphaneleri yüklü değil'}), 500
-
     try:
         # Veritabanından iş emri bilgilerini al
         conn = sqlite3.connect(DATABASE_PATH)
@@ -1344,6 +1341,7 @@ def generate_work_order_pdf_report(work_order_id):
 
         work_order = cursor.fetchone()
         if not work_order:
+            conn.close()
             return jsonify({'error': 'İş emri bulunamadı'}), 404
 
         # Duruş kayıtları
@@ -1356,18 +1354,12 @@ def generate_work_order_pdf_report(work_order_id):
         conn.close()
 
         # PDF oluştur
-        from io import BytesIO
-        buffer = BytesIO()
+        buffer = io.BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1 * inch)
 
         # Türkçe karakter desteği için font tanımla
-        from reportlab.pdfbase import pdfmetrics
-        from reportlab.pdfbase.ttfonts import TTFont
-        from reportlab.lib.fonts import addMapping
-
-        # DejaVu Sans fontunu tanımla (Türkçe karakter destekli)
         try:
-            # Render.com'da bulunan sistem fontları
+            # DejaVu Sans fontunu tanımla (Türkçe karakter destekli)
             pdfmetrics.registerFont(TTFont('DejaVuSans', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'))
             pdfmetrics.registerFont(TTFont('DejaVuSans-Bold', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'))
 
@@ -1377,10 +1369,13 @@ def generate_work_order_pdf_report(work_order_id):
 
             default_font = 'DejaVuSans'
             bold_font = 'DejaVuSans-Bold'
-        except:
+            print("✅ DejaVu Sans fontları yüklendi")
+
+        except Exception as font_error:
             # Fallback: Helvetica (sınırlı Türkçe desteği)
             default_font = 'Helvetica'
             bold_font = 'Helvetica-Bold'
+            print(f"⚠️ DejaVu font yüklenemedi, Helvetica kullanılıyor: {font_error}")
 
         # Stiller
         styles = getSampleStyleSheet()
@@ -1415,7 +1410,7 @@ def generate_work_order_pdf_report(work_order_id):
 
         # Başlık
         story.append(Paragraph("İŞ EMRİ RAPORU", title_style))
-        story.append(Paragraph(f"İŞ EMRİ #{work_order['work_order_number']}", title_style))
+        story.append(Paragraph(f"İŞ EMRİ #{work_order['work_order_number'] or 'N/A'}", title_style))
         story.append(Spacer(1, 20))
 
         # Temel Bilgiler Tablosu
@@ -1451,14 +1446,14 @@ def generate_work_order_pdf_report(work_order_id):
         # Performans Bilgileri
         story.append(Paragraph("PERFORMANS BİLGİLERİ", heading_style))
 
-        # Güvenli değer alma fonksiyonu
+        # Güvenli değer alma fonksiyonları
         def safe_value(value, default='N/A'):
             return str(value) if value is not None else default
 
         def safe_percent(value, default='N/A'):
             try:
                 return f"{float(value):.1f}%" if value is not None else default
-            except:
+            except (ValueError, TypeError):
                 return default
 
         performance_data = [
@@ -1501,13 +1496,20 @@ def generate_work_order_pdf_report(work_order_id):
             for record in downtime_records:
                 if record['start_time'] and record['end_time']:
                     try:
-                        start_dt = datetime.fromisoformat(record['start_time'].replace('Z', '+00:00'))
-                        end_dt = datetime.fromisoformat(record['end_time'].replace('Z', '+00:00'))
+                        # Zaman parse etme
+                        start_time_str = str(record['start_time']).replace('Z', '+00:00')
+                        end_time_str = str(record['end_time']).replace('Z', '+00:00')
+
+                        start_dt = datetime.fromisoformat(start_time_str)
+                        end_dt = datetime.fromisoformat(end_time_str)
                         duration = end_dt - start_dt
                         total_downtime += duration.total_seconds()
                         downtime_count += 1
 
-                        duration_str = str(duration).split('.')[0]  # Mikrosaniyeyi kaldır
+                        # Süreyi formatla (HH:MM:SS)
+                        hours, remainder = divmod(int(duration.total_seconds()), 3600)
+                        minutes, seconds = divmod(remainder, 60)
+                        duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
                         # Neden kodları
                         reason_map = {
@@ -1528,23 +1530,37 @@ def generate_work_order_pdf_report(work_order_id):
                             reason_text,
                             record['description'] or 'N/A'
                         ])
+
                     except Exception as e:
                         print(f"Duruş hesaplama hatası: {e}")
+                        # Hatalı kayıt için varsayılan değerler
+                        downtime_data.append([
+                            record['downtime_id'] or 'N/A',
+                            str(record['start_time'])[:19] if record['start_time'] else 'N/A',
+                            str(record['end_time'])[:19] if record['end_time'] else 'N/A',
+                            'N/A',
+                            str(record['reason_code']) if record['reason_code'] else 'N/A',
+                            record['description'] or 'N/A'
+                        ])
 
             # Toplam satırı
             if total_downtime > 0:
-                total_duration = timedelta(seconds=total_downtime)
-                total_duration_str = str(total_duration).split('.')[0]
+                total_hours, remainder = divmod(int(total_downtime), 3600)
+                total_minutes, total_seconds = divmod(remainder, 60)
+                total_duration_str = f"{total_hours:02d}:{total_minutes:02d}:{total_seconds:02d}"
+
                 downtime_data.append([
                     'TOPLAM', '', '', total_duration_str, f'{downtime_count} duruş', ''
                 ])
 
+            # Duruş tablosu
             downtime_table = Table(downtime_data,
                                    colWidths=[1 * inch, 1.3 * inch, 1.3 * inch, 0.8 * inch, 0.8 * inch, 1.3 * inch])
             downtime_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.red),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                ('BACKGROUND', (-1, -1), (-1, -1), colors.orange),
+                ('BACKGROUND', (-1, -1), (-1, -1), colors.orange) if total_downtime > 0 else ('BACKGROUND', (-1, -1),
+                                                                                              (-1, -1), colors.white),
                 ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                 ('FONTNAME', (0, 0), (-1, 0), bold_font),
                 ('FONTNAME', (0, 1), (-1, -1), default_font),
@@ -1557,7 +1573,8 @@ def generate_work_order_pdf_report(work_order_id):
             story.append(Spacer(1, 20))
 
         # Footer
-        footer_text = f"Rapor Tarihi: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}<br/>Raporu Oluşturan: {session.get('username', 'N/A')}"
+        current_time = datetime.now()
+        footer_text = f"Rapor Tarihi: {current_time.strftime('%d.%m.%Y %H:%M:%S')}<br/>Raporu Oluşturan: {session.get('username', 'N/A')}"
         story.append(Paragraph(footer_text, normal_style))
 
         # PDF'i oluştur
@@ -1565,10 +1582,18 @@ def generate_work_order_pdf_report(work_order_id):
         buffer.seek(0)
 
         # Dosya adı (Türkçe karaktersiz)
-        safe_work_order_number = work_order['work_order_number'].replace('İ', 'I').replace('ş', 's').replace('ğ',
-                                                                                                             'g').replace(
-            'ü', 'u').replace('ö', 'o').replace('ç', 'c')
-        filename = f"is_emri_rapor_{safe_work_order_number}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        work_order_number = work_order['work_order_number'] or 'UNKNOWN'
+        safe_work_order_number = (work_order_number
+                                  .replace('İ', 'I').replace('ı', 'i')
+                                  .replace('Ş', 'S').replace('ş', 's')
+                                  .replace('Ğ', 'G').replace('ğ', 'g')
+                                  .replace('Ü', 'U').replace('ü', 'u')
+                                  .replace('Ö', 'O').replace('ö', 'o')
+                                  .replace('Ç', 'C').replace('ç', 'c'))
+
+        filename = f"is_emri_rapor_{safe_work_order_number}_{current_time.strftime('%Y%m%d_%H%M%S')}.pdf"
+
+        print(f"✅ PDF raporu oluşturuldu: {filename}")
 
         return send_file(
             buffer,
@@ -1579,6 +1604,7 @@ def generate_work_order_pdf_report(work_order_id):
 
     except Exception as e:
         app.logger.error(f"PDF rapor oluşturma hatası: {str(e)}")
+        print(f"❌ PDF hatası: {str(e)}")
         return jsonify({'error': f'PDF oluşturma hatası: {str(e)}'}), 500
 
 
