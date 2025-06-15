@@ -327,10 +327,7 @@ def show_table_stats():
             except Exception as e:
                 print(f"❌ {table} tablosu kontrol edilemedi: {e}")
 
-
-
 init_db()  # Tabloları oluştur
-
 
 def is_ip_locked(ip_address):
     """IP adresinin kilitli olup olmadığını kontrol et"""
@@ -2537,6 +2534,49 @@ def delete_firmware():
             "details": str(e)
         }), 500
 
+
+@app.route('/firmware/update_success/<cihaz_id>')
+def firmware_update_success(cihaz_id):
+    api_key = request.args.get('api_key')
+    if api_key != "GUVENLI_ANAHTAR_123":
+        return jsonify({"error": "Yetkisiz erişim"}), 401
+
+    try:
+        data = request.get_json()
+        new_version = data.get('new_version')
+
+        with get_db() as conn:
+            # Cihazın mevcut ve hedef firmware'ini güncelle
+            conn.execute('''
+                UPDATE devices 
+                SET firmware_version = ?, 
+                    target_firmware = NULL,
+                    last_seen = ?,
+                    online_status = 1
+                WHERE cihaz_id = ?
+            ''', (new_version, int(time.time() * 1000), cihaz_id))
+
+            # Update history'ye kayıt ekle
+            conn.execute('''
+                INSERT INTO update_history 
+                (cihaz_id, old_version, new_version, update_status, completed_at)
+                VALUES (?, ?, ?, 'success', CURRENT_TIMESTAMP)
+            ''', (cihaz_id, data.get('old_version', 'unknown'), new_version))
+
+            conn.commit()
+
+            logger.info(f"✅ Firmware update completed: {cihaz_id} -> v{new_version}")
+
+        return jsonify({
+            "status": "success",
+            "message": "Güncelleme başarısı kaydedildi",
+            "device_id": cihaz_id,
+            "new_version": new_version
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Update success notification error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/firmware/set_status', methods=['POST'])
 @admin_required
