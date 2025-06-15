@@ -361,6 +361,8 @@
 {% if cihazlar %}
 <div class="device-grid" id="deviceContainer">
     {% for cihaz in cihazlar %}
+    <!-- ✅ TIMESTAMP DÜZELTMESİ: last_seen_int değişkeni oluştur -->
+    {% set last_seen_int = (cihaz.last_seen|int) if cihaz.last_seen else 0 %}
     {% set is_online = cihaz.real_online_status %}
     <div class="device-card card {% if is_online %}online online-device{% else %}offline offline-device{% endif %}" 
          onclick="{% if is_online %}window.location.href='{{ url_for('cihaz_detay', cihaz_id=cihaz.cihaz_id) }}'{% else %}showOfflineMessage('{{ cihaz.cihaz_adi }}'){% endif %}">
@@ -447,7 +449,8 @@
                 <div class="d-flex justify-content-between align-items-center mt-1">
                     <span class="device-firmware">v{{ cihaz.firmware_version }}</span>
                     <small><i class="fas fa-clock"></i> 
-                    {% if cihaz.last_seen and cihaz.last_seen > 0 %}
+                    <!-- ✅ TIMESTAMP DÜZELTMESİ: last_seen_int kullan -->
+                    {% if last_seen_int > 0 %}
                         {{ cihaz.last_seen|format_timestamp }}
                     {% else %}
                         Hiç bağlanmadı
