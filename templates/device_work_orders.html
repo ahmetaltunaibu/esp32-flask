@@ -346,8 +346,11 @@
                                     </a>
                                     {% if wo.is_emri_durum == 2 %}
                                     <button class="btn btn-sm btn-outline-success" onclick="downloadReport({{ wo.id }})">
-                                        <i class="fas fa-download"></i> Rapor
-                                    </button>
+    <i class="fas fa-file-pdf"></i> PDF Rapor
+</button>
+<button class="btn btn-sm btn-outline-primary" onclick="downloadExcelReport({{ wo.id }})">
+    <i class="fas fa-file-excel"></i> Excel Rapor
+</button>
                                     {% endif %}
                                     <button class="btn btn-sm btn-outline-info" onclick="toggleDowntimes({{ wo.id }})">
                                         <i class="fas fa-tools"></i> Duruşlar
@@ -630,8 +633,18 @@ function exportWorkOrders() {
 }
 
 // Rapor indirme
+// Mevcut downloadReport fonksiyonunu değiştir:
 function downloadReport(workOrderId) {
-    alert(`İş emri ${workOrderId} raporu indiriliyor...`);
+    // PDF raporu indir
+    const pdfUrl = `/api/work_order_report/${workOrderId}`;
+    window.open(pdfUrl, '_blank');
+}
+
+// Yeni Excel raporu fonksiyonu ekle:
+function downloadExcelReport(workOrderId) {
+    // Excel raporu indir
+    const excelUrl = `/api/work_order_excel/${workOrderId}`;
+    window.open(excelUrl, '_blank');
 }
 </script>
 {% endblock %}
