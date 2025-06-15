@@ -2535,7 +2535,7 @@ def delete_firmware():
         }), 500
 
 
-@app.route('/firmware/update_success/<cihaz_id>')
+@app.route('/firmware/update_success/<cihaz_id>', methods=['POST'])
 def firmware_update_success(cihaz_id):
     api_key = request.args.get('api_key')
     if api_key != "GUVENLI_ANAHTAR_123":
@@ -2545,34 +2545,49 @@ def firmware_update_success(cihaz_id):
         data = request.get_json()
         new_version = data.get('new_version')
 
+        logger.info(f"📡 Update success notification received: {cihaz_id} -> v{new_version}")
+
         with get_db() as conn:
-            # Cihazın mevcut ve hedef firmware'ini güncelle
-            conn.execute('''
-                UPDATE devices 
-                SET firmware_version = ?, 
-                    target_firmware = NULL,
-                    last_seen = ?,
-                    online_status = 1
+            # Mevcut firmware version'ı al
+            current_device = conn.execute('''
+                SELECT firmware_version, target_firmware 
+                FROM devices 
                 WHERE cihaz_id = ?
-            ''', (new_version, int(time.time() * 1000), cihaz_id))
+            ''', (cihaz_id,)).fetchone()
 
-            # Update history'ye kayıt ekle
-            conn.execute('''
-                INSERT INTO update_history 
-                (cihaz_id, old_version, new_version, update_status, completed_at)
-                VALUES (?, ?, ?, 'success', CURRENT_TIMESTAMP)
-            ''', (cihaz_id, data.get('old_version', 'unknown'), new_version))
+            if current_device:
+                old_version = current_device['firmware_version']
 
-            conn.commit()
+                # Cihazın firmware'ini güncelle ve hedef firmware'i temizle
+                conn.execute('''
+                    UPDATE devices 
+                    SET firmware_version = ?, 
+                        target_firmware = NULL,
+                        last_seen = ?,
+                        online_status = 1
+                    WHERE cihaz_id = ?
+                ''', (new_version, int(time.time() * 1000), cihaz_id))
 
-            logger.info(f"✅ Firmware update completed: {cihaz_id} -> v{new_version}")
+                # Update history'ye kayıt ekle (eğer tablo varsa)
+                try:
+                    conn.execute('''
+                        INSERT INTO update_history 
+                        (cihaz_id, old_version, new_version, update_status, completed_at)
+                        VALUES (?, ?, ?, 'success', CURRENT_TIMESTAMP)
+                    ''', (cihaz_id, old_version, new_version))
+                except:
+                    pass  # Tablo yoksa görmezden gel
 
-        return jsonify({
-            "status": "success",
-            "message": "Güncelleme başarısı kaydedildi",
-            "device_id": cihaz_id,
-            "new_version": new_version
-        })
+                conn.commit()
+
+                logger.info(f"✅ Firmware update completed: {cihaz_id} v{old_version} -> v{new_version}")
+
+            return jsonify({
+                "status": "success",
+                "message": "Güncelleme başarısı kaydedildi",
+                "device_id": cihaz_id,
+                "new_version": new_version
+            })
 
     except Exception as e:
         logger.error(f"❌ Update success notification error: {str(e)}")
