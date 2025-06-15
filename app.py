@@ -1747,7 +1747,7 @@ def index():
             # Son sensor verilerini al
             sensor_data = conn.execute('''
                 SELECT * FROM sensor_data 
-                WHERE device_id = ? 
+                WHERE cihaz_id  = ? 
                 ORDER BY timestamp DESC 
                 LIMIT 1
             ''', (cihaz['cihaz_id'],)).fetchone()
