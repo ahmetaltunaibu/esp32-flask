@@ -1722,174 +1722,105 @@ def delete_backup(filename):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-# Background Tasks - fonksiyon tanımlaması
-def update_device_status():
-    with app.app_context():
-        try:
-            current_time_ms = int(time.time() * 1000)
-            threshold = current_time_ms - 120000  # 2 minutes
-
-            with get_db() as conn:
-                cursor = conn.execute('''
-                    UPDATE devices 
-                    SET online_status = CASE 
-                        WHEN last_seen >= ? AND last_seen > 0 THEN 1 
-                        ELSE 0 
-                    END
-                ''', (threshold,))
-
-                rows_affected = cursor.rowcount
-                conn.commit()
-
-                logger.info(f"🔄 Device status updated: {rows_affected} devices")
-
-        except Exception as e:
-            logger.error(f"❌ Error updating device status: {str(e)}")
-
-
-# Index route'unu da güncelleyin
 @app.route('/')
 @login_required
 def index():
     with get_db() as conn:
-        # Gerçek zamanlı online durum hesaplama
         current_time_ms = int(time.time() * 1000)
         threshold = current_time_ms - 120000  # 2 dakika
 
-        # Tüm cihazları getir - İSİM SIRASINA GÖRE SIRALA
+        # ✅ DÜZELT: CAST ekle
         cihazlar_raw = conn.execute('''
             SELECT *,
                 CASE 
-                    WHEN last_seen >= ? AND last_seen > 0 THEN 1 
+                    WHEN CAST(last_seen AS INTEGER) >= ? AND last_seen > 0 THEN 1 
                     ELSE 0 
                 END as real_online_status
             FROM devices 
             ORDER BY cihaz_adi ASC
         ''', (threshold,)).fetchall()
 
-        # Her cihaz için sensor verilerini al
         cihazlar = []
         for cihaz in cihazlar_raw:
             cihaz_dict = dict(cihaz)
 
-            # En son sensor değerlerini getir (cihaz detayındaki gibi)
-            veriler = conn.execute('''
-                SELECT s1.* FROM sensor_data s1
-                JOIN (
-                    SELECT sensor_id, MAX(timestamp) as max_timestamp
-                    FROM sensor_data
-                    WHERE cihaz_id = ?
-                    GROUP BY sensor_id
-                ) s2 ON s1.sensor_id = s2.sensor_id AND s1.timestamp = s2.max_timestamp
-                ORDER BY s1.sensor_id
-            ''', (cihaz['cihaz_id'],)).fetchall()
+            # Son sensor verilerini al
+            sensor_data = conn.execute('''
+                SELECT * FROM sensor_data 
+                WHERE device_id = ? 
+                ORDER BY timestamp DESC 
+                LIMIT 1
+            ''', (cihaz['cihaz_id'],)).fetchone()
 
-            # Sensor verilerini dictionary'ye çevir
-            for veri in veriler:
-                sensor_key = f"sensor_{veri['sensor_id']}"
-                cihaz_dict[sensor_key] = veri['sensor_value']
-
-            # Özel sensor değerleri için kontrol et
-            cihaz_dict['sensor_oee'] = None
-            cihaz_dict['sensor_active_time'] = None
-            cihaz_dict['sensor_total_time'] = None
-            cihaz_dict['sensor_total_products'] = None
-
-            # Debug: Hangi sensor_id'ler var görelim
-            sensor_ids = [veri['sensor_id'] for veri in veriler]
-            logger.info(f"🔍 {cihaz['cihaz_adi']} sensor_ids: {sensor_ids}")
-
-            for veri in veriler:
-                sensor_id = veri['sensor_id'].lower()
-                logger.info(f"   Kontrol ediliyor: {veri['sensor_id']} = {veri['sensor_value']}")
-
-                if sensor_id == 'oee':
-                    cihaz_dict['sensor_oee'] = veri['sensor_value']
-                    logger.info(f"   ✅ OEE bulundu: {veri['sensor_value']}")
-                elif sensor_id == 'aktif_calisma':
-                    cihaz_dict['sensor_active_time'] = veri['sensor_value']
-                    logger.info(f"   ✅ Aktif çalışma bulundu: {veri['sensor_value']}")
-                elif sensor_id == 'toplam_calisma':
-                    cihaz_dict['sensor_total_time'] = veri['sensor_value']
-                    logger.info(f"   ✅ Toplam çalışma bulundu: {veri['sensor_value']}")
-                elif sensor_id == 'toplam_urun':
-                    cihaz_dict['sensor_total_products'] = veri['sensor_value']
-                    logger.info(f"   ✅ Toplam ürün bulundu: {veri['sensor_value']}")
-                # Yedek aramalar
-                elif 'oee' in sensor_id:
-                    if not cihaz_dict['sensor_oee']:
-                        cihaz_dict['sensor_oee'] = veri['sensor_value']
-                elif 'aktif' in sensor_id and 'calis' in sensor_id:
-                    if not cihaz_dict['sensor_active_time']:
-                        cihaz_dict['sensor_active_time'] = veri['sensor_value']
-                elif 'toplam' in sensor_id and 'calis' in sensor_id:
-                    if not cihaz_dict['sensor_total_time']:
-                        cihaz_dict['sensor_total_time'] = veri['sensor_value']
-                elif 'toplam' in sensor_id and 'urun' in sensor_id:
-                    if not cihaz_dict['sensor_total_products']:
-                        cihaz_dict['sensor_total_products'] = veri['sensor_value']
+            # Sensor verilerini ekle
+            if sensor_data:
+                cihaz_dict.update({
+                    'sensor_oee': sensor_data['oee'],
+                    'sensor_total_products': sensor_data['total_products'],
+                    'sensor_active_time': sensor_data['active_time_minutes'],
+                    'sensor_total_time': sensor_data['total_time_minutes']
+                })
+            else:
+                cihaz_dict.update({
+                    'sensor_oee': None,
+                    'sensor_total_products': None,
+                    'sensor_active_time': None,
+                    'sensor_total_time': None
+                })
 
             cihazlar.append(cihaz_dict)
 
-        # Debug logları
-        logger.info(f"📊 Cihaz Durumu Debug:")
-        logger.info(f"   Şu anki zaman: {current_time_ms}")
-        logger.info(f"   Threshold (2 dk önce): {threshold}")
-        logger.info(f"   Toplam cihaz: {len(cihazlar)}")
+        # Debug bilgisi
+        app.logger.info(f"📊 Cihaz Durumu Debug:")
+        app.logger.info(f"   Şu anki zaman: {current_time_ms}")
+        app.logger.info(f"   Threshold (2 dk önce): {threshold}")
+        app.logger.info(f"   Toplam cihaz: {len(cihazlar)}")
 
         online_count = 0
+        offline_count = 0
         for cihaz in cihazlar:
-            if cihaz['real_online_status']:
-                online_count += 1
-                fabrika_info = f" - {cihaz.get('fabrika_adi', 'Bilinmeyen Fabrika')}" if cihaz.get(
-                    'fabrika_adi') else ""
-                logger.info(f"   🟢 {cihaz['cihaz_adi']}{fabrika_info}: ONLINE (OEE: {cihaz.get('sensor_oee', 'N/A')})")
-            else:
-                fabrika_info = f" - {cihaz.get('fabrika_adi', 'Bilinmeyen Fabrika')}" if cihaz.get(
-                    'fabrika_adi') else ""
-                logger.info(f"   🔴 {cihaz['cihaz_adi']}{fabrika_info}: OFFLINE")
+            sensor_ids = conn.execute(
+                'SELECT GROUP_CONCAT(sensor_id) as ids FROM sensor_data WHERE device_id = ?',
+                (cihaz['cihaz_id'],)
+            ).fetchone()
 
-        logger.info(f"   📈 Online: {online_count}, Offline: {len(cihazlar) - online_count}")
+            app.logger.info(f"🔍 {cihaz['cihaz_adi']} sensor_ids: {sensor_ids['ids'] if sensor_ids else 'None'}")
+
+            if cihaz['real_online_status']:
+                app.logger.info(
+                    f"   🟢 {cihaz['cihaz_adi']} - {cihaz['fabrika_adi']}: ONLINE (OEE: {cihaz.get('sensor_oee', 'None')})")
+                online_count += 1
+            else:
+                app.logger.info(f"   🔴 {cihaz['cihaz_adi']} - {cihaz['fabrika_adi']}: OFFLINE")
+                offline_count += 1
+
+        app.logger.info(f"   📈 Online: {online_count}, Offline: {offline_count}")
 
         return render_template('index.html', cihazlar=cihazlar)
 
 
-# Also update the background task to be more robust
 def update_device_status():
-    """Cihazların online/offline durumunu güncelle"""
     with app.app_context():
         try:
             current_time_ms = int(time.time() * 1000)
-            threshold = current_time_ms - 120000  # 2 dakika (120 saniye = 120000 milisaniye)
+            threshold = current_time_ms - 120000  # 2 dakika
 
             with get_db() as conn:
-                # Online durumunu güncelle
+                # ✅ DÜZELT: CAST ekle güvenlik için
                 cursor = conn.execute('''
                     UPDATE devices 
                     SET online_status = CASE 
-                        WHEN last_seen >= ? AND last_seen > 0 THEN 1 
+                        WHEN CAST(last_seen AS INTEGER) >= ? AND last_seen > 0 THEN 1 
                         ELSE 0 
                     END
                 ''', (threshold,))
 
-                rows_updated = cursor.rowcount
-
-                # Debug için sayıları al
-                online_count = conn.execute('''
-                    SELECT COUNT(*) as count FROM devices 
-                    WHERE last_seen >= ? AND last_seen > 0
-                ''', (threshold,)).fetchone()['count']
-
-                total_count = conn.execute('SELECT COUNT(*) as count FROM devices').fetchone()['count']
-
-                conn.commit()
-
-                logger.info(
-                    f"🔄 Cihaz durumları güncellendi: {online_count}/{total_count} online ({rows_updated} kayıt güncellendi)")
+                updated_count = cursor.rowcount
+                if updated_count > 0:
+                    app.logger.info(f"📊 {updated_count} cihazın durumu güncellendi")
 
         except Exception as e:
-            logger.error(f"❌ Cihaz durumu güncelleme hatası: {str(e)}")
-
+            app.logger.error(f"Cihaz durum güncelleme hatası: {e}")
 
 # Alternative debug route to check device status manually
 @app.route('/debug/device_status')
@@ -2662,94 +2593,63 @@ def assign_firmware():
         }), 500
 
 
-@app.route('/firmware/check/<cihaz_id>')
-def check_firmware(cihaz_id):
+@app.route('/firmware/check/<path:device_name>', methods=['GET'])
+def check_firmware(device_name):
     api_key = request.args.get('api_key')
-    if api_key != "GUVENLI_ANAHTAR_123":
-        return jsonify({"error": "Yetkisiz erişim"}), 401
+    if api_key != 'GUVENLI_ANAHTAR_123':
+        return jsonify({'error': 'Yetkisiz erişim'}), 401
 
     try:
+        device_name = urllib.parse.unquote(device_name)
+
         with get_db() as conn:
-            # ✅ DÜZELTİLMİŞ SORGU - dict() ile sqlite3.Row objesini dictionary'ye çevir
-            device = conn.execute('''
-                SELECT firmware_version, target_firmware 
-                FROM devices 
-                WHERE cihaz_id = ?
-            ''', (cihaz_id,)).fetchone()
+            device = conn.execute(
+                'SELECT * FROM devices WHERE cihaz_id = ?',
+                (device_name,)
+            ).fetchone()
 
             if not device:
-                # Cihaz yoksa ekle
-                conn.execute('''
-                    INSERT INTO devices (cihaz_id, cihaz_adi, firmware_version, online_status, last_seen)
-                    VALUES (?, ?, ?, ?, ?)
-                ''', (cihaz_id, cihaz_id, '1.0.0', 1, datetime.now()))
+                return jsonify({'error': 'Cihaz bulunamadı'}), 404
 
-                current_version = '1.0.0'
-                target_version = None
-                logger.info(f"✅ Yeni cihaz eklendi (firmware check): {cihaz_id}")
+            cihaz_id = device['cihaz_id']
+            current_version = device['firmware_version'] or '1.0.0'
+
+            # ✅ DÜZELT: int() kullan
+            conn.execute('''
+                UPDATE devices 
+                SET target_firmware = NULL, last_seen = ?, online_status = 1 
+                WHERE cihaz_id = ?
+            ''', (int(time.time() * 1000), cihaz_id))
+
+            firmware = conn.execute('''
+                SELECT * FROM firmware_versions 
+                WHERE version = ? AND status = 'active'
+            ''', (device['target_firmware'],)).fetchone()
+
+            if firmware and firmware['version'] != current_version:
+                app.logger.info(f"📦 Firmware güncellemesi: {cihaz_id} {current_version} → {firmware['version']}")
+
+                conn.execute('''
+                    INSERT INTO update_history (device_id, old_version, new_version, status, timestamp)
+                    VALUES (?, ?, ?, 'pending', ?)
+                ''', (cihaz_id, current_version, firmware['version'], int(time.time() * 1000)))
+
+                return jsonify({
+                    'update_available': True,
+                    'version': firmware['version'],
+                    'download_url': f'/firmware/download/{firmware["version"]}?api_key=GUVENLI_ANAHTAR_123',
+                    'signature': firmware['signature'],
+                    'file_size': firmware['file_size']
+                })
             else:
-                # ✅ BU SATIR DEĞİŞTİ - dict() ile dictionary'ye çevir
-                device_dict = dict(device)
-                current_version = device_dict['firmware_version']
-                target_version = device_dict['target_firmware']
-
-                # Last seen güncelle
-                conn.execute('''
-                    UPDATE devices 
-                    SET last_seen = ?, online_status = 1 
-                    WHERE cihaz_id = ?
-                ''', (datetime.now(), cihaz_id))
-
-            conn.commit()
-
-            # Firmware güncellemesi gerekli mi?
-            if target_version and target_version != current_version:
-                # Aktif firmware bilgilerini al
-                firmware = conn.execute('''
-                    SELECT version, file_path, signature_path, release_notes, is_active, file_size
-                    FROM firmware_versions 
-                    WHERE version = ? AND is_active = 1
-                ''', (target_version,)).fetchone()
-
-                if firmware:
-                    # ✅ BU SATIRLAR DA DEĞİŞTİ - dict() kullan
-                    firmware_dict = dict(firmware)
-
-                    # Tam URL'ler oluştur
-                    base_url = f"https://{request.host}"
-                    firmware_url = f"{base_url}/firmware/download/{firmware_dict['version']}?api_key=GUVENLI_ANAHTAR_123"
-                    signature_url = f"{base_url}/firmware/signature/{firmware_dict['version']}?api_key=GUVENLI_ANAHTAR_123"
-
-                    logger.info(f"📦 Firmware güncellemesi: {cihaz_id} v{current_version} → v{target_version}")
-
-                    return jsonify({
-                        "update_available": True,
-                        "current_version": current_version,
-                        "latest_version": target_version,
-                        "firmware_url": firmware_url,
-                        "signature_url": signature_url,
-                        "release_notes": firmware_dict.get('release_notes', ''),
-                        "file_size": firmware_dict.get('file_size', 0)
-                    })
-
-            # Güncelleme yok
-            return jsonify({
-                "update_available": False,
-                "current_version": current_version,
-                "latest_version": current_version,
-                "message": "En güncel firmware kullanılıyor"
-            })
+                return jsonify({'update_available': False})
 
     except Exception as e:
-        logger.error(f"❌ Firmware check error: {str(e)}")
-        return jsonify({
-            "error": str(e),
-            "update_available": False,
-            "debug": f"Exception occurred: {str(e)}"
-        }), 500
+        app.logger.error(f"Firmware check error: {e}")
+        return jsonify({'error': 'Sunucu hatası'}), 500
 
 
-# app.py dosyasındaki download fonksiyonlarını da düzelt:
+
 
 @app.route('/firmware/download/<version>')
 def download_firmware(version):
