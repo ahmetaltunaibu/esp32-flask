@@ -393,8 +393,8 @@
             <div class="device-metrics">
                 <div class="metric-item">
                     <div class="metric-label">OEE</div>
-                    <div class="metric-value {% if cihaz.sensor_oee and cihaz.sensor_oee > 0 %}{% if cihaz.sensor_oee >= 80 %}oee-high{% elif cihaz.sensor_oee >= 60 %}oee-medium{% else %}oee-low{% endif %}{% else %}oee-low{% endif %}">
-                        {% if cihaz.sensor_oee and cihaz.sensor_oee > 0 %}
+                    <div class="metric-value {% if cihaz.sensor_oee is not none %}{% if cihaz.sensor_oee >= 80 %}oee-high{% elif cihaz.sensor_oee >= 60 %}oee-medium{% else %}oee-low{% endif %}{% else %}oee-low{% endif %}">
+                        {% if cihaz.sensor_oee is not none %}
                             {{ "%.1f"|format(cihaz.sensor_oee) }}%
                         {% else %}
                             --
