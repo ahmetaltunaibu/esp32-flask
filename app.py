@@ -2244,9 +2244,9 @@ def index():
                         'timestamp': data['timestamp']
                     }
 
-            # OEE ve diğer önemli metrikleri al
+            # 🔧 OEE ve diğer önemli metrikleri al - DÜZELTİLMİŞ
             cihaz_dict.update({
-                'sensor_oee': latest_sensors.get('OEE', {}).get('value', None),
+                'sensor_oee': latest_sensors.get('oee', {}).get('value', None),  # ✅ 'OEE' → 'oee'
                 'sensor_total_products': latest_sensors.get('toplam_urun', {}).get('value', None),
                 'sensor_active_time': latest_sensors.get('aktif_calisma', {}).get('value', None),
                 'sensor_total_time': latest_sensors.get('toplam_calisma', {}).get('value', None),
