@@ -11,18 +11,18 @@
     }
     .stats-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 12px;
-        margin-bottom: 20px;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));  /* 180px'den 160px'e düşürüldü */
+        gap: 10px;  /* 12px'den 10px'e düşürüldü */
+        margin-bottom: 15px;  /* 20px'den 15px'e düşürüldü */
     }
     .stats-card {
-        padding: 12px;
+        padding: 8px 12px;  /* 12px'den 8px'e düşürüldü */
         text-align: center;
-        border-radius: 12px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        border-radius: 10px;  /* 12px'den 10px'e düşürüldü */
+        box-shadow: 0 2px 6px rgba(0,0,0,0.1);  /* gölge azaltıldı */
         border: none;
         transition: all 0.3s;
-        min-height: 100px;
+        min-height: 70px;  /* 100px'den 70px'e düşürüldü */
         display: flex;
         flex-direction: column;
         justify-content: center;
