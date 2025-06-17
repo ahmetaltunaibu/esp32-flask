@@ -405,8 +405,8 @@
                 <div class="metric-item">
                     <div class="metric-label">Toplam Ürün</div>
                     <div class="metric-value">
-                        {% if cihaz.sensor_toplam_urun %}
-                            {{ "{:,}".format(cihaz.sensor_toplam_urun|int) }}
+                        {% if cihaz.sensor_total_products %}
+                            {{ "{:,}".format(cihaz.sensor_total_products|int) }}
                         {% else %}
                             0
                         {% endif %}
@@ -416,9 +416,9 @@
                 <div class="metric-item">
                     <div class="metric-label">Aktif Çalışma</div>
                     <div class="metric-value">
-                        {% if cihaz.sensor_aktif_calisma %}
-                            {% set hours = (cihaz.sensor_aktif_calisma // 60)|int %}
-                            {% set minutes = (cihaz.sensor_aktif_calisma % 60)|int %}
+                        {% if cihaz.sensor_active_time %}
+                            {% set hours = (cihaz.sensor_active_time // 60)|int %}
+                            {% set minutes = (cihaz.sensor_active_time % 60)|int %}
                             {{ "%02d:%02d"|format(hours, minutes) }}
                         {% else %}
                             --:--
@@ -429,9 +429,9 @@
                 <div class="metric-item">
                     <div class="metric-label">Toplam Çalışma</div>
                     <div class="metric-value">
-                        {% if cihaz.sensor_toplam_calisma %}
-                            {% set hours = (cihaz.sensor_toplam_calisma // 60)|int %}
-                            {% set minutes = (cihaz.sensor_toplam_calisma % 60)|int %}
+                        {% if cihaz.sensor_total_time %}
+                            {% set hours = (cihaz.sensor_total_time // 60)|int %}
+                            {% set minutes = (cihaz.sensor_total_time % 60)|int %}
                             {{ "%02d:%02d"|format(hours, minutes) }}
                         {% else %}
                             --:--
