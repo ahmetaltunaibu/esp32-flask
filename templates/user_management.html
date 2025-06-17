@@ -283,11 +283,24 @@ Kullanıcı Yönetimi
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Rol</label>
-                            <select class="form-select" name="role" required>
+                            <select class="form-select" name="role" required onchange="toggleFactoryField(this.value, 'add')">
                                 <option value="user">Kullanıcı</option>
-                                <option value="admin">Yönetici</option>
                                 <option value="viewer">Görüntüleyici</option>
+                                <option value="admin">Yönetici</option>
                             </select>
+                        </div>
+                        <div class="col-12" id="addFactoryField" style="display: block;">
+                            <label class="form-label">
+                                <i class="fas fa-industry me-1"></i>Fabrika Erişimi
+                                <span class="text-danger">*</span>
+                            </label>
+                            <select class="form-select" name="factory_access" required>
+                                <option value="">-- Fabrika Seçin --</option>
+                            </select>
+                            <div class="form-text">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Bu kullanıcı sadece seçilen fabrikadaki cihazları görebilir
+                            </div>
                         </div>
                         <div class="col-12">
                             <label class="form-label">Email (İsteğe bağlı)</label>
@@ -314,62 +327,145 @@ Kullanıcı Yönetimi
 
 <!-- Kullanıcı Düzenleme Modal -->
 <div class="modal fade" id="editUserModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header bg-primary text-white">
-                <h5 class="modal-title">
-                    <i class="fas fa-user-edit me-2"></i>Kullanıcı Düzenle
-                </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <form id="editUserForm">
-                <input type="hidden" name="user_id">
-                <div class="modal-body">
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="form-label">Ad Soyad</label>
-                            <input type="text" class="form-control" name="name" required>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Kullanıcı Adı</label>
-                            <input type="text" class="form-control" name="username" required>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Yeni Şifre (İsteğe bağlı)</label>
-                            <input type="password" class="form-control" name="password" minlength="6">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Rol</label>
-                            <select class="form-select" name="role" required>
-                                <option value="user">Kullanıcı</option>
-                                <option value="admin">Yönetici</option>
-                                <option value="viewer">Görüntüleyici</option>
-                            </select>
-                        </div>
-                        <div class="col-12">
-                            <label class="form-label">Email</label>
-                            <input type="email" class="form-control" name="email">
-                        </div>
-                        <div class="col-12">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" name="is_active">
-                                <label class="form-check-label">Aktif kullanıcı</label>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
-                    <button type="submit" class="btn btn-primary">
-                        <i class="fas fa-save"></i> Güncelle
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
+   <div class="modal-dialog">
+       <div class="modal-content">
+           <div class="modal-header bg-primary text-white">
+               <h5 class="modal-title">
+                   <i class="fas fa-user-edit me-2"></i>Kullanıcı Düzenle
+               </h5>
+               <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+           </div>
+           <form id="editUserForm">
+               <input type="hidden" name="user_id">
+               <div class="modal-body">
+                   <div class="row g-3">
+                       <div class="col-md-6">
+                           <label class="form-label">Ad Soyad</label>
+                           <input type="text" class="form-control" name="name" required>
+                       </div>
+                       <div class="col-md-6">
+                           <label class="form-label">Kullanıcı Adı</label>
+                           <input type="text" class="form-control" name="username" required>
+                       </div>
+                       <div class="col-md-6">
+                           <label class="form-label">Yeni Şifre (İsteğe bağlı)</label>
+                           <input type="password" class="form-control" name="password" minlength="6">
+                       </div>
+                       <div class="col-md-6">
+                           <label class="form-label">Rol</label>
+                           <select class="form-select" name="role" required onchange="toggleFactoryField(this.value, 'edit')">
+                               <option value="user">Kullanıcı</option>
+                               <option value="admin">Yönetici</option>
+                               <option value="viewer">Görüntüleyici</option>
+                           </select>
+                       </div>
+                       <div class="col-12" id="editFactoryField">
+                           <label class="form-label">
+                               <i class="fas fa-industry me-1"></i>Fabrika Erişimi
+                               <span class="text-danger">*</span>
+                           </label>
+                           <select class="form-select" name="factory_access" required>
+                               <option value="">-- Fabrika Seçin --</option>
+                           </select>
+                           <div class="form-text">
+                               <i class="fas fa-info-circle me-1"></i>
+                               Bu kullanıcı sadece seçilen fabrikadaki cihazları görebilir
+                           </div>
+                       </div>
+                       <div class="col-12">
+                           <label class="form-label">Email</label>
+                           <input type="email" class="form-control" name="email">
+                       </div>
+                       <div class="col-12">
+                           <div class="form-check">
+                               <input class="form-check-input" type="checkbox" name="is_active">
+                               <label class="form-check-label">Aktif kullanıcı</label>
+                           </div>
+                       </div>
+                   </div>
+               </div>
+               <div class="modal-footer">
+                   <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                   <button type="submit" class="btn btn-primary">
+                       <i class="fas fa-save"></i> Güncelle
+                   </button>
+               </div>
+           </form>
+       </div>
+   </div>
 </div>
 
-// user_management.html içindeki JavaScript bölümünü tamamen bu kodla değiştirin:
+
+
+<script>
+let availableFactories = [];
+
+// Sayfa yüklendiğinde fabrikaları yükle
+document.addEventListener('DOMContentLoaded', function() {
+   loadFactories(); // YENİ: Fabrikaları yükle
+   loadUsers();
+   loadActivities();
+   loadStats();
+   setupEventListeners();
+});
+
+// Fabrikaları yükle
+// Fabrikaları yükle
+function loadFactories() {
+   fetch('/api/factories')
+       .then(response => response.json())
+       .then(data => {
+           if (data.success) {
+               availableFactories = data.factories;
+               populateFactorySelects();
+               console.log(`✅ ${availableFactories.length} fabrika yüklendi`);
+           } else {
+               console.error('❌ Factory loading error:', data.error);
+               availableFactories = [];
+               populateFactorySelects();
+           }
+       })
+       .catch(error => {
+           console.error('❌ Factory API error:', error);
+           availableFactories = [];
+           populateFactorySelects();
+       });
+}
+
+// Factory select'lerini doldur
+function populateFactorySelects() {
+   const selects = document.querySelectorAll('select[name="factory_access"]');
+   selects.forEach(select => {
+       // Mevcut seçenekleri temizle (ilk option hariç)
+       while (select.children.length > 1) {
+           select.removeChild(select.lastChild);
+       }
+
+       // Fabrikaları ekle
+       availableFactories.forEach(factory => {
+           const option = document.createElement('option');
+           option.value = factory;
+           option.textContent = factory;
+           select.appendChild(option);
+       });
+   });
+}
+
+// Rol değiştiğinde fabrika alanını göster/gizle
+function toggleFactoryField(role, modalType) {
+   const factoryField = document.getElementById(`${modalType}FactoryField`);
+   const factorySelect = factoryField.querySelector('select[name="factory_access"]');
+
+   if (role === 'admin') {
+       factoryField.style.display = 'none';
+       factorySelect.required = false;
+       factorySelect.value = '';
+   } else {
+       factoryField.style.display = 'block';
+       factorySelect.required = true;
+   }
+}
+</script>
 
 <script>
 let users = [];
@@ -596,6 +692,16 @@ function handleAddUser(e) {
         is_active: formData.get('is_active') === 'on'
     };
 
+    // Factory access - admin değilse gerekli
+    if (userData.role !== 'admin') {
+        const factoryAccess = formData.get('factory_access');
+        if (!factoryAccess) {
+            showNotification('error', 'Admin olmayan kullanıcılar için fabrika seçimi zorunludur');
+            return;
+        }
+        userData.factory_access = factoryAccess;
+    }
+
     fetch('/admin/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -604,9 +710,11 @@ function handleAddUser(e) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            showNotification('success', 'Kullanıcı başarıyla eklendi');
+            const factoryInfo = userData.factory_access ? ` (Fabrika: ${userData.factory_access})` : ' (Tüm fabrikalar)';
+            showNotification('success', `Kullanıcı başarıyla eklendi${factoryInfo}`);
             bootstrap.Modal.getInstance(document.getElementById('addUserModal')).hide();
             e.target.reset();
+            toggleFactoryField('user', 'add'); // Formu sıfırla
             loadUsers();
         } else {
             showNotification('error', data.error || 'Kullanıcı eklenemedi');
@@ -636,6 +744,18 @@ function handleEditUser(e) {
         userData.password = formData.get('password');
     }
 
+    // Factory access - admin değilse gerekli
+    if (userData.role !== 'admin') {
+        const factoryAccess = formData.get('factory_access');
+        if (!factoryAccess) {
+            showNotification('error', 'Admin olmayan kullanıcılar için fabrika seçimi zorunludur');
+            return;
+        }
+        userData.factory_access = factoryAccess;
+    } else {
+        userData.factory_access = null; // Admin için null
+    }
+
     fetch(`/admin/api/users/${userId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -644,7 +764,8 @@ function handleEditUser(e) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            showNotification('success', 'Kullanıcı başarıyla güncellendi');
+            const factoryInfo = userData.factory_access ? ` (Fabrika: ${userData.factory_access})` : ' (Tüm fabrikalar)';
+            showNotification('success', `Kullanıcı başarıyla güncellendi${factoryInfo}`);
             bootstrap.Modal.getInstance(document.getElementById('editUserModal')).hide();
             loadUsers();
         } else {
@@ -656,6 +777,7 @@ function handleEditUser(e) {
         showNotification('error', 'Kullanıcı güncellenirken hata oluştu');
     });
 }
+
 
 // Geri kalan fonksiyonlar aynı kalacak...
 // (renderUsers, filterUsers, toggleUser, deleteUser, vs.)
@@ -689,6 +811,28 @@ function renderUsers(filteredUsers = null) {
                         ${getRoleText(user.role)}
                     </span>
                 </div>
+
+                <!-- Factory Badge -->
+                ${user.factory_access ? `
+                    <div class="mb-2">
+                        <span class="badge bg-info">
+                            <i class="fas fa-industry me-1"></i>${user.factory_access}
+                        </span>
+                    </div>
+                ` : user.role === 'admin' ? `
+                    <div class="mb-2">
+                        <span class="badge bg-warning text-dark">
+                            <i class="fas fa-crown me-1"></i>Tüm Fabrikalar
+                        </span>
+                    </div>
+                ` : `
+                    <div class="mb-2">
+                        <span class="badge bg-secondary">
+                            <i class="fas fa-exclamation-triangle me-1"></i>Fabrika Atanmamış
+                        </span>
+                    </div>
+                `}
+
                 <div class="mb-3">
                     <small class="status-${user.is_active ? 'active' : 'inactive'}">
                         <i class="fas fa-circle fa-xs"></i>
@@ -710,18 +854,18 @@ function renderUsers(filteredUsers = null) {
                     </div>
                 ` : ''}
                 <div class="btn-group w-100">
-                    <button class="btn btn-sm btn-outline-primary" onclick="editUser(${user.id})">
+                    <button class="btn btn-sm btn-outline-primary" onclick="editUser(${user.id})" title="Düzenle">
                         <i class="fas fa-edit"></i>
                     </button>
                     <button class="btn btn-sm btn-outline-${user.is_active ? 'warning' : 'success'}"
-                            onclick="toggleUser(${user.id})">
+                            onclick="toggleUser(${user.id})" title="${user.is_active ? 'Pasif Et' : 'Aktif Et'}">
                         <i class="fas fa-${user.is_active ? 'pause' : 'play'}"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-info" onclick="viewUserActivity(${user.id})">
+                    <button class="btn btn-sm btn-outline-info" onclick="viewUserActivity(${user.id})" title="Aktiviteler">
                         <i class="fas fa-history"></i>
                     </button>
                     ${user.role !== 'admin' || user.id !== getCurrentUserId() ? `
-                        <button class="btn btn-sm btn-outline-danger" onclick="deleteUser(${user.id})">
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteUser(${user.id})" title="Sil">
                             <i class="fas fa-trash"></i>
                         </button>
                     ` : ''}
@@ -850,8 +994,17 @@ function editUser(userId) {
     form.querySelector('select[name="role"]').value = user.role;
     form.querySelector('input[name="is_active"]').checked = user.is_active;
 
+    // Factory access değerini set et
+    const factorySelect = form.querySelector('select[name="factory_access"]');
+    if (factorySelect) {
+        factorySelect.value = user.factory_access || '';
+    }
+
     // Şifre alanını temizle
     form.querySelector('input[name="password"]').value = '';
+
+    // Factory field visibility'sini ayarla
+    toggleFactoryField(user.role, 'edit');
 
     // Modal'ı aç
     const modal = new bootstrap.Modal(document.getElementById('editUserModal'));
@@ -955,5 +1108,6 @@ function renderActivities() { document.getElementById('activityLog').innerHTML =
 function logActivity(type, desc) { console.log('Activity:', type, desc); }
 
 </script>
+
 
 {% endblock %}
