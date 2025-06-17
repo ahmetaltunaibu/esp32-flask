@@ -2191,11 +2191,12 @@ def delete_backup(filename):
 def index():
     user_factory = session.get('factory_access')
     is_admin = session.get('is_admin', False)
+
     with get_db() as conn:
         current_time_ms = int(time.time() * 1000)
         threshold = current_time_ms - 120000  # 2 dakika
 
-        # ✅ DÜZELT: Doğru sütun adını kullan
+        # Cihazları al
         if is_admin or not user_factory:
             # Admin - tüm cihazlar
             cihazlar_raw = conn.execute('''
@@ -2224,58 +2225,61 @@ def index():
         for cihaz in cihazlar_raw:
             cihaz_dict = dict(cihaz)
 
-            # ✅ DÜZELT: Doğru sütun adını kullan (cihaz_id, device_id değil)
-            sensor_data = conn.execute('''
-                SELECT sensor_id, sensor_value, sensor_unit, timestamp
+            # En son sensör verilerini al
+            sensor_query = '''
+                SELECT sensor_id, sensor_value, sensor_unit, timestamp,
+                       ROW_NUMBER() OVER (PARTITION BY sensor_id ORDER BY timestamp DESC) as rn
                 FROM sensor_data 
                 WHERE cihaz_id = ? 
-                ORDER BY timestamp DESC 
-                LIMIT 10
-            ''', (cihaz['cihaz_id'],)).fetchall()
+                ORDER BY timestamp DESC
+            '''
 
-            # En son sensör verilerini işle
+            all_sensor_data = conn.execute(sensor_query, (cihaz['cihaz_id'],)).fetchall()
+
+            # En son sensör verilerini grupla (her sensör için en son değer)
             latest_sensors = {}
-            for data in sensor_data:
-                sensor_id = data['sensor_id']
-                if sensor_id not in latest_sensors:
+            for data in all_sensor_data:
+                if data['rn'] == 1:  # Her sensör için en son değer
+                    sensor_id = data['sensor_id']
                     latest_sensors[sensor_id] = {
                         'value': data['sensor_value'],
                         'unit': data['sensor_unit'],
                         'timestamp': data['timestamp']
                     }
 
-            # 🔧 OEE ve diğer önemli metrikleri al - DÜZELTİLMİŞ
+            # ✅ OEE değerini doğru sensör ismiyle al
+            oee_value = latest_sensors.get('sensor_oee', {}).get('value', None)
+
+            # Diğer metrikleri al
+            total_products = latest_sensors.get('sensor_toplam_urun', {}).get('value', None)
+            active_time = latest_sensors.get('sensor_aktif_calisma', {}).get('value', None)
+            total_time = latest_sensors.get('sensor_toplam_calisma', {}).get('value', None)
+            quality = latest_sensors.get('sensor_kalite', {}).get('value', None)
+            performance = latest_sensors.get('sensor_performans', {}).get('value', None)
+            availability = latest_sensors.get('sensor_kullanilabilirlik', {}).get('value', None)
+
+            # Cihaz dict'ine ekle
             cihaz_dict.update({
-                'sensor_oee': latest_sensors.get('oee', {}).get('value', None),  # ✅ 'OEE' → 'oee'
-                'sensor_total_products': latest_sensors.get('toplam_urun', {}).get('value', None),
-                'sensor_active_time': latest_sensors.get('aktif_calisma', {}).get('value', None),
-                'sensor_total_time': latest_sensors.get('toplam_calisma', {}).get('value', None),
-                'sensor_quality': latest_sensors.get('kalite', {}).get('value', None),
-                'sensor_performance': latest_sensors.get('performans', {}).get('value', None),
-                'sensor_availability': latest_sensors.get('kullanilabilirlik', {}).get('value', None)
+                'sensor_oee': oee_value,
+                'sensor_total_products': total_products,
+                'sensor_active_time': active_time,
+                'sensor_total_time': total_time,
+                'sensor_quality': quality,
+                'sensor_performance': performance,
+                'sensor_availability': availability
             })
 
             cihazlar.append(cihaz_dict)
 
-        # Debug bilgisi
-        app.logger.info(f"📊 Cihaz Durumu Debug:")
-        app.logger.info(f"   Şu anki zaman: {current_time_ms}")
-        app.logger.info(f"   Threshold (2 dk önce): {threshold}")
-        app.logger.info(f"   Toplam cihaz: {len(cihazlar)}")
+        # Debug bilgisi (sadece geliştirme ortamında)
+        if app.debug:
+            app.logger.info(f"📊 Index Debug:")
+            app.logger.info(f"   Toplam cihaz: {len(cihazlar)}")
 
-        online_count = 0
-        offline_count = 0
-
-        for cihaz in cihazlar:
-            if cihaz['real_online_status']:
-                app.logger.info(
-                    f"   🟢 {cihaz['cihaz_adi']} - {cihaz['fabrika_adi']}: ONLINE (OEE: {cihaz.get('sensor_oee', 'None')})")
-                online_count += 1
-            else:
-                app.logger.info(f"   🔴 {cihaz['cihaz_adi']} - {cihaz['fabrika_adi']}: OFFLINE")
-                offline_count += 1
-
-        app.logger.info(f"   📈 Online: {online_count}, Offline: {offline_count}")
+            for cihaz in cihazlar[:3]:  # İlk 3 cihaz için debug
+                oee_debug = cihaz.get('sensor_oee', 'None')
+                online_debug = cihaz['real_online_status']
+                app.logger.info(f"   {cihaz['cihaz_adi']}: OEE={oee_debug}, Online={online_debug}")
 
         return render_template('index.html', cihazlar=cihazlar)
 
