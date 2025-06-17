@@ -2195,7 +2195,7 @@ def index():
         current_time_ms = int(time.time() * 1000)
         threshold = current_time_ms - 120000  # 2 dakika
 
-        # ✅ DÜZELT: Doğru sütun adını kullan
+        # ✅ DOĞRU sütun adını kullan
         if is_admin or not user_factory:
             # Admin - tüm cihazlar
             cihazlar_raw = conn.execute('''
@@ -2224,25 +2224,29 @@ def index():
         for cihaz in cihazlar_raw:
             cihaz_dict = dict(cihaz)
 
-            # ✅ DÜZELT: Doğru sütun adını kullan (cihaz_id, device_id değil)
+            # ✅ CIHAZ_DETAY.HTML İLE AYNI YÖNTEMİ KULLAN - Her sensörün en son değerini al
             sensor_data = conn.execute('''
-                SELECT sensor_id, sensor_value, sensor_unit, timestamp
-                FROM sensor_data 
-                WHERE cihaz_id = ? 
-                ORDER BY timestamp DESC 
-                LIMIT 10
-            ''', (cihaz['cihaz_id'],)).fetchall()
+                SELECT s1.sensor_id, s1.sensor_value, s1.sensor_unit, s1.timestamp
+                FROM sensor_data s1
+                JOIN (
+                    SELECT sensor_id, MAX(timestamp) as max_timestamp
+                    FROM sensor_data
+                    WHERE cihaz_id = ?
+                    GROUP BY sensor_id
+                ) s2 ON s1.sensor_id = s2.sensor_id AND s1.timestamp = s2.max_timestamp
+                WHERE s1.cihaz_id = ?
+                ORDER BY s1.sensor_id
+            ''', (cihaz['cihaz_id'], cihaz['cihaz_id'])).fetchall()
 
             # En son sensör verilerini işle
             latest_sensors = {}
             for data in sensor_data:
                 sensor_id = data['sensor_id']
-                if sensor_id not in latest_sensors:
-                    latest_sensors[sensor_id] = {
-                        'value': data['sensor_value'],
-                        'unit': data['sensor_unit'],
-                        'timestamp': data['timestamp']
-                    }
+                latest_sensors[sensor_id] = {
+                    'value': data['sensor_value'],
+                    'unit': data['sensor_unit'],
+                    'timestamp': data['timestamp']
+                }
 
             # OEE ve diğer önemli metrikleri al
             cihaz_dict.update({
