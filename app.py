@@ -319,6 +319,18 @@ def init_db():
             print(f"❌ Admin kullanıcısı oluşturulurken hata: {e}")
 
         conn.commit()
+
+        # Factory access kolonu ekle
+        try:
+            columns = conn.execute("PRAGMA table_info(users)").fetchall()
+            has_factory_column = any(col[1] == 'factory_access' for col in columns)
+
+            if not has_factory_column:
+                conn.execute('ALTER TABLE users ADD COLUMN factory_access TEXT DEFAULT NULL')
+                logger.info("✅ Factory access column added")
+        except Exception as e:
+            logger.error(f"❌ Factory column error: {str(e)}")
+
         print("✅ Tüm veritabanı tabloları oluşturuldu")
 
     # Tablo bilgilerini göster
@@ -501,11 +513,12 @@ def inject_user():
         is_admin = session.get('is_admin', False)
 
     if not username:
-        return dict(current_user=None, is_admin=False)
+        return dict(current_user=None, is_admin=False, user_factory=None)
 
     return dict(
         current_user=dict(name=username),
-        is_admin=is_admin
+        is_admin=is_admin,
+        user_factory=session.get('factory_access')
     )
 
 
@@ -2176,20 +2189,36 @@ def delete_backup(filename):
 @app.route('/')
 @login_required
 def index():
+    user_factory = session.get('factory_access')
+    is_admin = session.get('is_admin', False)
     with get_db() as conn:
         current_time_ms = int(time.time() * 1000)
         threshold = current_time_ms - 120000  # 2 dakika
 
         # ✅ DÜZELT: Doğru sütun adını kullan
-        cihazlar_raw = conn.execute('''
-            SELECT *,
-                CASE 
-                    WHEN CAST(last_seen AS INTEGER) >= ? AND last_seen > 0 THEN 1 
-                    ELSE 0 
-                END as real_online_status
-            FROM devices 
-            ORDER BY cihaz_adi ASC
-        ''', (threshold,)).fetchall()
+        if is_admin or not user_factory:
+            # Admin - tüm cihazlar
+            cihazlar_raw = conn.execute('''
+                SELECT *,
+                    CASE 
+                        WHEN CAST(last_seen AS INTEGER) >= ? AND last_seen > 0 THEN 1 
+                        ELSE 0 
+                    END as real_online_status
+                FROM devices 
+                ORDER BY cihaz_adi ASC
+            ''', (threshold,)).fetchall()
+        else:
+            # Normal kullanıcı - sadece kendi fabrikası
+            cihazlar_raw = conn.execute('''
+                SELECT *,
+                    CASE 
+                        WHEN CAST(last_seen AS INTEGER) >= ? AND last_seen > 0 THEN 1 
+                        ELSE 0 
+                    END as real_online_status
+                FROM devices 
+                WHERE fabrika_adi = ? OR fabrika_adi IS NULL
+                ORDER BY cihaz_adi ASC
+            ''', (threshold, user_factory)).fetchall()
 
         cihazlar = []
         for cihaz in cihazlar_raw:
@@ -2314,7 +2343,6 @@ def debug_device_status():
     return jsonify(debug_info)
 
 
-# Login route'unu güncelle - aktivite loglaması için
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -2341,6 +2369,7 @@ def login():
             session['user_id'] = 1
             session['is_admin'] = True
             session['role'] = 'admin'
+            session['factory_access'] = None  # Admin tüm fabrikalara erişir
             session['login_time'] = datetime.now().isoformat()
 
             clear_login_attempts(client_ip)
@@ -2354,7 +2383,7 @@ def login():
         # Veritabanı kullanıcı kontrolü
         with get_db() as conn:
             user = conn.execute('''
-                SELECT id, username, password, name, role, 
+                SELECT id, username, password, name, role, factory_access,
                        COALESCE(role = 'admin', 0) as is_admin_calc,
                        COALESCE(is_active, 1) as is_active
                 FROM users 
@@ -2367,6 +2396,7 @@ def login():
                 session['user_id'] = user['id']
                 session['role'] = user['role'] or 'user'
                 session['is_admin'] = user['role'] == 'admin'
+                session['factory_access'] = user['factory_access']  # 🎯 FACTORY BİLGİSİ
                 session['login_time'] = datetime.now().isoformat()
 
                 # Last login güncelle
@@ -2376,7 +2406,8 @@ def login():
                 clear_login_attempts(client_ip)
 
                 # Güvenlik logu
-                logger.info(f"User login successful: {username} from IP: {client_ip}")
+                factory_info = f" (Fabrika: {user['factory_access']})" if user['factory_access'] else " (Tüm fabrikalar)"
+                logger.info(f"User login successful: {username}{factory_info} from IP: {client_ip}")
 
                 flash('Güvenli giriş başarılı!', 'success')
                 return redirect(url_for('index'))
@@ -3972,7 +4003,7 @@ def get_activities_api():
 @login_required
 @admin_required
 def create_user_api():
-    """Yeni kullanıcı oluştur API"""
+    """Yeni kullanıcı oluştur - fabrika kontrolü ile"""
     try:
         data = request.get_json()
 
@@ -3982,33 +4013,68 @@ def create_user_api():
             if not data.get(field):
                 return jsonify({'success': False, 'error': f'{field} alanı gerekli'}), 400
 
+        # Fabrika kontrolü - admin değilse zorunlu
+        if data['role'] != 'admin':
+            if not data.get('factory_access'):
+                return jsonify({
+                    'success': False,
+                    'error': 'Admin olmayan kullanıcılar için fabrika seçimi zorunludur'
+                }), 400
+
         with get_db() as conn:
-            # Kullanıcı adı kontrolü
+            # Kullanıcı adı benzersizlik kontrolü
             existing = conn.execute('SELECT id FROM users WHERE username = ?', (data['username'],)).fetchone()
             if existing:
                 return jsonify({'success': False, 'error': 'Bu kullanıcı adı zaten kullanılıyor'}), 400
 
+            # Email benzersizlik kontrolü (eğer verilmişse)
+            email = data.get('email', '').strip()
+            if email:
+                existing_email = conn.execute('SELECT id FROM users WHERE email = ?', (email,)).fetchone()
+                if existing_email:
+                    return jsonify({'success': False, 'error': 'Bu email adresi zaten kullanılıyor'}), 400
+
+            # Factory access - admin değilse gerekli
+            factory_access = data.get('factory_access') if data['role'] != 'admin' else None
+
             # Kullanıcı oluştur
-            conn.execute('''
-                INSERT INTO users (username, password, name, role, is_active)
-                VALUES (?, ?, ?, ?, ?)
+            cursor = conn.execute('''
+                INSERT INTO users (username, password, name, email, role, is_active, factory_access)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             ''', (
                 data['username'],
                 generate_password_hash(data['password']),
-                data['name'],
+                data['name'].strip(),
+                email if email else None,
                 data['role'],
-                data.get('is_active', True)
+                data.get('is_active', True),
+                factory_access
             ))
 
+            new_user_id = cursor.lastrowid
             conn.commit()
+
+            # Aktivite logu
+            factory_info = f" (Fabrika: {factory_access})" if factory_access else " (Tüm fabrikalar)"
+            log_user_activity(
+                user_id=session.get('user_id', 1),
+                activity_type='user_created',
+                description=f"Yeni kullanıcı oluşturuldu: {data['name']} (@{data['username']}){factory_info}",
+                conn=conn
+            )
+
+            logger.info(f"✅ New user created: {data['username']} with factory access: {factory_access}")
 
             return jsonify({
                 'success': True,
-                'message': 'Kullanıcı başarıyla oluşturuldu'
+                'message': 'Kullanıcı başarıyla oluşturuldu',
+                'user_id': new_user_id
             })
 
+    except sqlite3.IntegrityError:
+        return jsonify({'success': False, 'error': 'Kullanıcı adı zaten kullanılıyor'}), 400
     except Exception as e:
-        logger.error(f"❌ create_user_api error: {str(e)}")
+        logger.error(f"❌ Create user with factory error: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -4016,7 +4082,7 @@ def create_user_api():
 @login_required
 @admin_required
 def update_user_api(user_id):
-    """Kullanıcı güncelle API"""
+    """Kullanıcı güncelle API - fabrika kontrolü ile"""
     try:
         data = request.get_json()
 
@@ -4039,8 +4105,25 @@ def update_user_api(user_id):
                 params.append(data['username'])
 
             if 'role' in data:
+                # Rol değiştiğinde factory access kontrolü
+                new_role = data['role']
+                if new_role != 'admin':
+                    # Admin değilse factory zorunlu
+                    factory_access = data.get('factory_access')
+                    if not factory_access:
+                        return jsonify({
+                            'success': False,
+                            'error': 'Admin olmayan kullanıcılar için fabrika seçimi zorunludur'
+                        }), 400
+                    update_fields.append('factory_access = ?')
+                    params.append(factory_access)
+                else:
+                    # Admin ise factory null
+                    update_fields.append('factory_access = ?')
+                    params.append(None)
+
                 update_fields.append('role = ?')
-                params.append(data['role'])
+                params.append(new_role)
 
             if 'is_active' in data:
                 update_fields.append('is_active = ?')
@@ -4778,6 +4861,35 @@ def get_user_activities(user_id):
     except Exception as e:
         logger.error(f"❌ Get user activities error: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# Fabrika listesi API
+@app.route('/api/factories')
+@login_required
+@admin_required
+def get_factories_api():
+    """Mevcut fabrikaları getir - admin için"""
+    try:
+        with get_db() as conn:
+            factories = conn.execute('''
+                SELECT DISTINCT fabrika_adi 
+                FROM devices 
+                WHERE fabrika_adi IS NOT NULL AND fabrika_adi != ''
+                ORDER BY fabrika_adi
+            ''').fetchall()
+
+            factory_list = [f['fabrika_adi'] for f in factories]
+
+            return jsonify({
+                'success': True,
+                'factories': factory_list
+            })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 
 
 # Yardımcı fonksiyon
