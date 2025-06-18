@@ -2490,6 +2490,8 @@ def cihaz_detay(cihaz_id):
         return redirect(url_for('index'))
 
 
+# 1. app.py - gecmis_veriler fonksiyonunu güncelle
+
 @app.route('/gecmis/<cihaz_id>')
 @login_required
 def gecmis_veriler(cihaz_id):
@@ -2497,7 +2499,9 @@ def gecmis_veriler(cihaz_id):
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         sensor_filter = request.args.get('sensor_id')
-        limit = request.args.get('limit', 'all')  # Varsayılan: tümü
+        limit = request.args.get('limit', '1000')  # Varsayılan 1000
+        page = int(request.args.get('page', 1))  # Sayfa numarası
+        per_page = 1000  # Sayfa başına maksimum kayıt
 
         with get_db() as conn:
             cihaz = conn.execute('SELECT * FROM devices WHERE cihaz_id = ?', (cihaz_id,)).fetchone()
@@ -2509,7 +2513,8 @@ def gecmis_veriler(cihaz_id):
             date_range = conn.execute('''
                 SELECT 
                     MIN(timestamp) as min_timestamp,
-                    MAX(timestamp) as max_timestamp
+                    MAX(timestamp) as max_timestamp,
+                    COUNT(*) as total_records
                 FROM sensor_data 
                 WHERE cihaz_id = ?
             ''', (cihaz_id,)).fetchone()
@@ -2517,14 +2522,15 @@ def gecmis_veriler(cihaz_id):
             # Varsayılan tarih aralığını belirle
             default_start_date = None
             default_end_date = None
+            total_records = 0
 
             if date_range and date_range['min_timestamp'] and date_range['max_timestamp']:
-                # Min tarihi al
                 min_date = datetime.fromtimestamp(date_range['min_timestamp'] / 1000)
                 max_date = datetime.fromtimestamp(date_range['max_timestamp'] / 1000)
 
                 default_start_date = min_date.strftime('%Y-%m-%d')
                 default_end_date = max_date.strftime('%Y-%m-%d')
+                total_records = date_range['total_records']
 
             # Eğer tarih parametresi yoksa varsayılanları kullan
             if not start_date and default_start_date:
@@ -2532,7 +2538,49 @@ def gecmis_veriler(cihaz_id):
             if not end_date and default_end_date:
                 end_date = default_end_date
 
-            # Base query
+            # ✅ PERFORMANS İYİLEŞTİRMESİ: Toplam kayıt sayısını hesapla
+            count_query = 'SELECT COUNT(*) as total FROM sensor_data WHERE cihaz_id = ?'
+            count_params = [cihaz_id]
+
+            # Tarih filtreleri
+            if start_date:
+                start_timestamp = int(datetime.strptime(start_date, '%Y-%m-%d').timestamp() * 1000)
+                count_query += ' AND timestamp >= ?'
+                count_params.append(start_timestamp)
+
+            if end_date:
+                end_timestamp = int((datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)).timestamp() * 1000)
+                count_query += ' AND timestamp < ?'
+                count_params.append(end_timestamp)
+
+            # Sensör filtresi
+            if sensor_filter:
+                count_query += ' AND sensor_id = ?'
+                count_params.append(sensor_filter)
+
+            # Toplam kayıt sayısını al
+            total_filtered = conn.execute(count_query, count_params).fetchone()['total']
+
+            # ✅ SAYFALAMA HESAPLAMALARI
+            # Kullanıcı "tümü" seçtiyse bile maksimum 10000 kayıt göster
+            if limit == 'all':
+                max_limit = min(total_filtered, 10000)  # Maksimum 10K kayıt
+            else:
+                max_limit = min(int(limit), total_filtered)
+
+            # Sayfa sayısını hesapla
+            total_pages = (max_limit + per_page - 1) // per_page
+
+            # Sayfa sınırlarını kontrol et
+            if page < 1:
+                page = 1
+            elif page > total_pages:
+                page = total_pages if total_pages > 0 else 1
+
+            # Offset hesapla
+            offset = (page - 1) * per_page
+
+            # ✅ ANA SORGU - SAYFALAMA İLE
             query = 'SELECT * FROM sensor_data WHERE cihaz_id = ?'
             params = [cihaz_id]
 
@@ -2552,16 +2600,9 @@ def gecmis_veriler(cihaz_id):
                 query += ' AND sensor_id = ?'
                 params.append(sensor_filter)
 
-            # Sıralama
-            query += ' ORDER BY timestamp DESC'
-
-            # Limit (sadece gerekirse)
-            if limit and limit != 'all':
-                try:
-                    limit_num = int(limit)
-                    query += f' LIMIT {limit_num}'
-                except ValueError:
-                    pass  # Geçersiz limit değeri, sınır koyma
+            # Sıralama ve sayfalama
+            query += ' ORDER BY timestamp DESC LIMIT ? OFFSET ?'
+            params.extend([per_page, offset])
 
             veriler = conn.execute(query, params).fetchall()
 
@@ -2571,6 +2612,21 @@ def gecmis_veriler(cihaz_id):
                 WHERE cihaz_id = ? 
                 ORDER BY sensor_id
             ''', (cihaz_id,)).fetchall()
+
+            # ✅ SAYFALAMA BİLGİLERİ
+            pagination_info = {
+                'current_page': page,
+                'total_pages': total_pages,
+                'per_page': per_page,
+                'total_records': total_filtered,
+                'showing_from': offset + 1 if veriler else 0,
+                'showing_to': min(offset + len(veriler), total_filtered),
+                'has_prev': page > 1,
+                'has_next': page < total_pages,
+                'prev_page': page - 1 if page > 1 else None,
+                'next_page': page + 1 if page < total_pages else None,
+                'max_limit': max_limit
+            }
 
             return render_template('gecmis_veriler.html',
                                    veriler=veriler,
@@ -2583,133 +2639,16 @@ def gecmis_veriler(cihaz_id):
                                    sensor_filter=sensor_filter,
                                    current_limit=limit,
                                    default_start_date=default_start_date,
-                                   default_end_date=default_end_date)
-
-    except Exception as e:
-        flash(f'Geçmiş veriler alınırken hata oluştu: {str(e)}', 'danger')
-        return redirect(url_for('index'))
-    try:
-        start_date = request.args.get('start_date')
-        end_date = request.args.get('end_date')
-        sensor_filter = request.args.get('sensor_id')
-        limit = request.args.get('limit', 'all')  # Varsayılan: tümü
-
-        with get_db() as conn:
-            cihaz = conn.execute('SELECT * FROM devices WHERE cihaz_id = ?', (cihaz_id,)).fetchone()
-            if not cihaz:
-                flash('Cihaz bulunamadı', 'danger')
-                return redirect(url_for('index'))
-
-            # Base query
-            query = 'SELECT * FROM sensor_data WHERE cihaz_id = ?'
-            params = [cihaz_id]
-
-            # Tarih filtreleri
-            if start_date:
-                start_timestamp = int(datetime.strptime(start_date, '%Y-%m-%d').timestamp() * 1000)
-                query += ' AND timestamp >= ?'
-                params.append(start_timestamp)
-
-            if end_date:
-                end_timestamp = int((datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)).timestamp() * 1000)
-                query += ' AND timestamp < ?'
-                params.append(end_timestamp)
-
-            # Sensör filtresi
-            if sensor_filter:
-                query += ' AND sensor_id = ?'
-                params.append(sensor_filter)
-
-            # Sıralama
-            query += ' ORDER BY timestamp DESC'
-
-            # Limit (sadece gerekirse)
-            if limit and limit != 'all':
-                try:
-                    limit_num = int(limit)
-                    query += f' LIMIT {limit_num}'
-                except ValueError:
-                    pass  # Geçersiz limit değeri, sınır koyma
-
-            veriler = conn.execute(query, params).fetchall()
-
-            # Tüm mevcut sensörleri al
-            sensors = conn.execute('''
-                SELECT DISTINCT sensor_id FROM sensor_data 
-                WHERE cihaz_id = ? 
-                ORDER BY sensor_id
-            ''', (cihaz_id,)).fetchall()
-
-            return render_template('gecmis_veriler.html',
-                                   veriler=veriler,
-                                   cihaz_id=cihaz_id,
-                                   cihaz_adi=cihaz['cihaz_adi'],
-                                   cihaz=cihaz,
-                                   sensors=sensors,
-                                   start_date=start_date,
-                                   end_date=end_date,
-                                   sensor_filter=sensor_filter,
-                                   current_limit=limit)
-
-    except Exception as e:
-        flash(f'Geçmiş veriler alınırken hata oluştu: {str(e)}', 'danger')
-        return redirect(url_for('index'))
-    try:
-        start_date = request.args.get('start_date')
-        end_date = request.args.get('end_date')
-        sensor_filter = request.args.get('sensor_id')  # Tek sensör seçimi (basit versiyon)
-
-        with get_db() as conn:
-            cihaz = conn.execute('SELECT * FROM devices WHERE cihaz_id = ?', (cihaz_id,)).fetchone()
-            if not cihaz:
-                flash('Cihaz bulunamadı', 'danger')
-                return redirect(url_for('index'))
-
-            # Base query
-            query = 'SELECT * FROM sensor_data WHERE cihaz_id = ?'
-            params = [cihaz_id]
-
-            # Tarih filtreleri
-            if start_date:
-                start_timestamp = int(datetime.strptime(start_date, '%Y-%m-%d').timestamp() * 1000)
-                query += ' AND timestamp >= ?'
-                params.append(start_timestamp)
-
-            if end_date:
-                end_timestamp = int((datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)).timestamp() * 1000)
-                query += ' AND timestamp < ?'
-                params.append(end_timestamp)
-
-            # Sensör filtresi
-            if sensor_filter:
-                query += ' AND sensor_id = ?'
-                params.append(sensor_filter)
-
-            query += ' ORDER BY timestamp DESC LIMIT 1000'
-            veriler = conn.execute(query, params).fetchall()
-
-            # Tüm mevcut sensörleri al
-            sensors = conn.execute('''
-                SELECT DISTINCT sensor_id FROM sensor_data 
-                WHERE cihaz_id = ? 
-                ORDER BY sensor_id
-            ''', (cihaz_id,)).fetchall()
-
-            return render_template('gecmis_veriler.html',
-                                   veriler=veriler,
-                                   cihaz_id=cihaz_id,
-                                   cihaz_adi=cihaz['cihaz_adi'],
-                                   cihaz=cihaz,  # Bu satır eksikti!
-                                   sensors=sensors,
-                                   start_date=start_date,
-                                   end_date=end_date,
-                                   sensor_filter=sensor_filter)
+                                   default_end_date=default_end_date,
+                                   pagination=pagination_info,
+                                   total_db_records=total_records)
 
     except Exception as e:
         flash(f'Geçmiş veriler alınırken hata oluştu: {str(e)}', 'danger')
         return redirect(url_for('index'))
 
 
+# 2. Excel export fonksiyonunu da güncelle (performans için)
 @app.route('/excel/<cihaz_id>')
 @login_required
 def excel_export(cihaz_id):
@@ -2717,7 +2656,12 @@ def excel_export(cihaz_id):
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         sensor_filter = request.args.get('sensor_id')
-        limit = request.args.get('limit', 'all')
+        limit = request.args.get('limit', '5000')  # Excel için maksimum 5K
+
+        # Excel için güvenlik sınırı
+        max_excel_limit = 10000
+        if limit == 'all':
+            limit = max_excel_limit
 
         query = '''
             SELECT cihaz_id, sensor_id, sensor_value, sensor_unit, timestamp
@@ -2742,21 +2686,26 @@ def excel_export(cihaz_id):
             query += ' AND sensor_id = ?'
             params.append(sensor_filter)
 
-        # Sıralama
+        # Sıralama ve limit
         query += ' ORDER BY timestamp DESC'
 
-        # Limit
-        if limit and limit != 'all':
+        if limit != 'all':
             try:
-                limit_num = int(limit)
+                limit_num = min(int(limit), max_excel_limit)
                 query += f' LIMIT {limit_num}'
             except ValueError:
-                pass
+                query += f' LIMIT {max_excel_limit}'
+        else:
+            query += f' LIMIT {max_excel_limit}'
 
         with get_db() as conn:
             veriler = conn.execute(query, params).fetchall()
             cihaz_adi = conn.execute('SELECT cihaz_adi FROM devices WHERE cihaz_id = ?',
                                      (cihaz_id,)).fetchone()['cihaz_adi']
+
+            # Excel verisi çok büyükse uyarı ver
+            if len(veriler) >= max_excel_limit:
+                logger.warning(f"Excel export limit reached: {len(veriler)} records for {cihaz_id}")
 
             data = []
             for veri in veriler:
@@ -2777,92 +2726,8 @@ def excel_export(cihaz_id):
             output.seek(0)
 
             # Dosya adını limit bilgisi ile oluştur
-            limit_suffix = f"_{limit}" if limit != 'all' else "_all"
+            limit_suffix = f"_{len(veriler)}_kayit"
             filename = f"{cihaz_adi}{limit_suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-
-            return send_file(
-                output,
-                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                as_attachment=True,
-                download_name=filename
-            )
-
-    except Exception as e:
-        flash(f'Excel oluşturulurken hata oluştu: {str(e)}', 'danger')
-        return redirect(url_for('gecmis_veriler', cihaz_id=cihaz_id))
-    try:
-        start_date = request.args.get('start_date')
-        end_date = request.args.get('end_date')
-        selected_sensors = request.args.getlist('sensor_ids')  # Çoklu seçim
-        limit = request.args.get('limit', '1000')
-        order = request.args.get('order', 'desc')
-
-        query = '''
-            SELECT cihaz_id, sensor_id, sensor_value, sensor_unit, timestamp
-            FROM sensor_data 
-            WHERE cihaz_id = ?
-        '''
-        params = [cihaz_id]
-
-        # Tarih filtreleri
-        if start_date:
-            start_timestamp = int(datetime.strptime(start_date, '%Y-%m-%d').timestamp() * 1000)
-            query += ' AND timestamp >= ?'
-            params.append(start_timestamp)
-
-        if end_date:
-            end_timestamp = int((datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)).timestamp() * 1000)
-            query += ' AND timestamp < ?'
-            params.append(end_timestamp)
-
-        # Çoklu sensör filtresi
-        if selected_sensors:
-            placeholders = ','.join(['?'] * len(selected_sensors))
-            query += f' AND sensor_id IN ({placeholders})'
-            params.extend(selected_sensors)
-
-        # Sıralama
-        if order == 'asc':
-            query += ' ORDER BY timestamp ASC'
-        else:
-            query += ' ORDER BY timestamp DESC'
-
-        # Limit
-        if limit != 'all':
-            query += f' LIMIT {int(limit)}'
-
-        with get_db() as conn:
-            veriler = conn.execute(query, params).fetchall()
-            cihaz_adi = conn.execute('SELECT cihaz_adi FROM devices WHERE cihaz_id = ?',
-                                     (cihaz_id,)).fetchone()['cihaz_adi']
-
-            data = []
-            for veri in veriler:
-                data.append({
-                    'Cihaz ID': veri['cihaz_id'],
-                    'Sensör ID': veri['sensor_id'],
-                    'Değer': veri['sensor_value'],
-                    'Birim': veri['sensor_unit'],
-                    'Tarih': datetime.fromtimestamp(veri['timestamp'] / 1000).strftime('%d.%m.%Y'),
-                    'Saat': datetime.fromtimestamp(veri['timestamp'] / 1000).strftime('%H:%M:%S')
-                })
-
-            df = pd.DataFrame(data)
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df.to_excel(writer, sheet_name='Sensor Data', index=False)
-
-            output.seek(0)
-
-            # Dosya adını sensör seçimine göre oluştur
-            sensor_suffix = ""
-            if selected_sensors:
-                if len(selected_sensors) == 1:
-                    sensor_suffix = f"_{selected_sensors[0]}"
-                else:
-                    sensor_suffix = f"_{len(selected_sensors)}_sensors"
-
-            filename = f"{cihaz_adi}{sensor_suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
 
             return send_file(
                 output,
