@@ -58,6 +58,68 @@
             min-width: 100px;
         }
     }
+
+    /* Sayfalama stilleri */
+    .pagination-info {
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin: 15px 0;
+        font-size: 0.9rem;
+    }
+
+    .pagination-controls {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin: 15px 0;
+    }
+
+    .pagination-nav {
+        display: flex;
+        gap: 5px;
+        align-items: center;
+    }
+
+    .page-input-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .page-input {
+        width: 60px;
+        text-align: center;
+        font-size: 0.9rem;
+    }
+
+    @media (max-width: 768px) {
+        .pagination-controls {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .pagination-nav {
+            justify-content: center;
+        }
+
+        .page-input-group {
+            justify-content: center;
+        }
+    }
+
+    /* Performans uyarısı */
+    .performance-warning {
+        background: linear-gradient(135deg, #ffeaa7 0%, #fab1a0 100%);
+        border: none;
+        color: #2d3436;
+        border-radius: 10px;
+        padding: 12px 16px;
+        margin-bottom: 15px;
+    }
 </style>
 {% endblock %}
 
@@ -87,19 +149,37 @@ Geçmiş Veriler
             </button>
             <h2 class="mb-0">{{ cihaz_adi }} - Geçmiş Veriler</h2>
         </div>
-        <div>
-            <span class="badge bg-info">{{ veriler|length }} kayıt</span>
+        <div class="d-flex gap-2">
+            <span class="badge bg-info">Toplam: {{ total_db_records or 0 }} kayıt</span>
+            <span class="badge bg-primary">Gösterilen: {{ pagination.total_records if pagination else veriler|length }}</span>
         </div>
     </div>
+
+    <!-- Performans Uyarısı -->
+    {% if pagination and pagination.total_records > 5000 %}
+    <div class="alert performance-warning">
+        <div class="d-flex align-items-center">
+            <i class="fas fa-exclamation-triangle fa-lg me-3"></i>
+            <div>
+                <strong>Performans Uyarısı:</strong> Toplam {{ pagination.total_records }} kayıt bulundu.
+                Sayfalar halinde gösteriliyor (sayfa başına {{ pagination.per_page }} kayıt).
+                Daha hızlı sonuç için tarih aralığını daraltın veya sensör filtresi kullanın.
+            </div>
+        </div>
+    </div>
+    {% endif %}
 
     <!-- Filtreleme Kartı -->
     <div class="card mb-4">
         <div class="card-body">
-            <form method="GET" class="row g-3">
+            <form method="GET" class="row g-3" id="filterForm">
+                <!-- Hidden sayfa numarası -->
+                <input type="hidden" name="page" value="1">
+
                 <!-- İlk Satır -->
                 <div class="col-xl-3 col-lg-4 col-md-6">
                     <label class="form-label">Başlangıç Tarihi</label>
-                    <input type="date" class="form-control" name="start_date" 
+                    <input type="date" class="form-control" name="start_date"
                            value="{{ start_date or '' }}"
                            {% if default_start_date %}min="{{ default_start_date }}"{% endif %}
                            {% if default_end_date %}max="{{ default_end_date }}"{% endif %}>
@@ -109,7 +189,7 @@ Geçmiş Veriler
                 </div>
                 <div class="col-xl-3 col-lg-4 col-md-6">
                     <label class="form-label">Bitiş Tarihi</label>
-                    <input type="date" class="form-control" name="end_date" 
+                    <input type="date" class="form-control" name="end_date"
                            value="{{ end_date or '' }}"
                            {% if default_start_date %}min="{{ default_start_date }}"{% endif %}
                            {% if default_end_date %}max="{{ default_end_date }}"{% endif %}>
@@ -131,21 +211,21 @@ Geçmiş Veriler
                 <div class="col-xl-3 col-lg-4 col-md-6">
                     <label class="form-label">Kayıt Limiti</label>
                     <select class="form-select" name="limit">
-                        <option value="all" {% if current_limit == 'all' or not current_limit %}selected{% endif %}>Tümü</option>
-                        <option value="100" {% if current_limit == '100' %}selected{% endif %}>100</option>
-                        <option value="500" {% if current_limit == '500' %}selected{% endif %}>500</option>
-                        <option value="1000" {% if current_limit == '1000' %}selected{% endif %}>1000</option>
+                        <option value="1000" {% if current_limit == '1000' or not current_limit %}selected{% endif %}>1000 (Önerilen)</option>
+                        <option value="2500" {% if current_limit == '2500' %}selected{% endif %}>2500</option>
                         <option value="5000" {% if current_limit == '5000' %}selected{% endif %}>5000</option>
+                        <option value="all" {% if current_limit == 'all' %}selected{% endif %}>Tümü (Max 10K)</option>
                     </select>
+                    <div class="form-text">Performans için 1000 önerilir</div>
                 </div>
-                
+
                 <!-- İkinci Satır - Butonlar -->
                 <div class="col-12">
                     <div class="d-flex flex-wrap gap-2 justify-content-start">
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-search"></i> Filtrele
                         </button>
-                        <a href="{{ url_for('excel_export', cihaz_id=cihaz_id) }}?{{ request.query_string.decode() }}" 
+                        <a href="{{ url_for('excel_export', cihaz_id=cihaz_id) }}?{{ request.query_string.decode() }}"
                            class="btn btn-success">
                             <i class="fas fa-file-excel"></i> Excel
                         </a>
@@ -163,11 +243,65 @@ Geçmiş Veriler
         </div>
     </div>
 
+    <!-- Sayfalama Bilgileri ve Kontroller -->
+    {% if pagination and pagination.total_pages > 1 %}
+    <div class="pagination-info">
+        <div class="row">
+            <div class="col-md-6">
+                <strong>Sayfa {{ pagination.current_page }} / {{ pagination.total_pages }}</strong>
+                <br>
+                <small class="text-muted">
+                    {{ pagination.showing_from }}-{{ pagination.showing_to }} arası gösteriliyor
+                    (Toplam: {{ pagination.total_records }} kayıt)
+                </small>
+            </div>
+            <div class="col-md-6">
+                <div class="pagination-controls">
+                    <!-- Sayfa Navigasyonu -->
+                    <div class="pagination-nav">
+                        <a href="?{{ request.query_string.decode()|replace('page=' + pagination.current_page|string, 'page=1') }}"
+                           class="btn btn-outline-secondary btn-sm {% if not pagination.has_prev %}disabled{% endif %}">
+                            <i class="fas fa-angle-double-left"></i> İlk
+                        </a>
+                        <a href="?{{ request.query_string.decode()|replace('page=' + pagination.current_page|string, 'page=' + pagination.prev_page|string) if pagination.prev_page else '#' }}"
+                           class="btn btn-outline-secondary btn-sm {% if not pagination.has_prev %}disabled{% endif %}">
+                            <i class="fas fa-angle-left"></i> Önceki
+                        </a>
+                        <a href="?{{ request.query_string.decode()|replace('page=' + pagination.current_page|string, 'page=' + pagination.next_page|string) if pagination.next_page else '#' }}"
+                           class="btn btn-outline-secondary btn-sm {% if not pagination.has_next %}disabled{% endif %}">
+                            Sonraki <i class="fas fa-angle-right"></i>
+                        </a>
+                        <a href="?{{ request.query_string.decode()|replace('page=' + pagination.current_page|string, 'page=' + pagination.total_pages|string) }}"
+                           class="btn btn-outline-secondary btn-sm {% if not pagination.has_next %}disabled{% endif %}">
+                            Son <i class="fas fa-angle-double-right"></i>
+                        </a>
+                    </div>
+
+                    <!-- Direkt Sayfa Atlama -->
+                    <div class="page-input-group">
+                        <label class="form-label mb-0">Sayfa:</label>
+                        <input type="number" class="form-control page-input" id="pageJump"
+                               min="1" max="{{ pagination.total_pages }}"
+                               value="{{ pagination.current_page }}"
+                               onkeypress="if(event.key==='Enter') jumpToPage()">
+                        <button class="btn btn-outline-primary btn-sm" onclick="jumpToPage()">Git</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Veri Tablosu -->
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
             <h5 class="mb-0">Sensör Verileri</h5>
-            <span class="badge bg-primary">{{ veriler|length }} kayıt</span>
+            <div class="d-flex gap-2">
+                {% if pagination %}
+                <span class="badge bg-secondary">Sayfa {{ pagination.current_page }}/{{ pagination.total_pages }}</span>
+                {% endif %}
+                <span class="badge bg-primary">{{ veriler|length }} kayıt</span>
+            </div>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
@@ -212,6 +346,47 @@ Geçmiş Veriler
         </div>
     </div>
 
+    <!-- Alt Sayfalama -->
+    {% if pagination and pagination.total_pages > 1 %}
+    <div class="d-flex justify-content-center mt-3">
+        <nav aria-label="Sayfa navigasyonu">
+            <ul class="pagination">
+                <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                    <a class="page-link" href="?{{ request.query_string.decode()|replace('page=' + pagination.current_page|string, 'page=1') }}">İlk</a>
+                </li>
+                <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                    <a class="page-link" href="?{{ request.query_string.decode()|replace('page=' + pagination.current_page|string, 'page=' + pagination.prev_page|string) if pagination.prev_page else '#' }}">Önceki</a>
+                </li>
+
+                <!-- Sayfa numaraları -->
+                {% set start_page = [pagination.current_page - 2, 1]|max %}
+                {% set end_page = [pagination.current_page + 2, pagination.total_pages]|min %}
+
+                {% if start_page > 1 %}
+                <li class="page-item"><span class="page-link">...</span></li>
+                {% endif %}
+
+                {% for page_num in range(start_page, end_page + 1) %}
+                <li class="page-item {% if page_num == pagination.current_page %}active{% endif %}">
+                    <a class="page-link" href="?{{ request.query_string.decode()|replace('page=' + pagination.current_page|string, 'page=' + page_num|string) }}">{{ page_num }}</a>
+                </li>
+                {% endfor %}
+
+                {% if end_page < pagination.total_pages %}
+                <li class="page-item"><span class="page-link">...</span></li>
+                {% endif %}
+
+                <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                    <a class="page-link" href="?{{ request.query_string.decode()|replace('page=' + pagination.current_page|string, 'page=' + pagination.next_page|string) if pagination.next_page else '#' }}">Sonraki</a>
+                </li>
+                <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                    <a class="page-link" href="?{{ request.query_string.decode()|replace('page=' + pagination.current_page|string, 'page=' + pagination.total_pages|string) }}">Son</a>
+                </li>
+            </ul>
+        </nav>
+    </div>
+    {% endif %}
+
     {% if not veriler %}
     <div class="alert alert-info text-center mt-4">
         <h5>Veri Bulunamadı</h5>
@@ -222,39 +397,54 @@ Geçmiş Veriler
 
 <script>
     $(document).ready(function() {
+        // DataTable'ı sayfalama KAPALI olarak başlat
         $('#veriTablosu').DataTable({
             order: [[0, 'desc'], [1, 'desc']],
-            pageLength: 25,
+            paging: false,  // Kendi sayfalamamızı kullanıyoruz
+            searching: false,  // Kendi filtremizi kullanıyoruz
+            info: false,  // Bilgi göstermede kendi yazımızı kullanıyoruz
             language: {
                 url: '//cdn.datatables.net/plug-ins/1.11.5/i18n/tr.json'
             },
             responsive: true,
-            scrollX: true
+            scrollX: true,
+            pageLength: -1  // Tüm kayıtları göster
         });
-        
+
         // Sayfa yüklendiğinde tarihleri otomatik doldur
         initializeDates();
+
+        // Performans uyarısı göster
+        showPerformanceWarning();
     });
 
-    // Tarihleri otomatik doldur - DÜZELTİLMİŞ VERSİYON
+    // Tarihleri otomatik doldur
     function initializeDates() {
         const startDateInput = document.querySelector('input[name="start_date"]');
         const endDateInput = document.querySelector('input[name="end_date"]');
-        
-        // Hidden input'lardan değerleri al
+
         const defaultStartDate = document.getElementById('defaultStartDate').value;
         const defaultEndDate = document.getElementById('defaultEndDate').value;
         const currentStartDate = document.getElementById('currentStartDate').value;
         const currentEndDate = document.getElementById('currentEndDate').value;
-        
-        // Eğer mevcut tarihler boşsa ve varsayılan değerler varsa otomatik doldur
+
         if (!currentStartDate && defaultStartDate && startDateInput && !startDateInput.value) {
             startDateInput.value = defaultStartDate;
         }
-        
+
         if (!currentEndDate && defaultEndDate && endDateInput && !endDateInput.value) {
             endDateInput.value = defaultEndDate;
         }
+    }
+
+    // Performans uyarısı
+    function showPerformanceWarning() {
+        {% if pagination and pagination.total_records > 5000 %}
+        const recordCount = {{ pagination.total_records }};
+        if (recordCount > 10000) {
+            console.warn(`⚠️ Yüksek veri miktarı: ${recordCount} kayıt. Performans için filtreleme önerilir.`);
+        }
+        {% endif %}
     }
 
     // Filtreleri temizle
@@ -262,25 +452,95 @@ Geçmiş Veriler
         document.querySelector('input[name="start_date"]').value = '';
         document.querySelector('input[name="end_date"]').value = '';
         document.querySelector('select[name="sensor_id"]').value = '';
-        document.querySelector('select[name="limit"]').value = 'all';
-        
+        document.querySelector('select[name="limit"]').value = '1000';
+        document.querySelector('input[name="page"]').value = '1';
+
         // Formu gönder
         document.querySelector('form').submit();
     }
-    
-    // Hızlı tarih seçimi fonksiyonları
+
+    // Hızlı tarih seçimi
     function setQuickDate(days) {
         const endDate = new Date();
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - days);
-        
-        document.querySelector('input[name="start_date"]').value = 
+
+        document.querySelector('input[name="start_date"]').value =
             startDate.toISOString().split('T')[0];
-        document.querySelector('input[name="end_date"]').value = 
+        document.querySelector('input[name="end_date"]').value =
             endDate.toISOString().split('T')[0];
-        
+
+        // Sayfa numarasını 1'e sıfırla
+        document.querySelector('input[name="page"]').value = '1';
+
         // Formu otomatik gönder
         document.querySelector('form').submit();
     }
+
+    // Sayfa atlama
+    function jumpToPage() {
+        const pageInput = document.getElementById('pageJump');
+        const targetPage = parseInt(pageInput.value);
+
+        {% if pagination %}
+        const maxPage = {{ pagination.total_pages }};
+
+        if (targetPage >= 1 && targetPage <= maxPage) {
+            // Mevcut URL'yi al ve page parametresini değiştir
+            const currentUrl = new URL(window.location);
+            currentUrl.searchParams.set('page', targetPage);
+            window.location.href = currentUrl.toString();
+        } else {
+            alert(`Sayfa numarası 1-${maxPage} arasında olmalıdır.`);
+            pageInput.value = {{ pagination.current_page }};
+        }
+        {% endif %}
+    }
+
+    // Form gönderildiğinde sayfa numarasını sıfırla (filtreleme için)
+    document.getElementById('filterForm').addEventListener('submit', function() {
+        document.querySelector('input[name="page"]').value = '1';
+    });
+
+    // Klavye kısayolları
+    document.addEventListener('keydown', function(e) {
+        // Sayfalama klavye kısayolları
+        {% if pagination %}
+        if (e.ctrlKey) {
+            switch(e.key) {
+                case 'ArrowLeft':  // Ctrl + Sol Ok = Önceki sayfa
+                    e.preventDefault();
+                    {% if pagination.has_prev %}
+                    window.location.href = '?{{ request.query_string.decode()|replace("page=" + pagination.current_page|string, "page=" + pagination.prev_page|string) if pagination.prev_page else "#" }}';
+                    {% endif %}
+                    break;
+                case 'ArrowRight': // Ctrl + Sağ Ok = Sonraki sayfa
+                    e.preventDefault();
+                    {% if pagination.has_next %}
+                    window.location.href = '?{{ request.query_string.decode()|replace("page=" + pagination.current_page|string, "page=" + pagination.next_page|string) if pagination.next_page else "#" }}';
+                    {% endif %}
+                    break;
+                case 'Home': // Ctrl + Home = İlk sayfa
+                    e.preventDefault();
+                    window.location.href = '?{{ request.query_string.decode()|replace("page=" + pagination.current_page|string, "page=1") }}';
+                    break;
+                case 'End': // Ctrl + End = Son sayfa
+                    e.preventDefault();
+                    window.location.href = '?{{ request.query_string.decode()|replace("page=" + pagination.current_page|string, "page=" + pagination.total_pages|string) }}';
+                    break;
+            }
+        }
+        {% endif %}
+    });
+
+    // Sayfa boyutu değiştiğinde uyarı
+    window.addEventListener('beforeunload', function() {
+        {% if pagination and pagination.total_records > 5000 %}
+        console.log('📊 Performans İstatistikleri:');
+        console.log(`   • Toplam kayıt: {{ pagination.total_records }}`);
+        console.log(`   • Gösterilen: {{ veriler|length }}`);
+        console.log(`   • Sayfa: {{ pagination.current_page }}/{{ pagination.total_pages }}`);
+        {% endif %}
+    });
 </script>
 {% endblock %}
