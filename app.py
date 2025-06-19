@@ -304,6 +304,29 @@ def init_db():
             )
         ''')
 
+        # 9. FIRES TABLOSU - YENİ! ← BU SATIRI VE ALTTAKI KODU EKLE
+        conn.execute('''
+                    CREATE TABLE IF NOT EXISTS fires (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        work_order_id INTEGER NOT NULL,
+                        cihaz_id TEXT NOT NULL,
+                        is_emri_no TEXT NOT NULL,
+                        fire_id TEXT NOT NULL,
+                        baslama_zamani TEXT NOT NULL,
+                        bitis_zamani TEXT,
+                        miktar INTEGER DEFAULT 0,
+                        neden_kodu INTEGER,
+                        neden_aciklama TEXT,
+                        aciklama TEXT,
+                        sure_saniye INTEGER DEFAULT 0,
+                        sure_dakika INTEGER DEFAULT 0,
+                        sure_str TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (work_order_id) REFERENCES work_orders (id),
+                        FOREIGN KEY (cihaz_id) REFERENCES devices (cihaz_id)
+                    )
+                ''')
+
         try:
             # Admin kullanıcısı var mı kontrol et
             cursor = conn.execute('SELECT COUNT(*) FROM users WHERE username = ?', ('admin',))
@@ -800,7 +823,7 @@ def receive_data():
                             f"✅ Yeni iş emri oluşturuldu: {is_emri_no} (ID: {work_order_id}) - {created_at_turkey} (Türkiye Saati)")
                         logger.info(f"📊 Başlangıç performans: Gerçekleşen={initial_gerceklesen}, Fire={initial_fire}")
 
-                    # ✅ DURUŞ VERİLERİNİ İŞLE - YENİ!
+                    # ✅ DURUŞ VERİLERİNİ İŞLE
                     if 'duruslar' in is_emri and is_emri['duruslar']:
                         duruslar = is_emri['duruslar']
                         logger.info(f"🔧 {len(duruslar)} duruş verisi işleniyor...")
@@ -860,6 +883,67 @@ def receive_data():
 
                             logger.info(f"🔧 Toplam {duruslar_sayisi}/{len(duruslar)} duruş verisi başarıyla işlendi")
 
+                    # ✅ FİRE VERİLERİNİ İŞLE - YENİ!
+                    if 'fire_kayitlari' in is_emri and is_emri['fire_kayitlari']:
+                        fire_kayitlari = is_emri['fire_kayitlari']
+                        logger.info(f"🔥 {len(fire_kayitlari)} fire verisi işleniyor...")
+
+                        # İş emri ID'sini al (mevcut veya yeni oluşturulan)
+                        if 'work_order_id' not in locals():
+                            work_order = conn.execute('''
+                                SELECT id FROM work_orders 
+                                WHERE cihaz_id = ? AND is_emri_no = ? 
+                                ORDER BY id DESC LIMIT 1
+                            ''', (data['cihaz_id'], is_emri_no)).fetchone()
+
+                            if work_order:
+                                work_order_id = work_order['id']
+                            else:
+                                logger.warning(f"⚠️ İş emri bulunamadı, fire verileri kaydedilemedi: {is_emri_no}")
+                                work_order_id = None
+
+                        if work_order_id:
+                            # Mevcut fire kayıtlarını sil (güncellenmiş veri için)
+                            conn.execute('''
+                                DELETE FROM fires 
+                                WHERE work_order_id = ? AND is_emri_no = ?
+                            ''', (work_order_id, is_emri_no))
+
+                            # Yeni fire verilerini ekle
+                            fire_sayisi = 0
+                            for fire in fire_kayitlari:
+                                try:
+                                    conn.execute('''
+                                        INSERT INTO fires (
+                                            work_order_id, cihaz_id, is_emri_no, fire_id,
+                                            baslama_zamani, bitis_zamani, miktar, neden_kodu,
+                                            neden_aciklama, aciklama, sure_saniye, sure_dakika, sure_str
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    ''', (
+                                        work_order_id,
+                                        data['cihaz_id'],
+                                        is_emri_no,
+                                        fire.get('id', ''),
+                                        fire.get('baslama_zamani', ''),
+                                        fire.get('bitis_zamani', ''),
+                                        fire.get('miktar', 0),
+                                        fire.get('neden_kodu', 0),
+                                        fire.get('neden_aciklama', ''),
+                                        fire.get('aciklama', ''),
+                                        fire.get('sure_saniye', 0),
+                                        fire.get('sure_dakika', 0),
+                                        fire.get('sure_str', '')
+                                    ))
+
+                                    fire_sayisi += 1
+                                    logger.info(
+                                        f"✅ Fire kaydedildi: {fire.get('id')} - {fire.get('miktar')} adet - {fire.get('neden_aciklama')} ({fire.get('sure_str')})")
+
+                                except Exception as e:
+                                    logger.error(f"❌ Fire kayıt hatası: {str(e)} - {fire}")
+
+                            logger.info(f"🔥 Toplam {fire_sayisi}/{len(fire_kayitlari)} fire verisi başarıyla işlendi")
+
             # ✅ SENSÖR VERİLERİNİ AYRI TABLODA DA KAYDET (tarihsel veri için)
             # 'sensor_verileri' kullan (Arduino'dan gelen format)
             if 'sensor_verileri' in data:
@@ -917,6 +1001,24 @@ def get_downtimes(work_order_id):
             return jsonify({
                 'success': True,
                 'downtimes': [dict(d) for d in downtimes]
+            })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/fires/<int:work_order_id>')
+@login_required
+def get_fires(work_order_id):
+    try:
+        with get_db() as conn:
+            fires = conn.execute('''
+                SELECT * FROM fires 
+                WHERE work_order_id = ? 
+                ORDER BY baslama_zamani
+            ''', (work_order_id,)).fetchall()
+
+            return jsonify({
+                'success': True,
+                'fires': [dict(f) for f in fires]
             })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
