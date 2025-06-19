@@ -112,6 +112,31 @@
         transform-origin: 50% 50%;
     }
 
+    .downtime-item {
+        background: white;
+        border-radius: 5px;
+        padding: 8px;
+        margin-bottom: 5px;
+        font-size: 0.9rem;
+    }
+
+    /* Fire verileri için stiller - YENİ! */
+    .fire-section {
+        background: #ffe8e8;
+        border-radius: 8px;
+        padding: 10px;
+        margin-top: 10px;
+        border-left: 3px solid #dc3545;
+    }
+
+    .fire-item {
+        background: white;
+        border-radius: 5px;
+        padding: 8px;
+        margin-bottom: 5px;
+        font-size: 0.9rem;
+    }
+
     /* Duruş verileri için basit stiller */
     .downtime-section {
         background: #f8f9fa;
@@ -339,6 +364,23 @@
                                     </div>
                                 </div>
 
+                                <!-- FIRE VERİLERİ - YENİ! -->
+                                <div class="fire-section" id="fires-{{ wo.id }}" style="display: none;">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <small><strong><i class="fas fa-fire me-1"></i>Fire Verileri</strong></small>
+                                        <button class="btn btn-sm btn-outline-secondary" onclick="loadFires({{ wo.id }})">
+                                            <i class="fas fa-sync-alt"></i>
+                                        </button>
+                                    </div>
+                                    <div id="fire-content-{{ wo.id }}">
+                                        <div class="text-center py-2">
+                                            <small class="text-muted">Fire verileri yüklenmedi</small>
+                                        </div>
+                                    </div>
+                                </div>
+
+
+
                                 <div class="mt-3 d-flex gap-2">
                                     <a href="{{ url_for('cihaz_detay', cihaz_id=wo.cihaz_id) }}"
                                        class="btn btn-sm btn-outline-primary">
@@ -354,6 +396,9 @@
                                     {% endif %}
                                     <button class="btn btn-sm btn-outline-info" onclick="toggleDowntimes({{ wo.id }})">
                                         <i class="fas fa-tools"></i> Duruşlar
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger" onclick="toggleFires({{ wo.id }})">
+                                        <i class="fas fa-fire"></i> Fire
                                     </button>
                                 </div>
                             </div>
@@ -606,6 +651,71 @@ function loadDowntimes(workOrderId) {
         .catch(error => {
             console.error('Downtime loading error:', error);
             contentElement.innerHTML = '<div class="text-center py-2"><small class="text-danger">Bağlantı hatası</small></div>';
+        });
+}
+
+// Fire toggle fonksiyonu - YENİ!
+function toggleFires(workOrderId) {
+    const section = document.getElementById(`fires-${workOrderId}`);
+    if (section.style.display === 'none') {
+        section.style.display = 'block';
+        loadFires(workOrderId);
+    } else {
+        section.style.display = 'none';
+    }
+}
+
+// Fire yükleme fonksiyonu - YENİ!
+function loadFires(workOrderId) {
+    const contentElement = document.getElementById(`fire-content-${workOrderId}`);
+
+    contentElement.innerHTML = '<div class="text-center py-2"><small>Yükleniyor...</small></div>';
+
+    fetch(`/api/fires/${workOrderId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.fires.length > 0) {
+                let html = '';
+                let totalAmount = 0;
+
+                data.fires.forEach((f, index) => {
+                    totalAmount += f.miktar || 0;
+
+                    html += `
+                        <div class="fire-item border-start border-3 border-danger ps-3 mb-2">
+                            <div class="d-flex justify-content-between">
+                                <div>
+                                    <strong>${f.fire_id}</strong>
+                                    <span class="badge bg-danger ms-2">${f.miktar} adet</span>
+                                </div>
+                                <small>${f.sure_str || 'N/A'}</small>
+                            </div>
+                            <div class="small">
+                                <strong>Neden:</strong> ${f.neden_aciklama} |
+                                <strong>Açıklama:</strong> ${f.aciklama || 'Yok'}
+                            </div>
+                            <div class="small text-muted">
+                                <i class="fas fa-clock me-1"></i>
+                                ${f.baslama_zamani || 'N/A'} → ${f.bitis_zamani || 'N/A'}
+                            </div>
+                        </div>
+                    `;
+                });
+
+                html += `
+                    <div class="mt-2 p-2 bg-light rounded">
+                        <strong>Toplam Fire: ${totalAmount} adet (${data.fires.length} kayıt)</strong>
+                    </div>
+                `;
+
+                contentElement.innerHTML = html;
+            } else {
+                contentElement.innerHTML = '<div class="text-center py-2"><small class="text-muted">Fire kaydı yok</small></div>';
+            }
+        })
+        .catch(error => {
+            console.error('Fire loading error:', error);
+            contentElement.innerHTML = '<div class="text-center py-2"><small class="text-danger">Hata oluştu</small></div>';
         });
 }
 
