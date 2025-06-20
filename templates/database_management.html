@@ -291,8 +291,6 @@ Veritabanı Yönetimi
     </div>
 </div>
 
-<!-- database_management.html içindeki script bölümünü bu şekilde değiştirin -->
-
 <script>
 let selectedRestoreFile = null;
 
@@ -301,39 +299,58 @@ $(document).ready(function() {
     loadBackups();
 });
 
-// Modal her açıldığında checkbox event'ini yeniden bind et
+// Checkbox değişiklik event'i - document ready'de bir kez tanımla
+$(document).on('change', '#confirmRestore', function() {
+    const isChecked = this.checked;
+    const restoreBtn = document.getElementById('confirmRestoreBtn');
+    
+    if (restoreBtn) {
+        restoreBtn.disabled = !isChecked;
+        
+        // Debug için console log
+        console.log('Checkbox changed:', isChecked, 'Button disabled:', !isChecked);
+    }
+});
+
+// Modal her açıldığında sadece reset işlemi yap
 $('#restoreModal').on('shown.bs.modal', function () {
     // Checkbox'ı resetle
-    $('#confirmRestore').prop('checked', false);
-    $('#confirmRestoreBtn').prop('disabled', true);
+    const checkbox = document.getElementById('confirmRestore');
+    const restoreBtn = document.getElementById('confirmRestoreBtn');
     
-    // Event listener'ı yeniden ekle
-    $('#confirmRestore').off('change').on('change', function() {
-        $('#confirmRestoreBtn').prop('disabled', !this.checked);
-    });
+    if (checkbox) checkbox.checked = false;
+    if (restoreBtn) restoreBtn.disabled = true;
+    
+    console.log('Modal opened - Reset checkbox and button');
 });
 
 // Modal kapandığında temizlik yap
 $('#restoreModal').on('hidden.bs.modal', function () {
     selectedRestoreFile = null;
-    document.getElementById('restoreFile').value = '';
-    document.getElementById('confirmRestore').checked = false;
-    document.getElementById('confirmRestoreBtn').disabled = true;
+    const fileInput = document.getElementById('restoreFile');
+    const checkbox = document.getElementById('confirmRestore');
+    const restoreBtn = document.getElementById('confirmRestoreBtn');
+    
+    if (fileInput) fileInput.value = '';
+    if (checkbox) checkbox.checked = false;
+    if (restoreBtn) restoreBtn.disabled = true;
+    
+    console.log('Modal closed - Cleaned up');
 });
 
 // Yedek oluştur
 function createBackup() {
     const btn = event.target;
     const originalText = btn.innerHTML;
-    
+
     // Loading state
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Yedekleniyor...';
-    
+
     // Progress bar göster
     $('.progress-container').show();
     $('.progress-bar').css('width', '30%');
-    
+
     fetch('/admin/backup', {
         method: 'POST',
         headers: {
@@ -343,18 +360,18 @@ function createBackup() {
     .then(response => response.json())
     .then(data => {
         $('.progress-bar').css('width', '100%');
-        
+
         setTimeout(() => {
             $('.progress-container').hide();
             $('.progress-bar').css('width', '0%');
-            
+
             if (data.success) {
                 showNotification('success', `Yedekleme başarılı! ${data.filename} (${(data.size/1024/1024).toFixed(1)} MB)`);
                 loadBackups(); // Yedek listesini yenile
             } else {
                 showNotification('error', data.error || 'Yedekleme başarısız');
             }
-            
+
             // Button'u eski haline getir
             btn.disabled = false;
             btn.innerHTML = originalText;
@@ -363,7 +380,7 @@ function createBackup() {
     .catch(error => {
         console.error('Error:', error);
         showNotification('error', 'Yedekleme sırasında hata oluştu');
-        
+
         $('.progress-container').hide();
         $('.progress-bar').css('width', '0%');
         btn.disabled = false;
@@ -377,7 +394,7 @@ function loadBackups() {
     .then(response => response.json())
     .then(data => {
         const container = document.getElementById('backupsList');
-        
+
         if (data.error) {
             container.innerHTML = `
                 <div class="alert alert-danger">
@@ -387,7 +404,7 @@ function loadBackups() {
             `;
             return;
         }
-        
+
         if (data.backups.length === 0) {
             container.innerHTML = `
                 <div class="text-center py-4 text-muted">
@@ -398,12 +415,12 @@ function loadBackups() {
             `;
             return;
         }
-        
+
         let html = '';
         data.backups.forEach(backup => {
             const sizeInMB = (backup.size / 1024 / 1024).toFixed(1);
             const info = backup.info;
-            
+
             html += `
                 <div class="backup-item border rounded p-3 mb-2">
                     <div class="d-flex justify-content-between align-items-center">
@@ -413,19 +430,19 @@ function loadBackups() {
                                 ${backup.filename}
                             </h6>
                             <small class="text-muted">
-                                <i class="fas fa-calendar me-1"></i>${backup.created} | 
+                                <i class="fas fa-calendar me-1"></i>${backup.created} |
                                 <i class="fas fa-hdd me-1"></i>${sizeInMB} MB
                                 ${info.created_by ? `| <i class="fas fa-user me-1"></i>${info.created_by}` : ''}
                             </small>
                             ${info.firmware_count ? `<br><small class="text-info"><i class="fas fa-microchip me-1"></i>${info.firmware_count} firmware dosyası</small>` : ''}
                         </div>
                         <div class="btn-group">
-                            <button class="btn btn-outline-primary btn-sm" 
+                            <button class="btn btn-outline-primary btn-sm"
                                     onclick="downloadBackup('${backup.filename}')"
                                     title="İndir">
                                 <i class="fas fa-download"></i>
                             </button>
-                            <button class="btn btn-outline-danger btn-sm" 
+                            <button class="btn btn-outline-danger btn-sm"
                                     onclick="deleteBackup('${backup.filename}')"
                                     title="Sil">
                                 <i class="fas fa-trash"></i>
@@ -435,7 +452,7 @@ function loadBackups() {
                 </div>
             `;
         });
-        
+
         container.innerHTML = html;
     })
     .catch(error => {
@@ -481,14 +498,14 @@ function deleteBackup(filename) {
 function handleRestoreFile(input) {
     const file = input.files[0];
     if (!file) return;
-    
+
     if (!file.name.endsWith('.zip')) {
         showNotification('error', 'Lütfen geçerli bir ZIP dosyası seçin');
         return;
     }
-    
+
     selectedRestoreFile = file;
-    
+
     // Dosya bilgilerini göster
     const fileInfo = `
         <div class="alert alert-info">
@@ -498,12 +515,14 @@ function handleRestoreFile(input) {
             <strong>Tip:</strong> ${file.type || 'application/zip'}
         </div>
     `;
-    
+
     document.getElementById('restoreFileInfo').innerHTML = fileInfo;
-    
+
     // Modal'ı göster
     const modal = new bootstrap.Modal(document.getElementById('restoreModal'));
     modal.show();
+    
+    console.log('File selected, modal should open');
 }
 
 // Geri yükleme işlemini gerçekleştir
@@ -512,23 +531,23 @@ function performRestore() {
         showNotification('error', 'Dosya seçilmedi');
         return;
     }
-    
+
     // Checkbox kontrolü
     if (!document.getElementById('confirmRestore').checked) {
         showNotification('error', 'Lütfen onay kutusunu işaretleyin');
         return;
     }
-    
+
     const formData = new FormData();
     formData.append('backup_file', selectedRestoreFile);
-    
+
     // Modal'ı kapat
     const modal = bootstrap.Modal.getInstance(document.getElementById('restoreModal'));
     modal.hide();
-    
+
     // Loading notification
     showNotification('info', 'Veritabanı geri yükleniyor... Bu işlem birkaç dakika sürebilir.');
-    
+
     fetch('/admin/restore', {
         method: 'POST',
         body: formData
@@ -537,12 +556,12 @@ function performRestore() {
     .then(data => {
         if (data.success) {
             showNotification('success', data.message);
-            
+
             // Backup info varsa göster
             if (data.backup_info) {
                 console.log('Yedek bilgileri:', data.backup_info);
             }
-            
+
             // Sayfa istatistiklerini yenile
             setTimeout(() => {
                 window.location.reload();
@@ -563,7 +582,7 @@ function performRestore() {
 // Drag & Drop işlevselliği
 document.addEventListener('DOMContentLoaded', function() {
     const dropZone = document.querySelector('.file-drop-zone');
-    
+
     if (dropZone) {
         dropZone.addEventListener('dragover', function(e) {
             e.preventDefault();
@@ -578,7 +597,7 @@ document.addEventListener('DOMContentLoaded', function() {
         dropZone.addEventListener('drop', function(e) {
             e.preventDefault();
             this.classList.remove('dragover');
-            
+
             const files = e.dataTransfer.files;
             if (files.length > 0) {
                 const file = files[0];
