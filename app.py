@@ -3785,10 +3785,10 @@ def user_management():
 @login_required
 @admin_required
 def get_users_api():
-    """Kullanıcı listesi API"""
+    """Kullanıcı listesi API - factory_access dahil"""
     try:
         with get_db() as conn:
-            # Basit ve güvenli sorgu
+            # ✅ DÜZELTİLMİŞ: factory_access sütununu da dahil et
             try:
                 users = conn.execute('''
                     SELECT id, username, 
@@ -3796,12 +3796,16 @@ def get_users_api():
                            COALESCE(role, 'user') as role,
                            COALESCE(is_active, 1) as is_active,
                            created_at,
-                           last_login
+                           last_login,
+                           factory_access
                     FROM users 
                     ORDER BY id
                 ''').fetchall()
+
+                logger.info(f"✅ Retrieved {len(users)} users with factory access")
+
             except sqlite3.OperationalError as e:
-                # Tablo veya sütun yoksa basit sorgu
+                # Sütun yoksa basit sorgu
                 logger.warning(f"Column missing, using basic query: {e}")
                 users = conn.execute('SELECT id, username FROM users').fetchall()
 
@@ -3814,6 +3818,7 @@ def get_users_api():
                     user_dict['is_active'] = True
                     user_dict['created_at'] = None
                     user_dict['last_login'] = None
+                    user_dict['factory_access'] = None  # ✅ Null değer ekle
                     user_list.append(user_dict)
 
                 return jsonify({
@@ -3822,11 +3827,15 @@ def get_users_api():
                     'message': 'Basit veri formatı (bazı sütunlar eksik)'
                 })
 
-            # Normal sonuç
+            # Normal sonuç - factory_access dahil
             user_list = []
             for user in users:
                 user_dict = dict(user)
                 user_dict.pop('password', None)  # Şifreyi kaldır
+
+                # Debug log
+                logger.info(f"👤 User: {user_dict['username']}, Factory: {user_dict.get('factory_access', 'None')}")
+
                 user_list.append(user_dict)
 
             return jsonify({
