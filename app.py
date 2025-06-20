@@ -1457,25 +1457,32 @@ def generate_work_order_pdf_report(work_order_id):
     """İş emri PDF raporu oluştur - GERÇEK TÜRKÇE FİX"""
     try:
         with get_db() as conn:
-            # İş emri bilgileri
-            work_order = conn.execute('''
+            # İş emri bilgileri - ROW TO DICT FIX
+            work_order_raw = conn.execute('''
                 SELECT wo.*, d.cihaz_adi, d.konum, d.fabrika_adi
                 FROM work_orders wo
                 LEFT JOIN devices d ON wo.cihaz_id = d.cihaz_id
                 WHERE wo.id = ?
             ''', (work_order_id,)).fetchone()
 
-            if not work_order:
+            if not work_order_raw:
                 return jsonify({'error': 'İş emri bulunamadı'}), 404
 
-            # Duruş ve fire kayıtları
-            downtime_records = conn.execute('''
+            # 🔧 ROW'u DICT'e çevir
+            work_order = dict(work_order_raw)
+
+            # Duruş ve fire kayıtları - ROW TO DICT FIX
+            downtime_records_raw = conn.execute('''
                 SELECT * FROM downtimes WHERE work_order_id = ? ORDER BY baslama_zamani
             ''', (work_order_id,)).fetchall()
 
-            fire_records = conn.execute('''
+            fire_records_raw = conn.execute('''
                 SELECT * FROM fires WHERE work_order_id = ? ORDER BY baslama_zamani
             ''', (work_order_id,)).fetchall()
+
+            # 🔧 ROW'ları DICT'e çevir
+            downtime_records = [dict(row) for row in downtime_records_raw]
+            fire_records = [dict(row) for row in fire_records_raw]
 
         # PDF oluştur
         buffer = io.BytesIO()
