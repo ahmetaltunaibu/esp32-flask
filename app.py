@@ -1832,8 +1832,6 @@ def generate_work_order_excel_report(work_order_id):
         logger.error(f"❌ Excel report error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-
-
 # toplu iş emirleri fonksiyonu
 @app.route('/admin/api/work_orders/bulk', methods=['POST'])
 @login_required
@@ -3936,9 +3934,12 @@ def get_activities_api():
 @login_required
 @admin_required
 def create_user_api():
-    """Yeni kullanıcı oluştur - fabrika kontrolü ile"""
+    """Yeni kullanıcı oluştur - fabrika kontrolü ile - DÜZELTİLMİŞ"""
     try:
         data = request.get_json()
+
+        # Debug log
+        logger.info(f"🔧 Create user request data: {data}")
 
         # Validation
         required_fields = ['username', 'password', 'name', 'role']
@@ -3946,13 +3947,21 @@ def create_user_api():
             if not data.get(field):
                 return jsonify({'success': False, 'error': f'{field} alanı gerekli'}), 400
 
-        # Fabrika kontrolü - admin değilse zorunlu
-        if data['role'] != 'admin':
-            if not data.get('factory_access'):
+        # ✅ Fabrika kontrolü - admin değilse zorunlu
+        role = data['role']
+        factory_access = data.get('factory_access')
+
+        logger.info(f"🏭 Role: {role}, Factory: {factory_access}")
+
+        if role != 'admin':
+            if not factory_access or factory_access.strip() == '':
+                logger.warning(f"❌ Factory access missing for non-admin user")
                 return jsonify({
                     'success': False,
                     'error': 'Admin olmayan kullanıcılar için fabrika seçimi zorunludur'
                 }), 400
+        else:
+            factory_access = None  # Admin için null
 
         with get_db() as conn:
             # Kullanıcı adı benzersizlik kontrolü
@@ -3967,10 +3976,20 @@ def create_user_api():
                 if existing_email:
                     return jsonify({'success': False, 'error': 'Bu email adresi zaten kullanılıyor'}), 400
 
-            # Factory access - admin değilse gerekli
-            factory_access = data.get('factory_access') if data['role'] != 'admin' else None
+            # ✅ Factory access sütunu var mı kontrol et
+            try:
+                conn.execute('SELECT factory_access FROM users LIMIT 1')
+                has_factory_column = True
+                logger.info("✅ factory_access sütunu mevcut")
+            except sqlite3.OperationalError:
+                # Sütun yoksa ekle
+                conn.execute('ALTER TABLE users ADD COLUMN factory_access TEXT DEFAULT NULL')
+                has_factory_column = True
+                logger.info("✅ factory_access sütunu eklendi")
 
-            # Kullanıcı oluştur
+            # ✅ DÜZELTİLMİŞ: Factory access ile kullanıcı oluştur
+            logger.info(f"💾 Inserting user with factory_access: {factory_access}")
+
             cursor = conn.execute('''
                 INSERT INTO users (username, password, name, email, role, is_active, factory_access)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -3979,13 +3998,20 @@ def create_user_api():
                 generate_password_hash(data['password']),
                 data['name'].strip(),
                 email if email else None,
-                data['role'],
+                role,
                 data.get('is_active', True),
-                factory_access
+                factory_access  # ✅ Bu satır önemli
             ))
 
             new_user_id = cursor.lastrowid
             conn.commit()
+
+            # Kontrol için yeni oluşturulan kullanıcıyı oku
+            created_user = conn.execute('''
+                SELECT username, factory_access FROM users WHERE id = ?
+            ''', (new_user_id,)).fetchone()
+
+            logger.info(f"✅ User created - ID: {new_user_id}, Factory in DB: {created_user['factory_access']}")
 
             # Aktivite logu
             factory_info = f" (Fabrika: {factory_access})" if factory_access else " (Tüm fabrikalar)"
@@ -3996,12 +4022,11 @@ def create_user_api():
                 conn=conn
             )
 
-            logger.info(f"✅ New user created: {data['username']} with factory access: {factory_access}")
-
             return jsonify({
                 'success': True,
-                'message': 'Kullanıcı başarıyla oluşturuldu',
-                'user_id': new_user_id
+                'message': f'Kullanıcı başarıyla oluşturuldu{factory_info}',
+                'user_id': new_user_id,
+                'debug_factory': factory_access  # Debug için
             })
 
     except sqlite3.IntegrityError:
