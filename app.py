@@ -1386,7 +1386,7 @@ def get_work_order_detail(work_order_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-# iş emri durumu değiştirme fonksiyonu
+
 @app.route('/admin/api/work_orders/<int:work_order_id>/status', methods=['PUT'])
 @login_required
 @admin_required
@@ -1454,9 +1454,8 @@ def change_work_order_status(work_order_id):
 @app.route('/api/work_order_report/<int:work_order_id>')
 @login_required
 def generate_work_order_pdf_report(work_order_id):
-    """İş emri PDF raporu oluştur - FIRE VERİLERİ + TÜRKÇE FİX"""
+    """İş emri PDF raporu oluştur - GERÇEK TÜRKÇE FİX"""
     try:
-        # Veritabanından iş emri bilgilerini al
         with get_db() as conn:
             # İş emri bilgileri
             work_order = conn.execute('''
@@ -1469,40 +1468,73 @@ def generate_work_order_pdf_report(work_order_id):
             if not work_order:
                 return jsonify({'error': 'İş emri bulunamadı'}), 404
 
-            # Duruş kayıtları
+            # Duruş ve fire kayıtları
             downtime_records = conn.execute('''
-                SELECT * FROM downtimes 
-                WHERE work_order_id = ? 
-                ORDER BY baslama_zamani
+                SELECT * FROM downtimes WHERE work_order_id = ? ORDER BY baslama_zamani
             ''', (work_order_id,)).fetchall()
 
-            # 🔥 FIRE KAYITLARINI AL - YENİ!
             fire_records = conn.execute('''
-                SELECT * FROM fires 
-                WHERE work_order_id = ? 
-                ORDER BY baslama_zamani
+                SELECT * FROM fires WHERE work_order_id = ? ORDER BY baslama_zamani
             ''', (work_order_id,)).fetchall()
 
         # PDF oluştur
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1 * inch)
 
-        # 🌟 TÜRKÇE KARAKTER DESTEĞ - FİX
+        # 🌟 GERÇEK TÜRKÇE KARAKTER FİX
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
         from reportlab.lib.fonts import addMapping
 
-        # Varsayılan fontları kullan (sistem fontlarına bağımlı olmadan)
+        # DejaVu Sans font yükle (Türkçe karakterleri destekler)
+        try:
+            # İlk önce sistem fontlarını dene
+            import os
+            font_paths = [
+                '/System/Library/Fonts/Arial.ttf',  # macOS
+                'C:/Windows/Fonts/arial.ttf',  # Windows
+                '/usr/share/fonts/truetype/arial.ttf',  # Linux
+                '/usr/share/fonts/TTF/DejaVuSans.ttf',  # Linux DejaVu
+                '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',  # Linux DejaVu
+            ]
+
+            font_registered = False
+            for font_path in font_paths:
+                if os.path.exists(font_path):
+                    try:
+                        pdfmetrics.registerFont(TTFont('TurkishFont', font_path))
+                        font_registered = True
+                        logger.info(f"✅ Font yüklendi: {font_path}")
+                        break
+                    except Exception as e:
+                        logger.warning(f"⚠️ Font yükleme hatası {font_path}: {e}")
+                        continue
+
+            if not font_registered:
+                # Fallback: Helvetica kullan (sınırlı Türkçe desteği)
+                logger.warning("⚠️ TrueType font bulunamadı, Helvetica kullanılıyor")
+                font_name = 'Helvetica'
+                font_name_bold = 'Helvetica-Bold'
+            else:
+                font_name = 'TurkishFont'
+                font_name_bold = 'TurkishFont'
+
+        except Exception as e:
+            logger.error(f"❌ Font yükleme genel hatası: {e}")
+            font_name = 'Helvetica'
+            font_name_bold = 'Helvetica-Bold'
+
+        # Stiller - Türkçe uyumlu
         styles = getSampleStyleSheet()
 
-        # Türkçe uyumlu stil oluştur
         title_style = ParagraphStyle(
             'TurkishTitle',
             parent=styles['Title'],
             fontSize=18,
             spaceAfter=30,
             alignment=TA_CENTER,
-            fontName='Helvetica-Bold'  # Türkçe karakterleri destekler
+            fontName=font_name_bold,
+            encoding='utf-8'
         )
 
         heading_style = ParagraphStyle(
@@ -1511,7 +1543,8 @@ def generate_work_order_pdf_report(work_order_id):
             fontSize=14,
             spaceAfter=12,
             textColor=colors.darkblue,
-            fontName='Helvetica-Bold'
+            fontName=font_name_bold,
+            encoding='utf-8'
         )
 
         normal_style = ParagraphStyle(
@@ -1519,49 +1552,48 @@ def generate_work_order_pdf_report(work_order_id):
             parent=styles['Normal'],
             fontSize=10,
             spaceAfter=6,
-            fontName='Helvetica'
+            fontName=font_name,
+            encoding='utf-8'
         )
+
+        # 🌟 UTF-8 TEXT FUNCTİON
+        def turkish_text(text):
+            """UTF-8 Türkçe metin işleme"""
+            if not text:
+                return 'N/A'
+
+            # String'e çevir ve UTF-8 encode et
+            try:
+                text_str = str(text)
+                # Unicode normalize et
+                import unicodedata
+                normalized = unicodedata.normalize('NFC', text_str)
+                return normalized
+            except Exception as e:
+                logger.warning(f"Text encoding hatası: {e}")
+                return str(text)
 
         # PDF içeriği
         story = []
 
-        # 🌟 TÜRKÇE KARAKTERLER İÇİN HTML ESCAPE
-        def safe_text(text):
-            """Türkçe karakterleri güvenli hale getir"""
-            if not text:
-                return 'N/A'
-            # HTML escape karakterleri
-            text = str(text)
-            replacements = {
-                'ç': '&#231;', 'Ç': '&#199;',
-                'ğ': '&#287;', 'Ğ': '&#286;',
-                'ı': '&#305;', 'I': '&#304;',
-                'ö': '&#246;', 'Ö': '&#214;',
-                'ş': '&#351;', 'Ş': '&#350;',
-                'ü': '&#252;', 'Ü': '&#220;'
-            }
-            for tr_char, html_char in replacements.items():
-                text = text.replace(tr_char, html_char)
-            return text
-
         # Başlık
-        story.append(Paragraph(safe_text("İŞ EMRİ RAPORU"), title_style))
-        story.append(Paragraph(safe_text(f"İŞ EMRİ #{work_order['is_emri_no'] or 'N/A'}"), title_style))
+        story.append(Paragraph(turkish_text("İŞ EMRİ RAPORU"), title_style))
+        story.append(Paragraph(turkish_text(f"İŞ EMRİ #{work_order['is_emri_no'] or 'N/A'}"), title_style))
         story.append(Spacer(1, 20))
 
-        # Temel Bilgiler Tablosu
-        story.append(Paragraph(safe_text("TEMEL BİLGİLER"), heading_style))
+        # Temel Bilgiler
+        story.append(Paragraph(turkish_text("TEMEL BİLGİLER"), heading_style))
 
         basic_data = [
-            [safe_text('İş Emri No:'), safe_text(work_order['is_emri_no'] or 'N/A')],
-            [safe_text('Cihaz:'), safe_text(work_order['cihaz_adi'] or 'N/A')],
-            [safe_text('Fabrika:'), safe_text(work_order['fabrika_adi'] or 'N/A')],
-            [safe_text('Konum:'), safe_text(work_order['konum'] or 'N/A')],
-            [safe_text('Ürün Tipi:'), safe_text(work_order['urun_tipi'] or 'N/A')],
-            [safe_text('Operatör:'), safe_text(work_order['operator_ad'] or 'N/A')],
-            [safe_text('Vardiya:'), safe_text(work_order['shift_bilgisi'] or 'N/A')],
-            [safe_text('Başlama:'), safe_text(work_order['baslama_zamani'] or 'N/A')],
-            [safe_text('Bitiş:'), safe_text(work_order['bitis_zamani'] or 'N/A')]
+            [turkish_text('İş Emri No:'), turkish_text(work_order['is_emri_no'] or 'N/A')],
+            [turkish_text('Cihaz:'), turkish_text(work_order['cihaz_adi'] or 'N/A')],
+            [turkish_text('Fabrika:'), turkish_text(work_order['fabrika_adi'] or 'N/A')],
+            [turkish_text('Konum:'), turkish_text(work_order['konum'] or 'N/A')],
+            [turkish_text('Ürün Tipi:'), turkish_text(work_order['urun_tipi'] or 'N/A')],
+            [turkish_text('Operatör:'), turkish_text(work_order['operator_ad'] or 'N/A')],
+            [turkish_text('Vardiya:'), turkish_text(work_order['shift_bilgisi'] or 'N/A')],
+            [turkish_text('Başlama:'), turkish_text(work_order['baslama_zamani'] or 'N/A')],
+            [turkish_text('Bitiş:'), turkish_text(work_order['bitis_zamani'] or 'N/A')]
         ]
 
         basic_table = Table(basic_data, colWidths=[2.5 * inch, 4 * inch])
@@ -1572,14 +1604,14 @@ def generate_work_order_pdf_report(work_order_id):
             ('FONTSIZE', (0, 0), (-1, -1), 10),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTNAME', (0, 0), (-1, -1), font_name),
         ]))
 
         story.append(basic_table)
         story.append(Spacer(1, 20))
 
         # Performans Bilgileri
-        story.append(Paragraph(safe_text("PERFORMANS BİLGİLERİ"), heading_style))
+        story.append(Paragraph(turkish_text("PERFORMANS BİLGİLERİ"), heading_style))
 
         def safe_value(value, default='N/A'):
             return str(value) if value is not None else default
@@ -1590,23 +1622,17 @@ def generate_work_order_pdf_report(work_order_id):
             except (ValueError, TypeError):
                 return default
 
-        def safe_column(row, column_name, default=None):
-            try:
-                return row[column_name] if column_name in row.keys() else default
-            except (KeyError, IndexError):
-                return default
-
         performance_data = [
-            [safe_text('Hedef Ürün:'), safe_text(f"{safe_value(work_order['hedef_urun'])} adet")],
-            [safe_text('Gerçekleşen Ürün:'), safe_text(f"{safe_value(work_order['gerceklesen_urun'])} adet")],
-            [safe_text('Fire Sayısı:'), safe_text(f"{safe_value(work_order['fire_sayisi'])} adet")],
-            [safe_text('Sağlam Ürün:'),
-             safe_text(f"{safe_value((work_order['gerceklesen_urun'] or 0) - (work_order['fire_sayisi'] or 0))} adet")],
-            [safe_text('Arduino OEE:'), safe_text(safe_percent(safe_column(work_order, 'sensor_oee')))],
-            [safe_text('Kullanılabilirlik:'),
-             safe_text(safe_percent(safe_column(work_order, 'sensor_kullanilabilirlik')))],
-            [safe_text('Performans:'), safe_text(safe_percent(safe_column(work_order, 'sensor_performans')))],
-            [safe_text('Kalite:'), safe_text(safe_percent(safe_column(work_order, 'sensor_kalite')))]
+            [turkish_text('Hedef Ürün:'), turkish_text(f"{safe_value(work_order['hedef_urun'])} adet")],
+            [turkish_text('Gerçekleşen Ürün:'), turkish_text(f"{safe_value(work_order['gerceklesen_urun'])} adet")],
+            [turkish_text('Fire Sayısı:'), turkish_text(f"{safe_value(work_order['fire_sayisi'])} adet")],
+            [turkish_text('Sağlam Ürün:'), turkish_text(
+                f"{safe_value((work_order['gerceklesen_urun'] or 0) - (work_order['fire_sayisi'] or 0))} adet")],
+            [turkish_text('Arduino OEE:'), turkish_text(safe_percent(work_order.get('sensor_oee')))],
+            [turkish_text('Kullanılabilirlik:'),
+             turkish_text(safe_percent(work_order.get('sensor_kullanilabilirlik')))],
+            [turkish_text('Performans:'), turkish_text(safe_percent(work_order.get('sensor_performans')))],
+            [turkish_text('Kalite:'), turkish_text(safe_percent(work_order.get('sensor_kalite')))]
         ]
 
         performance_table = Table(performance_data, colWidths=[2.5 * inch, 4 * inch])
@@ -1617,74 +1643,58 @@ def generate_work_order_pdf_report(work_order_id):
             ('FONTSIZE', (0, 0), (-1, -1), 10),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTNAME', (0, 0), (-1, -1), font_name),
         ]))
 
         story.append(performance_table)
         story.append(Spacer(1, 20))
 
-        # 🔥 FIRE ANALİZİ - YENİ BÖLÜM!
+        # 🔥 FIRE ANALİZİ
         if fire_records:
-            story.append(Paragraph(safe_text("FIRE ANALİZİ"), heading_style))
+            story.append(Paragraph(turkish_text("FIRE ANALİZİ"), heading_style))
 
             fire_data = [
-                [safe_text('Fire ID'), safe_text('Başlama'), safe_text('Bitiş'),
-                 safe_text('Miktar'), safe_text('Neden'), safe_text('Açıklama')]
+                [turkish_text('Fire ID'), turkish_text('Başlama'), turkish_text('Bitiş'),
+                 turkish_text('Miktar'), turkish_text('Neden'), turkish_text('Açıklama')]
             ]
 
             total_fire_amount = 0
-            fire_count = 0
 
             for record in fire_records:
                 try:
                     fire_amount = record['miktar'] or 0
                     total_fire_amount += fire_amount
-                    fire_count += 1
-
-                    # Süreyi formatla
-                    duration_seconds = record['sure_saniye'] or 0
-                    hours, remainder = divmod(int(duration_seconds), 3600)
-                    minutes, seconds = divmod(remainder, 60)
-                    duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
                     # Neden kodları
                     reason_map = {
-                        1: 'MALZEME',
-                        2: 'ISLEM',
-                        3: 'MAKINE',
-                        4: 'OPERATOR',
-                        5: 'DIGER'
+                        1: 'MALZEME HATASI',
+                        2: 'İŞLEM HATASI',
+                        3: 'MAKİNE HATASI',
+                        4: 'OPERATÖR HATASI',
+                        5: 'DİĞER'
                     }
 
                     reason_text = reason_map.get(record['neden_kodu'],
-                                                 str(record['neden_kodu']) if record['neden_kodu'] else 'N/A')
+                                                 f"Kod {record['neden_kodu']}" if record['neden_kodu'] else 'N/A')
 
                     fire_data.append([
-                        safe_text(record['fire_id'] or 'N/A'),
-                        safe_text(record['baslama_zamani'] or 'N/A'),
-                        safe_text(record['bitis_zamani'] or 'N/A'),
-                        safe_text(f"{fire_amount} adet"),
-                        safe_text(reason_text),
-                        safe_text(record['neden_aciklama'] or record['aciklama'] or 'N/A')
+                        turkish_text(record['fire_id'] or 'N/A'),
+                        turkish_text(record['baslama_zamani'] or 'N/A'),
+                        turkish_text(record['bitis_zamani'] or 'N/A'),
+                        turkish_text(f"{fire_amount} adet"),
+                        turkish_text(reason_text),
+                        turkish_text(record['neden_aciklama'] or record['aciklama'] or 'N/A')
                     ])
 
                 except Exception as e:
                     logger.error(f"Fire rapor hatası: {e}")
-                    fire_data.append([
-                        safe_text(record['fire_id'] or 'N/A'),
-                        safe_text(str(record['baslama_zamani'] or 'N/A')),
-                        safe_text(str(record['bitis_zamani'] or 'N/A')),
-                        safe_text('N/A'),
-                        safe_text(str(record['neden_kodu']) if record['neden_kodu'] else 'N/A'),
-                        safe_text(record['neden_aciklama'] or 'N/A')
-                    ])
 
             # Toplam satırı
             if total_fire_amount > 0:
                 fire_data.append([
-                    safe_text('TOPLAM'), '', '',
-                    safe_text(f'{total_fire_amount} adet'),
-                    safe_text(f'{fire_count} kayıt'), ''
+                    turkish_text('TOPLAM'), '', '',
+                    turkish_text(f'{total_fire_amount} adet'),
+                    turkish_text(f'{len(fire_records)} kayıt'), ''
                 ])
 
             # Fire tablosu
@@ -1700,65 +1710,54 @@ def generate_work_order_pdf_report(work_order_id):
                 ('FONTSIZE', (0, 0), (-1, -1), 9),
                 ('GRID', (0, 0), (-1, -1), 1, colors.black),
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+                ('FONTNAME', (0, 0), (-1, -1), font_name),
             ]))
 
             story.append(fire_table)
             story.append(Spacer(1, 20))
 
-        # Duruş Analizi (mevcut kod)
+        # Duruş Analizi
         if downtime_records:
-            story.append(Paragraph(safe_text("DURUŞ ANALİZİ"), heading_style))
+            story.append(Paragraph(turkish_text("DURUŞ ANALİZİ"), heading_style))
 
             downtime_data = [
-                [safe_text('Duruş ID'), safe_text('Başlama'), safe_text('Bitiş'),
-                 safe_text('Süre'), safe_text('Neden'), safe_text('Açıklama')]
+                [turkish_text('Duruş ID'), turkish_text('Başlama'), turkish_text('Bitiş'),
+                 turkish_text('Süre'), turkish_text('Neden'), turkish_text('Açıklama')]
             ]
 
             total_downtime = 0
-            downtime_count = 0
 
             for record in downtime_records:
-                if record['baslama_zamani'] and record['bitis_zamani']:
-                    try:
-                        duration_seconds = record['sure_saniye'] or 0
-                        total_downtime += duration_seconds
-                        downtime_count += 1
+                try:
+                    duration_seconds = record['sure_saniye'] or 0
+                    total_downtime += duration_seconds
 
-                        hours, remainder = divmod(int(duration_seconds), 3600)
-                        minutes, seconds = divmod(remainder, 60)
-                        duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                    hours, remainder = divmod(int(duration_seconds), 3600)
+                    minutes, seconds = divmod(remainder, 60)
+                    duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
-                        reason_map = {
-                            1: 'BAKIM',
-                            2: 'ARIZA',
-                            3: 'MALZEME',
-                            4: 'MOLA',
-                            5: 'DIGER'
-                        }
+                    reason_map = {
+                        1: 'BAKIM',
+                        2: 'ARIZA',
+                        3: 'MALZEME',
+                        4: 'MOLA',
+                        5: 'DİĞER'
+                    }
 
-                        reason_text = reason_map.get(record['neden_kodu'],
-                                                     str(record['neden_kodu']) if record['neden_kodu'] else 'N/A')
+                    reason_text = reason_map.get(record['neden_kodu'],
+                                                 f"Kod {record['neden_kodu']}" if record['neden_kodu'] else 'N/A')
 
-                        downtime_data.append([
-                            safe_text(record['downtime_id'] or 'N/A'),
-                            safe_text(record['baslama_zamani'] or 'N/A'),
-                            safe_text(record['bitis_zamani'] or 'N/A'),
-                            safe_text(duration_str),
-                            safe_text(reason_text),
-                            safe_text(record['neden_aciklama'] or 'N/A')
-                        ])
+                    downtime_data.append([
+                        turkish_text(record['downtime_id'] or 'N/A'),
+                        turkish_text(record['baslama_zamani'] or 'N/A'),
+                        turkish_text(record['bitis_zamani'] or 'N/A'),
+                        turkish_text(duration_str),
+                        turkish_text(reason_text),
+                        turkish_text(record['neden_aciklama'] or 'N/A')
+                    ])
 
-                    except Exception as e:
-                        logger.error(f"Duruş hesaplama hatası: {e}")
-                        downtime_data.append([
-                            safe_text(record['downtime_id'] or 'N/A'),
-                            safe_text(str(record['baslama_zamani'] or 'N/A')),
-                            safe_text(str(record['bitis_zamani'] or 'N/A')),
-                            safe_text('N/A'),
-                            safe_text(str(record['neden_kodu']) if record['neden_kodu'] else 'N/A'),
-                            safe_text(record['neden_aciklama'] or 'N/A')
-                        ])
+                except Exception as e:
+                    logger.error(f"Duruş rapor hatası: {e}")
 
             # Toplam satırı
             if total_downtime > 0:
@@ -1767,8 +1766,8 @@ def generate_work_order_pdf_report(work_order_id):
                 total_duration_str = f"{total_hours:02d}:{total_minutes:02d}:{total_seconds:02d}"
 
                 downtime_data.append([
-                    safe_text('TOPLAM'), '', '', safe_text(total_duration_str),
-                    safe_text(f'{downtime_count} duruş'), ''
+                    turkish_text('TOPLAM'), '', '', turkish_text(total_duration_str),
+                    turkish_text(f'{len(downtime_records)} duruş'), ''
                 ])
 
             # Duruş tablosu
@@ -1783,23 +1782,23 @@ def generate_work_order_pdf_report(work_order_id):
                 ('FONTSIZE', (0, 0), (-1, -1), 9),
                 ('GRID', (0, 0), (-1, -1), 1, colors.black),
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+                ('FONTNAME', (0, 0), (-1, -1), font_name),
             ]))
 
             story.append(downtime_table)
-            story.append(Spacer(1, 20))
 
         # Footer
         current_time = datetime.now()
-        footer_text = safe_text(
-            f"Rapor Tarihi: {current_time.strftime('%d.%m.%Y %H:%M:%S')}<br/>Raporu Oluşturan: {session.get('username', 'N/A')}")
+        footer_text = turkish_text(f"Rapor Tarihi: {current_time.strftime('%d.%m.%Y %H:%M:%S')}")
+        footer_text += turkish_text(f"<br/>Raporu Oluşturan: {session.get('username', 'N/A')}")
+        story.append(Spacer(1, 20))
         story.append(Paragraph(footer_text, normal_style))
 
         # PDF'i oluştur
         doc.build(story)
         buffer.seek(0)
 
-        # Dosya adı (Türkçe karaktersiz)
+        # Türkçe karaktersiz dosya adı
         work_order_number = work_order['is_emri_no'] or 'UNKNOWN'
         safe_work_order_number = (work_order_number
                                   .replace('İ', 'I').replace('ı', 'i')
@@ -1811,7 +1810,7 @@ def generate_work_order_pdf_report(work_order_id):
 
         filename = f"is_emri_rapor_{safe_work_order_number}_{current_time.strftime('%Y%m%d_%H%M%S')}.pdf"
 
-        logger.info(f"✅ PDF raporu oluşturuldu (Fire + Türkçe): {filename}")
+        logger.info(f"✅ PDF raporu oluşturuldu (GERÇEK Türkçe + Fire): {filename}")
 
         return send_file(
             buffer,
@@ -2258,8 +2257,6 @@ def work_order_summary(cihaz_id):
             'average_oee': round(avg_oee['avg_oee'] or 0, 1)
         })
 
-
-# RoutesYedekleme ve geri yükleme route'ları
 
 @app.route('/admin/database')
 @login_required
