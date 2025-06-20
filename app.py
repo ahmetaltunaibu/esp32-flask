@@ -1454,11 +1454,11 @@ def change_work_order_status(work_order_id):
 @app.route('/api/work_order_report/<int:work_order_id>')
 @login_required
 def generate_work_order_pdf_report(work_order_id):
-    """İş emri PDF raporu oluştur - DÜZELTİLMİŞ VERSİYON"""
+    """İş emri PDF raporu oluştur - FIRE VERİLERİ + TÜRKÇE FİX"""
     try:
         # Veritabanından iş emri bilgilerini al
         with get_db() as conn:
-            # İş emri bilgileri - DÜZELTİLMİŞ SORGU
+            # İş emri bilgileri
             work_order = conn.execute('''
                 SELECT wo.*, d.cihaz_adi, d.konum, d.fabrika_adi
                 FROM work_orders wo
@@ -1476,56 +1476,92 @@ def generate_work_order_pdf_report(work_order_id):
                 ORDER BY baslama_zamani
             ''', (work_order_id,)).fetchall()
 
+            # 🔥 FIRE KAYITLARINI AL - YENİ!
+            fire_records = conn.execute('''
+                SELECT * FROM fires 
+                WHERE work_order_id = ? 
+                ORDER BY baslama_zamani
+            ''', (work_order_id,)).fetchall()
+
         # PDF oluştur
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1 * inch)
 
-        # Stiller
+        # 🌟 TÜRKÇE KARAKTER DESTEĞ - FİX
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        from reportlab.lib.fonts import addMapping
+
+        # Varsayılan fontları kullan (sistem fontlarına bağımlı olmadan)
         styles = getSampleStyleSheet()
+
+        # Türkçe uyumlu stil oluştur
         title_style = ParagraphStyle(
-            'CustomTitle',
+            'TurkishTitle',
             parent=styles['Title'],
             fontSize=18,
             spaceAfter=30,
-            alignment=TA_CENTER
+            alignment=TA_CENTER,
+            fontName='Helvetica-Bold'  # Türkçe karakterleri destekler
         )
 
         heading_style = ParagraphStyle(
-            'CustomHeading',
+            'TurkishHeading',
             parent=styles['Heading2'],
             fontSize=14,
             spaceAfter=12,
-            textColor=colors.darkblue
+            textColor=colors.darkblue,
+            fontName='Helvetica-Bold'
         )
 
         normal_style = ParagraphStyle(
-            'CustomNormal',
+            'TurkishNormal',
             parent=styles['Normal'],
             fontSize=10,
-            spaceAfter=6
+            spaceAfter=6,
+            fontName='Helvetica'
         )
 
         # PDF içeriği
         story = []
 
+        # 🌟 TÜRKÇE KARAKTERLER İÇİN HTML ESCAPE
+        def safe_text(text):
+            """Türkçe karakterleri güvenli hale getir"""
+            if not text:
+                return 'N/A'
+            # HTML escape karakterleri
+            text = str(text)
+            replacements = {
+                'ç': '&#231;', 'Ç': '&#199;',
+                'ğ': '&#287;', 'Ğ': '&#286;',
+                'ı': '&#305;', 'I': '&#304;',
+                'ö': '&#246;', 'Ö': '&#214;',
+                'ş': '&#351;', 'Ş': '&#350;',
+                'ü': '&#252;', 'Ü': '&#220;'
+            }
+            for tr_char, html_char in replacements.items():
+                text = text.replace(tr_char, html_char)
+            return text
+
         # Başlık
-        story.append(Paragraph("İŞ EMRİ RAPORU", title_style))
-        story.append(Paragraph(f"İŞ EMRİ #{work_order['is_emri_no'] or 'N/A'}", title_style))
+        story.append(Paragraph(safe_text("İŞ EMRİ RAPORU"), title_style))
+        story.append(Paragraph(safe_text(f"İŞ EMRİ #{work_order['is_emri_no'] or 'N/A'}"), title_style))
         story.append(Spacer(1, 20))
 
         # Temel Bilgiler Tablosu
-        story.append(Paragraph("TEMEL BİLGİLER", heading_style))
+        story.append(Paragraph(safe_text("TEMEL BİLGİLER"), heading_style))
 
         basic_data = [
-            ['İş Emri No:', work_order['is_emri_no'] or 'N/A'],
-            ['Cihaz:', work_order['cihaz_adi'] or 'N/A'],
-            ['Fabrika:', work_order['fabrika_adi'] or 'N/A'],
-            ['Konum:', work_order['konum'] or 'N/A'],
-            ['Ürün Tipi:', work_order['urun_tipi'] or 'N/A'],
-            ['Operatör:', work_order['operator_ad'] or 'N/A'],
-            ['Vardiya:', work_order['shift_bilgisi'] or 'N/A'],
-            ['Başlama:', work_order['baslama_zamani'] or 'N/A'],
-            ['Bitiş:', work_order['bitis_zamani'] or 'N/A']
+            [safe_text('İş Emri No:'), safe_text(work_order['is_emri_no'] or 'N/A')],
+            [safe_text('Cihaz:'), safe_text(work_order['cihaz_adi'] or 'N/A')],
+            [safe_text('Fabrika:'), safe_text(work_order['fabrika_adi'] or 'N/A')],
+            [safe_text('Konum:'), safe_text(work_order['konum'] or 'N/A')],
+            [safe_text('Ürün Tipi:'), safe_text(work_order['urun_tipi'] or 'N/A')],
+            [safe_text('Operatör:'), safe_text(work_order['operator_ad'] or 'N/A')],
+            [safe_text('Vardiya:'), safe_text(work_order['shift_bilgisi'] or 'N/A')],
+            [safe_text('Başlama:'), safe_text(work_order['baslama_zamani'] or 'N/A')],
+            [safe_text('Bitiş:'), safe_text(work_order['bitis_zamani'] or 'N/A')]
         ]
 
         basic_table = Table(basic_data, colWidths=[2.5 * inch, 4 * inch])
@@ -1536,15 +1572,15 @@ def generate_work_order_pdf_report(work_order_id):
             ('FONTSIZE', (0, 0), (-1, -1), 10),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
         ]))
 
         story.append(basic_table)
         story.append(Spacer(1, 20))
 
         # Performans Bilgileri
-        story.append(Paragraph("PERFORMANS BİLGİLERİ", heading_style))
+        story.append(Paragraph(safe_text("PERFORMANS BİLGİLERİ"), heading_style))
 
-        # Güvenli değer alma fonksiyonları
         def safe_value(value, default='N/A'):
             return str(value) if value is not None else default
 
@@ -1554,7 +1590,6 @@ def generate_work_order_pdf_report(work_order_id):
             except (ValueError, TypeError):
                 return default
 
-        # Güvenli kolon okuma fonksiyonu
         def safe_column(row, column_name, default=None):
             try:
                 return row[column_name] if column_name in row.keys() else default
@@ -1562,14 +1597,16 @@ def generate_work_order_pdf_report(work_order_id):
                 return default
 
         performance_data = [
-            ['Hedef Ürün:', f"{safe_value(work_order['hedef_urun'])} adet"],
-            ['Gerçekleşen Ürün:', f"{safe_value(work_order['gerceklesen_urun'])} adet"],
-            ['Fire Sayısı:', f"{safe_value(work_order['fire_sayisi'])} adet"],
-            ['Sağlam Ürün:', f"{safe_value((work_order['gerceklesen_urun'] or 0) - (work_order['fire_sayisi'] or 0))} adet"],
-            ['Arduino OEE:', safe_percent(safe_column(work_order, 'sensor_oee'))],
-            ['Kullanılabilirlik:', safe_percent(safe_column(work_order, 'sensor_kullanilabilirlik'))],
-            ['Performans:', safe_percent(safe_column(work_order, 'sensor_performans'))],
-            ['Kalite:', safe_percent(safe_column(work_order, 'sensor_kalite'))]
+            [safe_text('Hedef Ürün:'), safe_text(f"{safe_value(work_order['hedef_urun'])} adet")],
+            [safe_text('Gerçekleşen Ürün:'), safe_text(f"{safe_value(work_order['gerceklesen_urun'])} adet")],
+            [safe_text('Fire Sayısı:'), safe_text(f"{safe_value(work_order['fire_sayisi'])} adet")],
+            [safe_text('Sağlam Ürün:'),
+             safe_text(f"{safe_value((work_order['gerceklesen_urun'] or 0) - (work_order['fire_sayisi'] or 0))} adet")],
+            [safe_text('Arduino OEE:'), safe_text(safe_percent(safe_column(work_order, 'sensor_oee')))],
+            [safe_text('Kullanılabilirlik:'),
+             safe_text(safe_percent(safe_column(work_order, 'sensor_kullanilabilirlik')))],
+            [safe_text('Performans:'), safe_text(safe_percent(safe_column(work_order, 'sensor_performans')))],
+            [safe_text('Kalite:'), safe_text(safe_percent(safe_column(work_order, 'sensor_kalite')))]
         ]
 
         performance_table = Table(performance_data, colWidths=[2.5 * inch, 4 * inch])
@@ -1580,16 +1617,103 @@ def generate_work_order_pdf_report(work_order_id):
             ('FONTSIZE', (0, 0), (-1, -1), 10),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
         ]))
 
         story.append(performance_table)
         story.append(Spacer(1, 20))
 
-        # Duruş Analizi
-        if downtime_records:
-            story.append(Paragraph("DURUŞ ANALİZİ", heading_style))
+        # 🔥 FIRE ANALİZİ - YENİ BÖLÜM!
+        if fire_records:
+            story.append(Paragraph(safe_text("FIRE ANALİZİ"), heading_style))
 
-            downtime_data = [['Duruş ID', 'Başlama', 'Bitiş', 'Süre', 'Neden', 'Açıklama']]
+            fire_data = [
+                [safe_text('Fire ID'), safe_text('Başlama'), safe_text('Bitiş'),
+                 safe_text('Miktar'), safe_text('Neden'), safe_text('Açıklama')]
+            ]
+
+            total_fire_amount = 0
+            fire_count = 0
+
+            for record in fire_records:
+                try:
+                    fire_amount = record['miktar'] or 0
+                    total_fire_amount += fire_amount
+                    fire_count += 1
+
+                    # Süreyi formatla
+                    duration_seconds = record['sure_saniye'] or 0
+                    hours, remainder = divmod(int(duration_seconds), 3600)
+                    minutes, seconds = divmod(remainder, 60)
+                    duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+                    # Neden kodları
+                    reason_map = {
+                        1: 'MALZEME',
+                        2: 'ISLEM',
+                        3: 'MAKINE',
+                        4: 'OPERATOR',
+                        5: 'DIGER'
+                    }
+
+                    reason_text = reason_map.get(record['neden_kodu'],
+                                                 str(record['neden_kodu']) if record['neden_kodu'] else 'N/A')
+
+                    fire_data.append([
+                        safe_text(record['fire_id'] or 'N/A'),
+                        safe_text(record['baslama_zamani'] or 'N/A'),
+                        safe_text(record['bitis_zamani'] or 'N/A'),
+                        safe_text(f"{fire_amount} adet"),
+                        safe_text(reason_text),
+                        safe_text(record['neden_aciklama'] or record['aciklama'] or 'N/A')
+                    ])
+
+                except Exception as e:
+                    logger.error(f"Fire rapor hatası: {e}")
+                    fire_data.append([
+                        safe_text(record['fire_id'] or 'N/A'),
+                        safe_text(str(record['baslama_zamani'] or 'N/A')),
+                        safe_text(str(record['bitis_zamani'] or 'N/A')),
+                        safe_text('N/A'),
+                        safe_text(str(record['neden_kodu']) if record['neden_kodu'] else 'N/A'),
+                        safe_text(record['neden_aciklama'] or 'N/A')
+                    ])
+
+            # Toplam satırı
+            if total_fire_amount > 0:
+                fire_data.append([
+                    safe_text('TOPLAM'), '', '',
+                    safe_text(f'{total_fire_amount} adet'),
+                    safe_text(f'{fire_count} kayıt'), ''
+                ])
+
+            # Fire tablosu
+            fire_table = Table(fire_data,
+                               colWidths=[1 * inch, 1.3 * inch, 1.3 * inch, 0.8 * inch, 0.8 * inch, 1.3 * inch])
+            fire_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.red),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('BACKGROUND', (-1, -1), (-1, -1), colors.orange) if total_fire_amount > 0 else ('BACKGROUND', (-1, -1),
+                                                                                                 (-1, -1),
+                                                                                                 colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ]))
+
+            story.append(fire_table)
+            story.append(Spacer(1, 20))
+
+        # Duruş Analizi (mevcut kod)
+        if downtime_records:
+            story.append(Paragraph(safe_text("DURUŞ ANALİZİ"), heading_style))
+
+            downtime_data = [
+                [safe_text('Duruş ID'), safe_text('Başlama'), safe_text('Bitiş'),
+                 safe_text('Süre'), safe_text('Neden'), safe_text('Açıklama')]
+            ]
 
             total_downtime = 0
             downtime_count = 0
@@ -1597,46 +1721,43 @@ def generate_work_order_pdf_report(work_order_id):
             for record in downtime_records:
                 if record['baslama_zamani'] and record['bitis_zamani']:
                     try:
-                        # Süreyi formatla (saniye cinsinden varsa)
                         duration_seconds = record['sure_saniye'] or 0
                         total_downtime += duration_seconds
                         downtime_count += 1
 
-                        # Süreyi formatla (HH:MM:SS)
                         hours, remainder = divmod(int(duration_seconds), 3600)
                         minutes, seconds = divmod(remainder, 60)
                         duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
-                        # Neden kodları
                         reason_map = {
                             1: 'BAKIM',
                             2: 'ARIZA',
                             3: 'MALZEME',
                             4: 'MOLA',
-                            5: 'DİĞER'
+                            5: 'DIGER'
                         }
 
-                        reason_text = reason_map.get(record['neden_kodu'], str(record['neden_kodu']) if record['neden_kodu'] else 'N/A')
+                        reason_text = reason_map.get(record['neden_kodu'],
+                                                     str(record['neden_kodu']) if record['neden_kodu'] else 'N/A')
 
                         downtime_data.append([
-                            record['downtime_id'] or 'N/A',
-                            record['baslama_zamani'] or 'N/A',
-                            record['bitis_zamani'] or 'N/A',
-                            duration_str,
-                            reason_text,
-                            record['neden_aciklama'] or 'N/A'
+                            safe_text(record['downtime_id'] or 'N/A'),
+                            safe_text(record['baslama_zamani'] or 'N/A'),
+                            safe_text(record['bitis_zamani'] or 'N/A'),
+                            safe_text(duration_str),
+                            safe_text(reason_text),
+                            safe_text(record['neden_aciklama'] or 'N/A')
                         ])
 
                     except Exception as e:
                         logger.error(f"Duruş hesaplama hatası: {e}")
-                        # Hatalı kayıt için varsayılan değerler
                         downtime_data.append([
-                            record['downtime_id'] or 'N/A',
-                            str(record['baslama_zamani'] or 'N/A'),
-                            str(record['bitis_zamani'] or 'N/A'),
-                            'N/A',
-                            str(record['neden_kodu']) if record['neden_kodu'] else 'N/A',
-                            record['neden_aciklama'] or 'N/A'
+                            safe_text(record['downtime_id'] or 'N/A'),
+                            safe_text(str(record['baslama_zamani'] or 'N/A')),
+                            safe_text(str(record['bitis_zamani'] or 'N/A')),
+                            safe_text('N/A'),
+                            safe_text(str(record['neden_kodu']) if record['neden_kodu'] else 'N/A'),
+                            safe_text(record['neden_aciklama'] or 'N/A')
                         ])
 
             # Toplam satırı
@@ -1646,7 +1767,8 @@ def generate_work_order_pdf_report(work_order_id):
                 total_duration_str = f"{total_hours:02d}:{total_minutes:02d}:{total_seconds:02d}"
 
                 downtime_data.append([
-                    'TOPLAM', '', '', total_duration_str, f'{downtime_count} duruş', ''
+                    safe_text('TOPLAM'), '', '', safe_text(total_duration_str),
+                    safe_text(f'{downtime_count} duruş'), ''
                 ])
 
             # Duruş tablosu
@@ -1655,11 +1777,13 @@ def generate_work_order_pdf_report(work_order_id):
             downtime_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.red),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                ('BACKGROUND', (-1, -1), (-1, -1), colors.orange) if total_downtime > 0 else ('BACKGROUND', (-1, -1), (-1, -1), colors.white),
+                ('BACKGROUND', (-1, -1), (-1, -1), colors.orange) if total_downtime > 0 else ('BACKGROUND', (-1, -1),
+                                                                                              (-1, -1), colors.white),
                 ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                 ('FONTSIZE', (0, 0), (-1, -1), 9),
                 ('GRID', (0, 0), (-1, -1), 1, colors.black),
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
             ]))
 
             story.append(downtime_table)
@@ -1667,14 +1791,15 @@ def generate_work_order_pdf_report(work_order_id):
 
         # Footer
         current_time = datetime.now()
-        footer_text = f"Rapor Tarihi: {current_time.strftime('%d.%m.%Y %H:%M:%S')}<br/>Raporu Oluşturan: {session.get('username', 'N/A')}"
+        footer_text = safe_text(
+            f"Rapor Tarihi: {current_time.strftime('%d.%m.%Y %H:%M:%S')}<br/>Raporu Oluşturan: {session.get('username', 'N/A')}")
         story.append(Paragraph(footer_text, normal_style))
 
         # PDF'i oluştur
         doc.build(story)
         buffer.seek(0)
 
-        # Dosya adı
+        # Dosya adı (Türkçe karaktersiz)
         work_order_number = work_order['is_emri_no'] or 'UNKNOWN'
         safe_work_order_number = (work_order_number
                                   .replace('İ', 'I').replace('ı', 'i')
@@ -1686,7 +1811,7 @@ def generate_work_order_pdf_report(work_order_id):
 
         filename = f"is_emri_rapor_{safe_work_order_number}_{current_time.strftime('%Y%m%d_%H%M%S')}.pdf"
 
-        logger.info(f"✅ PDF raporu oluşturuldu: {filename}")
+        logger.info(f"✅ PDF raporu oluşturuldu (Fire + Türkçe): {filename}")
 
         return send_file(
             buffer,
@@ -1703,7 +1828,7 @@ def generate_work_order_pdf_report(work_order_id):
 @app.route('/api/work_order_excel/<int:work_order_id>')
 @login_required
 def generate_work_order_excel_report(work_order_id):
-    """İş emri Excel raporu oluştur"""
+    """İş emri Excel raporu oluştur - FIRE VERİLERİ DAHİL"""
     try:
         with get_db() as conn:
             # İş emri bilgilerini al
@@ -1720,6 +1845,13 @@ def generate_work_order_excel_report(work_order_id):
             # Duruş verilerini al
             downtimes = conn.execute('''
                 SELECT * FROM downtimes 
+                WHERE work_order_id = ? 
+                ORDER BY baslama_zamani
+            ''', (work_order_id,)).fetchall()
+
+            # 🔥 FIRE VERİLERİNİ AL - YENİ!
+            fires = conn.execute('''
+                SELECT * FROM fires 
                 WHERE work_order_id = ? 
                 ORDER BY baslama_zamani
             ''', (work_order_id,)).fetchall()
@@ -1801,26 +1933,129 @@ def generate_work_order_excel_report(work_order_id):
                     df_arduino = pd.DataFrame(arduino_data)
                     df_arduino.to_excel(writer, sheet_name='Arduino Sensör Verileri', index=False)
 
-                # 3. Duruş Verileri
+                # 3. 🔥 FIRE VERİLERİ - YENİ SHEET!
+                if fires:
+                    fire_data = []
+                    total_fire_amount = 0
+
+                    for fire in fires:
+                        fire_amount = fire['miktar'] or 0
+                        total_fire_amount += fire_amount
+
+                        # Süreyi formatla
+                        duration_seconds = fire['sure_saniye'] or 0
+                        hours, remainder = divmod(int(duration_seconds), 3600)
+                        minutes, seconds = divmod(remainder, 60)
+                        duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+                        # Neden kodlarını çevir
+                        reason_map = {
+                            1: 'MALZEME HATASI',
+                            2: 'İŞLEM HATASI',
+                            3: 'MAKİNE HATASI',
+                            4: 'OPERATÖR HATASI',
+                            5: 'DİĞER'
+                        }
+
+                        reason_text = reason_map.get(fire['neden_kodu'], f"Kod {fire['neden_kodu']}" if fire[
+                            'neden_kodu'] else 'Belirtilmemiş')
+
+                        fire_data.append({
+                            'Fire ID': fire['fire_id'] or 'N/A',
+                            'Başlama Zamanı': fire['baslama_zamani'] or 'N/A',
+                            'Bitiş Zamanı': fire['bitis_zamani'] or 'N/A',
+                            'Süre (HH:MM:SS)': duration_str,
+                            'Süre (Saniye)': fire['sure_saniye'] or 0,
+                            'Süre (Dakika)': fire['sure_dakika'] or 0,
+                            'Fire Miktarı (adet)': fire_amount,
+                            'Neden Kodu': fire['neden_kodu'] or 0,
+                            'Neden': reason_text,
+                            'Neden Açıklama': fire['neden_aciklama'] or 'N/A',
+                            'Ek Açıklama': fire['aciklama'] or 'N/A'
+                        })
+
+                    # Toplam satırı ekle
+                    fire_data.append({
+                        'Fire ID': 'TOPLAM',
+                        'Başlama Zamanı': '',
+                        'Bitiş Zamanı': '',
+                        'Süre (HH:MM:SS)': '',
+                        'Süre (Saniye)': '',
+                        'Süre (Dakika)': '',
+                        'Fire Miktarı (adet)': total_fire_amount,
+                        'Neden Kodu': '',
+                        'Neden': f'{len(fires)} kayıt',
+                        'Neden Açıklama': '',
+                        'Ek Açıklama': f'Toplam {total_fire_amount} adet fire'
+                    })
+
+                    df_fires = pd.DataFrame(fire_data)
+                    df_fires.to_excel(writer, sheet_name='Fire Verileri', index=False)
+
+                # 4. Duruş Verileri
                 if downtimes:
                     downtime_data = []
+                    total_downtime_seconds = 0
+
                     for dt in downtimes:
+                        duration_seconds = dt['sure_saniye'] or 0
+                        total_downtime_seconds += duration_seconds
+
+                        # Süreyi formatla
+                        hours, remainder = divmod(int(duration_seconds), 3600)
+                        minutes, seconds = divmod(remainder, 60)
+                        duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+                        # Neden kodlarını çevir
+                        reason_map = {
+                            1: 'BAKIM',
+                            2: 'ARIZA',
+                            3: 'MALZEME',
+                            4: 'MOLA',
+                            5: 'DİĞER'
+                        }
+
+                        reason_text = reason_map.get(dt['neden_kodu'],
+                                                     f"Kod {dt['neden_kodu']}" if dt['neden_kodu'] else 'Belirtilmemiş')
+
                         downtime_data.append({
                             'Duruş ID': dt['downtime_id'] or 'N/A',
                             'Başlama Zamanı': dt['baslama_zamani'] or 'N/A',
                             'Bitiş Zamanı': dt['bitis_zamani'] or 'N/A',
+                            'Süre (HH:MM:SS)': duration_str,
                             'Süre (Saniye)': dt['sure_saniye'] or 0,
                             'Süre (Dakika)': dt['sure_dakika'] or 0,
                             'Süre (Metin)': dt['sure_str'] or 'N/A',
                             'Neden Kodu': dt['neden_kodu'] or 0,
+                            'Neden': reason_text,
                             'Neden Açıklama': dt['neden_aciklama'] or 'N/A',
                             'Yapılan İşlem': dt['yapilan_islem'] or 'N/A'
                         })
 
+                    # Toplam duruş süresi
+                    total_hours, remainder = divmod(int(total_downtime_seconds), 3600)
+                    total_minutes, total_secs = divmod(remainder, 60)
+                    total_duration_str = f"{total_hours:02d}:{total_minutes:02d}:{total_secs:02d}"
+
+                    # Toplam satırı ekle
+                    downtime_data.append({
+                        'Duruş ID': 'TOPLAM',
+                        'Başlama Zamanı': '',
+                        'Bitiş Zamanı': '',
+                        'Süre (HH:MM:SS)': total_duration_str,
+                        'Süre (Saniye)': total_downtime_seconds,
+                        'Süre (Dakika)': round(total_downtime_seconds / 60, 1),
+                        'Süre (Metin)': f'{len(downtimes)} duruş',
+                        'Neden Kodu': '',
+                        'Neden': f'{len(downtimes)} kayıt',
+                        'Neden Açıklama': '',
+                        'Yapılan İşlem': f'Toplam {total_duration_str}'
+                    })
+
                     df_downtimes = pd.DataFrame(downtime_data)
                     df_downtimes.to_excel(writer, sheet_name='Duruş Verileri', index=False)
 
-                # 4. Sensör Ham Verileri (varsa)
+                # 5. Sensör Ham Verileri (varsa)
                 if sensor_data:
                     sensor_raw_data = []
                     for sd in sensor_data:
@@ -1834,13 +2069,71 @@ def generate_work_order_excel_report(work_order_id):
                     df_sensor_raw = pd.DataFrame(sensor_raw_data)
                     df_sensor_raw.to_excel(writer, sheet_name='Ham Sensör Verileri', index=False)
 
+                # 6. 📊 ÖZET İSTATİSTİKLER - YENİ SHEET!
+                summary_stats = {
+                    'Metrik': [
+                        'Toplam Üretim Hedefi',
+                        'Gerçekleşen Üretim',
+                        'Toplam Fire Miktarı',
+                        'Sağlam Ürün',
+                        'Hedef Tutturma Oranı (%)',
+                        'Kalite Oranı (%)',
+                        'Fire Oranı (%)',
+                        'Toplam Duruş Süresi (dk)',
+                        'Toplam Fire Kayıt Sayısı',
+                        'Toplam Duruş Kayıt Sayısı',
+                        'Arduino OEE (%)',
+                        'Arduino Kullanılabilirlik (%)',
+                        'Arduino Performans (%)',
+                        'Arduino Kalite (%)'
+                    ],
+                    'Değer': [
+                        work_order['hedef_urun'] or 0,
+                        work_order['gerceklesen_urun'] or 0,
+                        sum([f['miktar'] or 0 for f in fires]) if fires else (work_order['fire_sayisi'] or 0),
+                        (work_order['gerceklesen_urun'] or 0) - (work_order['fire_sayisi'] or 0),
+                        round((work_order['gerceklesen_urun'] or 0) * 100 / (work_order['hedef_urun'] or 1), 2) if
+                        work_order['hedef_urun'] else 0,
+                        round(((work_order['gerceklesen_urun'] or 0) - (work_order['fire_sayisi'] or 0)) * 100 / (
+                                    work_order['gerceklesen_urun'] or 1), 2) if work_order['gerceklesen_urun'] else 0,
+                        round((work_order['fire_sayisi'] or 0) * 100 / (work_order['gerceklesen_urun'] or 1), 2) if
+                        work_order['gerceklesen_urun'] else 0,
+                        round(total_downtime_seconds / 60, 1) if downtimes else 0,
+                        len(fires) if fires else 0,
+                        len(downtimes) if downtimes else 0,
+                        work_order['sensor_oee'] or 0,
+                        work_order['sensor_kullanilabilirlik'] or 0,
+                        work_order['sensor_performans'] or 0,
+                        work_order['sensor_kalite'] or 0
+                    ]
+                }
+
+                df_summary_stats = pd.DataFrame(summary_stats)
+                df_summary_stats.to_excel(writer, sheet_name='Özet İstatistikler', index=False)
+
             output.seek(0)
+
+            # Fire miktarını dosya adına ekle
+            total_fire_from_records = sum([f['miktar'] or 0 for f in fires]) if fires else (
+                        work_order['fire_sayisi'] or 0)
+            fire_suffix = f"_fire_{total_fire_from_records}" if total_fire_from_records > 0 else ""
+
+            # Türkçe karaktersiz dosya adı
+            work_order_name = (work_order['is_emri_no'] or 'UNKNOWN').replace('İ', 'I').replace('ı', 'i').replace('Ş',
+                                                                                                                  'S').replace(
+                'ş', 's').replace('Ğ', 'G').replace('ğ', 'g').replace('Ü', 'U').replace('ü', 'u').replace('Ö',
+                                                                                                          'O').replace(
+                'ö', 'o').replace('Ç', 'C').replace('ç', 'c')
+
+            filename = f"is_emri_excel_{work_order_name}{fire_suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+
+            logger.info(f"✅ Excel raporu oluşturuldu (Fire dahil): {filename}")
 
             return send_file(
                 output,
                 mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 as_attachment=True,
-                download_name=f"is_emri_excel_{work_order['is_emri_no']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                download_name=filename
             )
 
     except Exception as e:
