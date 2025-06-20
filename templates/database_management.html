@@ -1,4 +1,4 @@
-{% extends "layout.html" %} 
+{% extends "layout.html" %}
 
 {% block title %}Veritabanı Yönetimi{% endblock %}
 
@@ -294,88 +294,87 @@ Veritabanı Yönetimi
 <script>
 let selectedRestoreFile = null;
 
-// Sayfa yüklendiğinde yedekleri yükle
-$(document).ready(function() {
-    loadBackups();
-});
-
-// SAKIN OL VE BU KOD İLE ÇALIŞTIR!
-// Checkbox için basit event listener
+// Sayfa yüklendiğinde çalışacak kod - jQuery YOK!
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM loaded, setting up checkbox listener');
+    console.log('DOM loaded - jQuery OLMADAN çalışıyor');
     
-    // Her checkbox değişikliğinde kontrol et
-    document.addEventListener('change', function(e) {
-        if (e.target && e.target.id === 'confirmRestore') {
-            const checkbox = e.target;
+    // Yedekleri yükle
+    loadBackups();
+    
+    // Checkbox event listener - VANILLA JS
+    const checkbox = document.getElementById('confirmRestore');
+    if (checkbox) {
+        checkbox.addEventListener('change', function() {
             const restoreBtn = document.getElementById('confirmRestoreBtn');
             
             console.log('========== CHECKBOX DEBUG ==========');
-            console.log('Checkbox element:', checkbox);
-            console.log('Checkbox checked:', checkbox.checked);
-            console.log('Restore button element:', restoreBtn);
-            console.log('Button current disabled state:', restoreBtn ? restoreBtn.disabled : 'BUTTON NOT FOUND!');
+            console.log('Checkbox checked:', this.checked);
+            console.log('Button element:', restoreBtn);
             
             if (restoreBtn) {
-                restoreBtn.disabled = !checkbox.checked;
-                console.log('Button NEW disabled state:', restoreBtn.disabled);
+                restoreBtn.disabled = !this.checked;
                 
                 // Görsel olarak da değiştir
-                if (checkbox.checked) {
+                if (this.checked) {
                     restoreBtn.classList.remove('disabled');
-                    restoreBtn.style.pointerEvents = 'auto';
                     restoreBtn.style.opacity = '1';
-                    console.log('Button ENABLED - visual changes applied');
+                    console.log('✅ Button AKTİF yapıldı');
                 } else {
                     restoreBtn.classList.add('disabled');
-                    restoreBtn.style.pointerEvents = 'none';
                     restoreBtn.style.opacity = '0.6';
-                    console.log('Button DISABLED - visual changes applied');
+                    console.log('❌ Button PASİF yapıldı');
                 }
             } else {
-                console.error('RESTORE BUTTON BULUNAMADI!');
+                console.error('❌ RESTORE BUTTON BULUNAMADI!');
             }
             console.log('====================================');
-        }
-    });
-});
-
-// Modal açıldığında reset yap
-$(document).on('shown.bs.modal', '#restoreModal', function () {
-    console.log('Modal açıldı - reset yapılıyor');
-    
-    const checkbox = document.getElementById('confirmRestore');
-    const restoreBtn = document.getElementById('confirmRestoreBtn');
-    
-    if (checkbox) {
-        checkbox.checked = false;
-        console.log('Checkbox reset edildi');
+        });
+        
+        console.log('✅ Checkbox event listener eklendi');
+    } else {
+        console.error('❌ CHECKBOX BULUNAMADI!');
     }
     
-    if (restoreBtn) {
-        restoreBtn.disabled = true;
-        restoreBtn.classList.add('disabled');
-        restoreBtn.style.pointerEvents = 'none';
-        restoreBtn.style.opacity = '0.6';
-        console.log('Button pasif yapıldı');
+    // Modal event listeners - VANILLA JS
+    const modal = document.getElementById('restoreModal');
+    if (modal) {
+        modal.addEventListener('shown.bs.modal', function() {
+            console.log('Modal açıldı - reset yapılıyor');
+            
+            const checkbox = document.getElementById('confirmRestore');
+            const restoreBtn = document.getElementById('confirmRestoreBtn');
+            
+            if (checkbox) {
+                checkbox.checked = false;
+                console.log('Checkbox reset edildi');
+            }
+            
+            if (restoreBtn) {
+                restoreBtn.disabled = true;
+                restoreBtn.classList.add('disabled');
+                restoreBtn.style.opacity = '0.6';
+                console.log('Button pasif yapıldı');
+            }
+        });
+        
+        modal.addEventListener('hidden.bs.modal', function() {
+            selectedRestoreFile = null;
+            const fileInput = document.getElementById('restoreFile');
+            const checkbox = document.getElementById('confirmRestore');
+            const restoreBtn = document.getElementById('confirmRestoreBtn');
+            
+            if (fileInput) fileInput.value = '';
+            if (checkbox) checkbox.checked = false;
+            if (restoreBtn) restoreBtn.disabled = true;
+            
+            console.log('Modal kapandı - temizlik yapıldı');
+        });
+        
+        console.log('✅ Modal event listeners eklendi');
     }
 });
 
-// Modal kapandığında temizlik yap
-$('#restoreModal').on('hidden.bs.modal', function () {
-    selectedRestoreFile = null;
-    const fileInput = document.getElementById('restoreFile');
-    const checkbox = document.getElementById('confirmRestore');
-    const restoreBtn = document.getElementById('confirmRestoreBtn');
-    
-    if (fileInput) fileInput.value = '';
-    if (checkbox) checkbox.checked = false;
-    if (restoreBtn) restoreBtn.disabled = true;
-    
-    console.log('Modal closed - Cleaned up');
-});
-
-// Yedek oluştur
+// Yedek oluştur - jQuery YOK!
 function createBackup() {
     const btn = event.target;
     const originalText = btn.innerHTML;
@@ -384,9 +383,12 @@ function createBackup() {
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Yedekleniyor...';
 
-    // Progress bar göster
-    $('.progress-container').show();
-    $('.progress-bar').css('width', '30%');
+    // Progress bar göster - vanilla JS
+    const progressContainer = document.querySelector('.progress-container');
+    const progressBar = document.querySelector('.progress-bar');
+    
+    if (progressContainer) progressContainer.style.display = 'block';
+    if (progressBar) progressBar.style.width = '30%';
 
     fetch('/admin/backup', {
         method: 'POST',
@@ -396,11 +398,11 @@ function createBackup() {
     })
     .then(response => response.json())
     .then(data => {
-        $('.progress-bar').css('width', '100%');
+        if (progressBar) progressBar.style.width = '100%';
 
         setTimeout(() => {
-            $('.progress-container').hide();
-            $('.progress-bar').css('width', '0%');
+            if (progressContainer) progressContainer.style.display = 'none';
+            if (progressBar) progressBar.style.width = '0%';
 
             if (data.success) {
                 showNotification('success', `Yedekleme başarılı! ${data.filename} (${(data.size/1024/1024).toFixed(1)} MB)`);
@@ -418,8 +420,8 @@ function createBackup() {
         console.error('Error:', error);
         showNotification('error', 'Yedekleme sırasında hata oluştu');
 
-        $('.progress-container').hide();
-        $('.progress-bar').css('width', '0%');
+        if (progressContainer) progressContainer.style.display = 'none';
+        if (progressBar) progressBar.style.width = '0%';
         btn.disabled = false;
         btn.innerHTML = originalText;
     });
