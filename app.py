@@ -52,6 +52,7 @@ LOCKOUT_DURATION = timedelta(minutes=15)
 app = Flask(__name__)
 # Güvenli secret key - mevcut app.secret_key satırının yerine
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
+DATABASE_PATH = 'sensor_data.db'
 
 app.config['FIRMWARE_FOLDER'] = 'firmware'
 app.config['ALLOWED_EXTENSIONS'] = {'bin'}
@@ -1438,66 +1439,37 @@ def change_work_order_status(work_order_id):
 @app.route('/api/work_order_report/<int:work_order_id>')
 @login_required
 def generate_work_order_pdf_report(work_order_id):
-    """İş emri PDF raporu oluştur - Türkçe karakter destekli"""
+    """İş emri PDF raporu oluştur - DÜZELTİLMİŞ VERSİYON"""
     try:
         # Veritabanından iş emri bilgilerini al
-        conn = sqlite3.connect(DATABASE_PATH)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
+        with get_db() as conn:
+            # İş emri bilgileri - DÜZELTİLMİŞ SORGU
+            work_order = conn.execute('''
+                SELECT wo.*, d.cihaz_adi, d.konum, d.fabrika_adi
+                FROM work_orders wo
+                LEFT JOIN devices d ON wo.cihaz_id = d.cihaz_id
+                WHERE wo.id = ?
+            ''', (work_order_id,)).fetchone()
 
-        # İş emri bilgileri
-        cursor.execute('''
-            SELECT wo.*, d.device_name, d.location, d.factory, u.username as operator_name
-            FROM work_orders wo
-            LEFT JOIN devices d ON wo.device_id = d.id
-            LEFT JOIN users u ON wo.operator_id = u.id
-            WHERE wo.id = ?
-        ''', (work_order_id,))
+            if not work_order:
+                return jsonify({'error': 'İş emri bulunamadı'}), 404
 
-        work_order = cursor.fetchone()
-        if not work_order:
-            conn.close()
-            return jsonify({'error': 'İş emri bulunamadı'}), 404
-
-        # Duruş kayıtları
-        cursor.execute('''
-            SELECT * FROM downtime_records 
-            WHERE work_order_id = ? 
-            ORDER BY start_time
-        ''', (work_order_id,))
-        downtime_records = cursor.fetchall()
-        conn.close()
+            # Duruş kayıtları
+            downtime_records = conn.execute('''
+                SELECT * FROM downtimes 
+                WHERE work_order_id = ? 
+                ORDER BY baslama_zamani
+            ''', (work_order_id,)).fetchall()
 
         # PDF oluştur
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1 * inch)
-
-        # Türkçe karakter desteği için font tanımla
-        try:
-            # DejaVu Sans fontunu tanımla (Türkçe karakter destekli)
-            pdfmetrics.registerFont(TTFont('DejaVuSans', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'))
-            pdfmetrics.registerFont(TTFont('DejaVuSans-Bold', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'))
-
-            # Font mapping
-            addMapping('DejaVuSans', 0, 0, 'DejaVuSans')
-            addMapping('DejaVuSans', 1, 0, 'DejaVuSans-Bold')
-
-            default_font = 'DejaVuSans'
-            bold_font = 'DejaVuSans-Bold'
-            print("✅ DejaVu Sans fontları yüklendi")
-
-        except Exception as font_error:
-            # Fallback: Helvetica (sınırlı Türkçe desteği)
-            default_font = 'Helvetica'
-            bold_font = 'Helvetica-Bold'
-            print(f"⚠️ DejaVu font yüklenemedi, Helvetica kullanılıyor: {font_error}")
 
         # Stiller
         styles = getSampleStyleSheet()
         title_style = ParagraphStyle(
             'CustomTitle',
             parent=styles['Title'],
-            fontName=bold_font,
             fontSize=18,
             spaceAfter=30,
             alignment=TA_CENTER
@@ -1506,7 +1478,6 @@ def generate_work_order_pdf_report(work_order_id):
         heading_style = ParagraphStyle(
             'CustomHeading',
             parent=styles['Heading2'],
-            fontName=bold_font,
             fontSize=14,
             spaceAfter=12,
             textColor=colors.darkblue
@@ -1515,7 +1486,6 @@ def generate_work_order_pdf_report(work_order_id):
         normal_style = ParagraphStyle(
             'CustomNormal',
             parent=styles['Normal'],
-            fontName=default_font,
             fontSize=10,
             spaceAfter=6
         )
@@ -1525,22 +1495,22 @@ def generate_work_order_pdf_report(work_order_id):
 
         # Başlık
         story.append(Paragraph("İŞ EMRİ RAPORU", title_style))
-        story.append(Paragraph(f"İŞ EMRİ #{work_order['work_order_number'] or 'N/A'}", title_style))
+        story.append(Paragraph(f"İŞ EMRİ #{work_order['is_emri_no'] or 'N/A'}", title_style))
         story.append(Spacer(1, 20))
 
         # Temel Bilgiler Tablosu
         story.append(Paragraph("TEMEL BİLGİLER", heading_style))
 
         basic_data = [
-            ['İş Emri No:', work_order['work_order_number'] or 'N/A'],
-            ['Cihaz:', work_order['device_name'] or 'N/A'],
-            ['Fabrika:', work_order['factory'] or 'N/A'],
-            ['Konum:', work_order['location'] or 'N/A'],
-            ['Ürün Tipi:', work_order['product_type'] or 'N/A'],
-            ['Operatör:', work_order['operator_name'] or 'N/A'],
-            ['Vardiya:', work_order['shift'] or 'N/A'],
-            ['Başlama:', work_order['start_time'] or 'N/A'],
-            ['Bitiş:', work_order['end_time'] or 'N/A']
+            ['İş Emri No:', work_order['is_emri_no'] or 'N/A'],
+            ['Cihaz:', work_order['cihaz_adi'] or 'N/A'],
+            ['Fabrika:', work_order['fabrika_adi'] or 'N/A'],
+            ['Konum:', work_order['konum'] or 'N/A'],
+            ['Ürün Tipi:', work_order['urun_tipi'] or 'N/A'],
+            ['Operatör:', work_order['operator_ad'] or 'N/A'],
+            ['Vardiya:', work_order['shift_bilgisi'] or 'N/A'],
+            ['Başlama:', work_order['baslama_zamani'] or 'N/A'],
+            ['Bitiş:', work_order['bitis_zamani'] or 'N/A']
         ]
 
         basic_table = Table(basic_data, colWidths=[2.5 * inch, 4 * inch])
@@ -1548,8 +1518,6 @@ def generate_work_order_pdf_report(work_order_id):
             ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
             ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (0, -1), bold_font),
-            ('FONTNAME', (1, 0), (1, -1), default_font),
             ('FONTSIZE', (0, 0), (-1, -1), 10),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
@@ -1572,16 +1540,14 @@ def generate_work_order_pdf_report(work_order_id):
                 return default
 
         performance_data = [
-            ['Hedef Ürün:', f"{safe_value(work_order['target_quantity'])} adet"],
-            ['Gerçekleşen Ürün:', f"{safe_value(work_order['actual_quantity'])} adet"],
-            ['Fire Sayısı:', f"{safe_value(work_order['defective_quantity'])} adet"],
-            ['Sağlam Ürün:', f"{safe_value(work_order['good_quantity'])} adet"],
-            ['Verimlilik:', safe_percent(work_order['efficiency'])],
-            ['Kalite Oranı:', safe_percent(work_order['quality_rate'])],
-            ['Arduino OEE:', safe_percent(work_order['arduino_oee'])],
-            ['Kullanılabilirlik:', safe_percent(work_order['availability'])],
-            ['Performans:', safe_percent(work_order['performance'])],
-            ['Kalite:', safe_percent(work_order['quality'])]
+            ['Hedef Ürün:', f"{safe_value(work_order['hedef_urun'])} adet"],
+            ['Gerçekleşen Ürün:', f"{safe_value(work_order['gerceklesen_urun'])} adet"],
+            ['Fire Sayısı:', f"{safe_value(work_order['fire_sayisi'])} adet"],
+            ['Sağlam Ürün:', f"{safe_value((work_order['gerceklesen_urun'] or 0) - (work_order['fire_sayisi'] or 0))} adet"],
+            ['Arduino OEE:', safe_percent(work_order.get('sensor_oee'))],
+            ['Kullanılabilirlik:', safe_percent(work_order.get('sensor_kullanilabilirlik'))],
+            ['Performans:', safe_percent(work_order.get('sensor_performans'))],
+            ['Kalite:', safe_percent(work_order.get('sensor_kalite'))]
         ]
 
         performance_table = Table(performance_data, colWidths=[2.5 * inch, 4 * inch])
@@ -1589,8 +1555,6 @@ def generate_work_order_pdf_report(work_order_id):
             ('BACKGROUND', (0, 0), (0, -1), colors.lightgreen),
             ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (0, -1), bold_font),
-            ('FONTNAME', (1, 0), (1, -1), default_font),
             ('FONTSIZE', (0, 0), (-1, -1), 10),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
@@ -1609,53 +1573,48 @@ def generate_work_order_pdf_report(work_order_id):
             downtime_count = 0
 
             for record in downtime_records:
-                if record['start_time'] and record['end_time']:
+                if record['baslama_zamani'] and record['bitis_zamani']:
                     try:
-                        # Zaman parse etme
-                        start_time_str = str(record['start_time']).replace('Z', '+00:00')
-                        end_time_str = str(record['end_time']).replace('Z', '+00:00')
-
-                        start_dt = datetime.fromisoformat(start_time_str)
-                        end_dt = datetime.fromisoformat(end_time_str)
-                        duration = end_dt - start_dt
-                        total_downtime += duration.total_seconds()
+                        # Süreyi formatla (saniye cinsinden varsa)
+                        duration_seconds = record['sure_saniye'] or 0
+                        total_downtime += duration_seconds
                         downtime_count += 1
 
                         # Süreyi formatla (HH:MM:SS)
-                        hours, remainder = divmod(int(duration.total_seconds()), 3600)
+                        hours, remainder = divmod(int(duration_seconds), 3600)
                         minutes, seconds = divmod(remainder, 60)
                         duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
                         # Neden kodları
                         reason_map = {
-                            '1': 'BAKIM',
-                            '2': 'ARIZA',
-                            '3': 'MALZEME',
-                            '4': 'MOLA',
-                            '5': 'DİĞER'
+                            1: 'BAKIM',
+                            2: 'ARIZA',
+                            3: 'MALZEME',
+                            4: 'MOLA',
+                            5: 'DİĞER'
                         }
 
-                        reason_text = reason_map.get(str(record['reason_code']), str(record['reason_code']))
+                        reason_text = reason_map.get(record['neden_kodu'], str(record['neden_kodu']) if record['neden_kodu'] else 'N/A')
 
                         downtime_data.append([
                             record['downtime_id'] or 'N/A',
-                            start_dt.strftime('%Y-%m-%d %H:%M:%S'),
-                            end_dt.strftime('%Y-%m-%d %H:%M:%S'),
+                            record['baslama_zamani'] or 'N/A',
+                            record['bitis_zamani'] or 'N/A',
                             duration_str,
                             reason_text,
-                            record['description'] or 'N/A'
+                            record['neden_aciklama'] or 'N/A'
                         ])
 
                     except Exception as e:
-                        print(f"Duruş hesaplama hatası: {e}")
+                        logger.error(f"Duruş hesaplama hatası: {e}")
                         # Hatalı kayıt için varsayılan değerler
                         downtime_data.append([
                             record['downtime_id'] or 'N/A',
-                            str(record['start_time'])[:19] if record['start_time'] else 'N/A',
-                            str(record['end_time'])[:19] if record['end_time'] else 'N/A',
+                            str(record['baslama_zamani'] or 'N/A'),
+                            str(record['bitis_zamani'] or 'N/A'),
                             'N/A',
-                            str(record['reason_code']) if record['reason_code'] else 'N/A',
-                            record['description'] or 'N/A'
+                            str(record['neden_kodu']) if record['neden_kodu'] else 'N/A',
+                            record['neden_aciklama'] or 'N/A'
                         ])
 
             # Toplam satırı
@@ -1674,11 +1633,8 @@ def generate_work_order_pdf_report(work_order_id):
             downtime_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.red),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                ('BACKGROUND', (-1, -1), (-1, -1), colors.orange) if total_downtime > 0 else ('BACKGROUND', (-1, -1),
-                                                                                              (-1, -1), colors.white),
+                ('BACKGROUND', (-1, -1), (-1, -1), colors.orange) if total_downtime > 0 else ('BACKGROUND', (-1, -1), (-1, -1), colors.white),
                 ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), bold_font),
-                ('FONTNAME', (0, 1), (-1, -1), default_font),
                 ('FONTSIZE', (0, 0), (-1, -1), 9),
                 ('GRID', (0, 0), (-1, -1), 1, colors.black),
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
@@ -1696,8 +1652,8 @@ def generate_work_order_pdf_report(work_order_id):
         doc.build(story)
         buffer.seek(0)
 
-        # Dosya adı (Türkçe karaktersiz)
-        work_order_number = work_order['work_order_number'] or 'UNKNOWN'
+        # Dosya adı
+        work_order_number = work_order['is_emri_no'] or 'UNKNOWN'
         safe_work_order_number = (work_order_number
                                   .replace('İ', 'I').replace('ı', 'i')
                                   .replace('Ş', 'S').replace('ş', 's')
@@ -1708,7 +1664,7 @@ def generate_work_order_pdf_report(work_order_id):
 
         filename = f"is_emri_rapor_{safe_work_order_number}_{current_time.strftime('%Y%m%d_%H%M%S')}.pdf"
 
-        print(f"✅ PDF raporu oluşturuldu: {filename}")
+        logger.info(f"✅ PDF raporu oluşturuldu: {filename}")
 
         return send_file(
             buffer,
@@ -1718,8 +1674,7 @@ def generate_work_order_pdf_report(work_order_id):
         )
 
     except Exception as e:
-        app.logger.error(f"PDF rapor oluşturma hatası: {str(e)}")
-        print(f"❌ PDF hatası: {str(e)}")
+        logger.error(f"❌ PDF rapor oluşturma hatası: {str(e)}")
         return jsonify({'error': f'PDF oluşturma hatası: {str(e)}'}), 500
 
 
