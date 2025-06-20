@@ -1539,15 +1539,22 @@ def generate_work_order_pdf_report(work_order_id):
             except (ValueError, TypeError):
                 return default
 
+        # Güvenli kolon okuma fonksiyonu
+        def safe_column(row, column_name, default=None):
+            try:
+                return row[column_name] if column_name in row.keys() else default
+            except (KeyError, IndexError):
+                return default
+
         performance_data = [
             ['Hedef Ürün:', f"{safe_value(work_order['hedef_urun'])} adet"],
             ['Gerçekleşen Ürün:', f"{safe_value(work_order['gerceklesen_urun'])} adet"],
             ['Fire Sayısı:', f"{safe_value(work_order['fire_sayisi'])} adet"],
             ['Sağlam Ürün:', f"{safe_value((work_order['gerceklesen_urun'] or 0) - (work_order['fire_sayisi'] or 0))} adet"],
-            ['Arduino OEE:', safe_percent(work_order.get('sensor_oee'))],
-            ['Kullanılabilirlik:', safe_percent(work_order.get('sensor_kullanilabilirlik'))],
-            ['Performans:', safe_percent(work_order.get('sensor_performans'))],
-            ['Kalite:', safe_percent(work_order.get('sensor_kalite'))]
+            ['Arduino OEE:', safe_percent(safe_column(work_order, 'sensor_oee'))],
+            ['Kullanılabilirlik:', safe_percent(safe_column(work_order, 'sensor_kullanilabilirlik'))],
+            ['Performans:', safe_percent(safe_column(work_order, 'sensor_performans'))],
+            ['Kalite:', safe_percent(safe_column(work_order, 'sensor_kalite'))]
         ]
 
         performance_table = Table(performance_data, colWidths=[2.5 * inch, 4 * inch])
