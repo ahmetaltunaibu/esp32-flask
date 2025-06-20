@@ -299,29 +299,66 @@ $(document).ready(function() {
     loadBackups();
 });
 
-// Checkbox değişiklik event'i - document ready'de bir kez tanımla
-$(document).on('change', '#confirmRestore', function() {
-    const isChecked = this.checked;
-    const restoreBtn = document.getElementById('confirmRestoreBtn');
+// SAKIN OL VE BU KOD İLE ÇALIŞTIR!
+// Checkbox için basit event listener
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM loaded, setting up checkbox listener');
     
-    if (restoreBtn) {
-        restoreBtn.disabled = !isChecked;
-        
-        // Debug için console log
-        console.log('Checkbox changed:', isChecked, 'Button disabled:', !isChecked);
-    }
+    // Her checkbox değişikliğinde kontrol et
+    document.addEventListener('change', function(e) {
+        if (e.target && e.target.id === 'confirmRestore') {
+            const checkbox = e.target;
+            const restoreBtn = document.getElementById('confirmRestoreBtn');
+            
+            console.log('========== CHECKBOX DEBUG ==========');
+            console.log('Checkbox element:', checkbox);
+            console.log('Checkbox checked:', checkbox.checked);
+            console.log('Restore button element:', restoreBtn);
+            console.log('Button current disabled state:', restoreBtn ? restoreBtn.disabled : 'BUTTON NOT FOUND!');
+            
+            if (restoreBtn) {
+                restoreBtn.disabled = !checkbox.checked;
+                console.log('Button NEW disabled state:', restoreBtn.disabled);
+                
+                // Görsel olarak da değiştir
+                if (checkbox.checked) {
+                    restoreBtn.classList.remove('disabled');
+                    restoreBtn.style.pointerEvents = 'auto';
+                    restoreBtn.style.opacity = '1';
+                    console.log('Button ENABLED - visual changes applied');
+                } else {
+                    restoreBtn.classList.add('disabled');
+                    restoreBtn.style.pointerEvents = 'none';
+                    restoreBtn.style.opacity = '0.6';
+                    console.log('Button DISABLED - visual changes applied');
+                }
+            } else {
+                console.error('RESTORE BUTTON BULUNAMADI!');
+            }
+            console.log('====================================');
+        }
+    });
 });
 
-// Modal her açıldığında sadece reset işlemi yap
-$('#restoreModal').on('shown.bs.modal', function () {
-    // Checkbox'ı resetle
+// Modal açıldığında reset yap
+$(document).on('shown.bs.modal', '#restoreModal', function () {
+    console.log('Modal açıldı - reset yapılıyor');
+    
     const checkbox = document.getElementById('confirmRestore');
     const restoreBtn = document.getElementById('confirmRestoreBtn');
     
-    if (checkbox) checkbox.checked = false;
-    if (restoreBtn) restoreBtn.disabled = true;
+    if (checkbox) {
+        checkbox.checked = false;
+        console.log('Checkbox reset edildi');
+    }
     
-    console.log('Modal opened - Reset checkbox and button');
+    if (restoreBtn) {
+        restoreBtn.disabled = true;
+        restoreBtn.classList.add('disabled');
+        restoreBtn.style.pointerEvents = 'none';
+        restoreBtn.style.opacity = '0.6';
+        console.log('Button pasif yapıldı');
+    }
 });
 
 // Modal kapandığında temizlik yap
