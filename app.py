@@ -1,5 +1,3 @@
-# deneme satır
-
 import os
 import sqlite3
 import logging
@@ -674,9 +672,7 @@ def inject_user():
         user_factory=session.get('factory_access')
     )
 
-
-# app.py dosyasındaki /data endpoint'ini bu versiyonla değiştirin
-
+# sunucuya esp32 den  gelen veriler
 @app.route('/data', methods=['POST'])
 def receive_data():
     """ESP32'den gelen verileri işle - ERROR HANDLING İYİLEŞTİRİLMİŞ"""
@@ -954,6 +950,67 @@ def receive_data():
                             except Exception as e:
                                 logger.error(f"❌ Fire kayıt hatası: {str(e)}")
 
+                        # *** YENİ EKLEME: ANA DÜZEY DURUŞ VERİLERİNİ İŞLE ***
+                        if 'durus_verileri' in data and data['durus_verileri']:
+                            try:
+                                # Eski duruşları sil
+                                conn.execute('DELETE FROM downtimes WHERE work_order_id = ?', (work_order_id,))
+
+                                # Yeni duruşları ekle
+                                for durus in data['durus_verileri']:
+                                    conn.execute('''
+                                        INSERT INTO downtimes (
+                                            work_order_id, cihaz_id, is_emri_no, downtime_id,
+                                            baslama_zamani, bitis_zamani, neden_kodu, neden_aciklama,
+                                            yapilan_islem, sure_saniye, sure_dakika, sure_str
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    ''', (
+                                        work_order_id, cihaz_id, is_emri_no,
+                                        durus.get('id', ''),
+                                        durus.get('baslama_zamani', ''),
+                                        durus.get('bitis_zamani', ''),
+                                        durus.get('neden_kodu', 0),
+                                        durus.get('neden_aciklama', ''),
+                                        durus.get('yapilan_islem', ''),
+                                        durus.get('sure_saniye', 0),
+                                        durus.get('sure_dakika', 0),
+                                        durus.get('sure_str', '')
+                                    ))
+                                logger.info(f"✅ Ana düzey: {len(data['durus_verileri'])} duruş kaydedildi")
+                            except Exception as e:
+                                logger.error(f"❌ Ana düzey duruş kayıt hatası: {str(e)}")
+
+                        # *** YENİ EKLEME: ANA DÜZEY FİRE VERİLERİNİ İŞLE ***
+                        if 'fire_kayitlari' in data and data['fire_kayitlari']:
+                            try:
+                                # Eski fire kayıtlarını sil
+                                conn.execute('DELETE FROM fires WHERE work_order_id = ?', (work_order_id,))
+
+                                # Yeni fire kayıtlarını ekle
+                                for fire in data['fire_kayitlari']:
+                                    conn.execute('''
+                                        INSERT INTO fires (
+                                            work_order_id, cihaz_id, is_emri_no, fire_id,
+                                            baslama_zamani, bitis_zamani, miktar, neden_kodu,
+                                            neden_aciklama, aciklama, sure_saniye, sure_dakika, sure_str
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    ''', (
+                                        work_order_id, cihaz_id, is_emri_no,
+                                        fire.get('id', ''),
+                                        fire.get('baslama_zamani', ''),
+                                        fire.get('bitis_zamani', ''),
+                                        fire.get('miktar', 0),
+                                        fire.get('neden_kodu', 0),
+                                        fire.get('neden_aciklama', ''),
+                                        fire.get('aciklama', ''),
+                                        fire.get('sure_saniye', 0),
+                                        fire.get('sure_dakika', 0),
+                                        fire.get('sure_str', '')
+                                    ))
+                                logger.info(f"✅ Ana düzey: {len(data['fire_kayitlari'])} fire kaydedildi")
+                            except Exception as e:
+                                logger.error(f"❌ Ana düzey fire kayıt hatası: {str(e)}")
+
                 except Exception as e:
                     logger.error(f"❌ İş emri işleme hatası: {str(e)}")
                     # İş emri hatası olsa bile sensör verilerini kaydet
@@ -1001,7 +1058,6 @@ def receive_data():
             "error_type": type(e).__name__,
             "debug": str(e)[:200]  # Hata mesajının ilk 200 karakteri
         }), 500
-
 
 @app.route('/api/downtimes/<int:work_order_id>')
 @login_required
@@ -5262,5 +5318,3 @@ if __name__ == '__main__':
         debug=debug_mode,
         threaded=True
     )
-
-
