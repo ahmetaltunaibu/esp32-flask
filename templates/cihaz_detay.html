@@ -493,6 +493,11 @@ function setupEventListeners() {
         currentSensor = this.value;
         updateChart();
     });
+    if (document.getElementById('sensorSelect').options.length > 1) {
+        document.getElementById('sensorSelect').selectedIndex = 1;
+        currentSensor = document.getElementById('sensorSelect').value;
+        updateChart();
+    }
 }
 
 // Grafik başlatma
@@ -742,7 +747,12 @@ function setQuickDate(element, days) {
 
 // Otomatik yenileme - sadece online cihazlar için
 {% if cihaz.online_status %}
-setTimeout(() => location.reload(), 30000);
+setTimeout(() => {     
+    if (currentSensor) {         
+        updateChart(); // Sadece grafiği güncelle, seçimi koru     
+    } else {
+        location.reload(); // Seçim yoksa normal yenile     
+    } }, 15000); // 15 saniyeye düşür
 {% endif %}
 </script>
 {% endblock %}
