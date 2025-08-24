@@ -1063,36 +1063,170 @@ def receive_data():
 @login_required
 def get_downtimes(work_order_id):
     try:
+        from datetime import datetime
+        
         with get_db() as conn:
             downtimes = conn.execute('''
                 SELECT * FROM downtimes 
                 WHERE work_order_id = ? 
                 ORDER BY baslama_zamani
             ''', (work_order_id,)).fetchall()
-
+            
+            # Duruş verilerini işle ve süre hesapla
+            processed_downtimes = []
+            
+            for d in downtimes:
+                downtime_dict = dict(d)
+                
+                # Süre hesaplama
+                calculated_seconds = 0
+                
+                # Eğer sure_saniye zaten varsa onu kullan
+                if downtime_dict.get('sure_saniye') and downtime_dict['sure_saniye'] > 0:
+                    calculated_seconds = downtime_dict['sure_saniye']
+                else:
+                    # Başlama ve bitiş zamanından hesapla
+                    start_time = downtime_dict.get('baslama_zamani')
+                    end_time = downtime_dict.get('bitis_zamani')
+                    
+                    if start_time and end_time:
+                        try:
+                            # Farklı tarih formatlarını dene
+                            date_formats = [
+                                '%Y-%m-%d %H:%M:%S',
+                                '%Y-%m-%d %H:%M:%S.%f',
+                                '%d-%m-%Y %H:%M:%S',
+                                '%Y/%m/%d %H:%M:%S'
+                            ]
+                            
+                            start_dt = None
+                            end_dt = None
+                            
+                            for fmt in date_formats:
+                                try:
+                                    start_dt = datetime.strptime(start_time, fmt)
+                                    end_dt = datetime.strptime(end_time, fmt)
+                                    break
+                                except ValueError:
+                                    continue
+                            
+                            if start_dt and end_dt:
+                                duration = end_dt - start_dt
+                                calculated_seconds = int(duration.total_seconds())
+                                
+                                # Negatif süreleri önle
+                                if calculated_seconds < 0:
+                                    calculated_seconds = 0
+                                    
+                        except Exception as e:
+                            print(f"❌ Tarih parse hatası: {e}")
+                            calculated_seconds = 0
+                
+                # Hesaplanan süreyi güncelle
+                downtime_dict['sure_saniye'] = calculated_seconds
+                
+                # Süre string formatını da güncelle
+                if calculated_seconds > 0:
+                    hours = calculated_seconds // 3600
+                    minutes = (calculated_seconds % 3600) // 60
+                    seconds = calculated_seconds % 60
+                    downtime_dict['sure_str_calculated'] = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                else:
+                    downtime_dict['sure_str_calculated'] = "00:00:00"
+                
+                processed_downtimes.append(downtime_dict)
+            
             return jsonify({
                 'success': True,
-                'downtimes': [dict(d) for d in downtimes]
+                'downtimes': processed_downtimes
             })
+            
     except Exception as e:
+        print(f"❌ Downtimes API hatası: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
+
 @app.route('/api/fires/<int:work_order_id>')
-@login_required
+@login_required  
 def get_fires(work_order_id):
     try:
+        from datetime import datetime
+        
         with get_db() as conn:
             fires = conn.execute('''
                 SELECT * FROM fires 
                 WHERE work_order_id = ? 
                 ORDER BY baslama_zamani
             ''', (work_order_id,)).fetchall()
-
+            
+            # Fire verilerini işle ve süre hesapla
+            processed_fires = []
+            
+            for f in fires:
+                fire_dict = dict(f)
+                
+                # Süre hesaplama (Fire için de aynı mantık)
+                calculated_seconds = 0
+                
+                if fire_dict.get('sure_saniye') and fire_dict['sure_saniye'] > 0:
+                    calculated_seconds = fire_dict['sure_saniye']
+                else:
+                    # Başlama ve bitiş zamanından hesapla
+                    start_time = fire_dict.get('baslama_zamani')
+                    end_time = fire_dict.get('bitis_zamani')
+                    
+                    if start_time and end_time:
+                        try:
+                            date_formats = [
+                                '%Y-%m-%d %H:%M:%S',
+                                '%Y-%m-%d %H:%M:%S.%f',
+                                '%d-%m-%Y %H:%M:%S',
+                                '%Y/%m/%d %H:%M:%S'
+                            ]
+                            
+                            start_dt = None
+                            end_dt = None
+                            
+                            for fmt in date_formats:
+                                try:
+                                    start_dt = datetime.strptime(start_time, fmt)
+                                    end_dt = datetime.strptime(end_time, fmt)
+                                    break
+                                except ValueError:
+                                    continue
+                            
+                            if start_dt and end_dt:
+                                duration = end_dt - start_dt
+                                calculated_seconds = int(duration.total_seconds())
+                                
+                                if calculated_seconds < 0:
+                                    calculated_seconds = 0
+                                    
+                        except Exception as e:
+                            print(f"❌ Fire tarih parse hatası: {e}")
+                            calculated_seconds = 0
+                
+                # Hesaplanan süreyi güncelle
+                fire_dict['sure_saniye'] = calculated_seconds
+                
+                # Süre string formatını da güncelle
+                if calculated_seconds > 0:
+                    hours = calculated_seconds // 3600
+                    minutes = (calculated_seconds % 3600) // 60
+                    seconds = calculated_seconds % 60
+                    fire_dict['sure_str_calculated'] = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                else:
+                    fire_dict['sure_str_calculated'] = "00:00:00"
+                
+                processed_fires.append(fire_dict)
+            
             return jsonify({
                 'success': True,
-                'fires': [dict(f) for f in fires]
+                'fires': processed_fires
             })
+            
     except Exception as e:
+        print(f"❌ Fires API hatası: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
 
