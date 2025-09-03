@@ -325,6 +325,28 @@ def init_db():
                         FOREIGN KEY (cihaz_id) REFERENCES devices (cihaz_id)
                     )
                 ''')
+        # 10. MEASUREMENTS (ÖLÇÜMLER) TABLOSU - YENİ!
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS measurements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                work_order_id INTEGER,
+                cihaz_id TEXT NOT NULL,
+                is_emri_no TEXT NOT NULL,
+                measurement_id TEXT NOT NULL,
+                baslama_zamani TEXT NOT NULL,
+                bitis_zamani TEXT,
+                urun_adi TEXT,
+                sicaklik INTEGER DEFAULT 0,
+                nem INTEGER DEFAULT 0,
+                sertlik INTEGER DEFAULT 0,
+                aciklama TEXT,
+                olcum_durumu INTEGER DEFAULT 1,
+                kalite_degerlendirme TEXT DEFAULT 'PENDING',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (work_order_id) REFERENCES work_orders (id),
+                FOREIGN KEY (cihaz_id) REFERENCES devices (cihaz_id)
+            )
+        ''')
 
         try:
             # Admin kullanıcısı var mı kontrol et
@@ -5413,6 +5435,106 @@ with app.app_context():
 
     except Exception as e:
         logger.error(f"❌ Error updating device status: {str(e)}")
+
+@app.route('/api/measurements/<int:work_order_id>')
+@login_required
+def get_measurements(work_order_id):
+    """İş emri ölçüm verilerini getir"""
+    try:
+        with get_db() as conn:
+            measurements = conn.execute('''
+                SELECT * FROM measurements 
+                WHERE work_order_id = ? 
+                ORDER BY baslama_zamani
+            ''', (work_order_id,)).fetchall()
+            
+            # Ölçüm verilerini işle
+            processed_measurements = []
+            
+            for m in measurements:
+                measurement_dict = dict(m)
+                
+                # Kalite skoru hesapla
+                quality_score = 0
+                if measurement_dict['sicaklik'] >= 18 and measurement_dict['sicaklik'] <= 25:
+                    quality_score += 33
+                if measurement_dict['nem'] >= 40 and measurement_dict['nem'] <= 60:
+                    quality_score += 33  
+                if measurement_dict['sertlik'] >= 50:
+                    quality_score += 34
+                    
+                measurement_dict['quality_score'] = quality_score
+                measurement_dict['quality_grade'] = (
+                    'A' if quality_score >= 90 else
+                    'B' if quality_score >= 70 else
+                    'C' if quality_score >= 50 else
+                    'D'
+                )
+                
+                processed_measurements.append(measurement_dict)
+            
+            return jsonify({
+                'success': True,
+                'measurements': processed_measurements
+            })
+            
+    except Exception as e:
+        print(f"❌ Measurements API hatası: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/measurements/summary/<cihaz_id>')
+@login_required
+def get_measurement_summary(cihaz_id):
+    """Cihaz için ölçüm özeti"""
+    try:
+        with get_db() as conn:
+            # Toplam ölçüm sayısı
+            total = conn.execute('''
+                SELECT COUNT(*) as count FROM measurements 
+                WHERE cihaz_id = ?
+            ''', (cihaz_id,)).fetchone()['count']
+            
+            # Başarılı ölçümler
+            successful = conn.execute('''
+                SELECT COUNT(*) as count FROM measurements 
+                WHERE cihaz_id = ? AND kalite_degerlendirme = 'UYGUN'
+            ''', (cihaz_id,)).fetchone()['count']
+            
+            # Son 7 gün
+            week_ago = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+            recent = conn.execute('''
+                SELECT COUNT(*) as count FROM measurements 
+                WHERE cihaz_id = ? AND created_at >= ?
+            ''', (cihaz_id, week_ago)).fetchone()['count']
+            
+            # Ortalama değerler
+            averages = conn.execute('''
+                SELECT 
+                    AVG(sicaklik) as avg_temp,
+                    AVG(nem) as avg_humidity,
+                    AVG(sertlik) as avg_hardness
+                FROM measurements 
+                WHERE cihaz_id = ? AND created_at >= ?
+            ''', (cihaz_id, week_ago)).fetchone()
+            
+            return jsonify({
+                'success': True,
+                'summary': {
+                    'total_measurements': total,
+                    'successful_measurements': successful,
+                    'recent_measurements': recent,
+                    'success_rate': round((successful * 100 / total), 1) if total > 0 else 0,
+                    'averages': {
+                        'temperature': round(averages['avg_temp'] or 0, 1),
+                        'humidity': round(averages['avg_humidity'] or 0, 1),
+                        'hardness': round(averages['avg_hardness'] or 0, 1)
+                    }
+                }
+            })
+            
+    except Exception as e:
+        print(f"❌ Measurement summary hatası: {e}")
+        return jsonify({'success': False, 'error': str(e)})
 
 if __name__ == '__main__':
     # ✅ DATABASE BAŞLATMA VE MİGRATİON
