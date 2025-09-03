@@ -972,6 +972,47 @@ def receive_data():
                             except Exception as e:
                                 logger.error(f"❌ Fire kayıt hatası: {str(e)}")
 
+                        # *** YENİ EKLEME: ÖLÇÜM VERİLERİNİ İŞLE ***
+                        if 'olcumler' in is_emri and is_emri['olcumler']:
+                            try:
+                                # Eski ölçüm kayıtlarını sil
+                                conn.execute('DELETE FROM measurements WHERE work_order_id = ?', (work_order_id,))
+
+                                # Yeni ölçüm kayıtlarını ekle
+                                for olcum in is_emri['olcumler']:
+                                    # Kalite değerlendirmesi
+                                    sicaklik = olcum.get('sicaklik', 0)
+                                    nem = olcum.get('nem', 0)
+                                    sertlik = olcum.get('sertlik', 0)
+                                    
+                                    # Otomatik kalite kontrolü
+                                    kalite_degerlendirme = "PENDING"
+                                    if sicaklik >= 18 and sicaklik <= 25 and nem >= 40 and nem <= 60 and sertlik >= 50:
+                                        kalite_degerlendirme = "UYGUN"
+                                    elif sicaklik > 0 or nem > 0 or sertlik > 0:  # En az bir değer varsa
+                                        kalite_degerlendirme = "UYGUN_DEGIL"
+
+                                    conn.execute('''
+                                        INSERT INTO measurements (
+                                            work_order_id, cihaz_id, is_emri_no, measurement_id,
+                                            baslama_zamani, bitis_zamani, urun_adi, sicaklik, nem, sertlik,
+                                            aciklama, olcum_durumu, kalite_degerlendirme
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    ''', (
+                                        work_order_id, cihaz_id, is_emri_no,
+                                        olcum.get('id', ''),
+                                        olcum.get('baslama_zamani', ''),
+                                        olcum.get('bitis_zamani', ''),
+                                        olcum.get('urun_adi', ''),
+                                        sicaklik, nem, sertlik,
+                                        olcum.get('aciklama', ''),
+                                        olcum.get('olcum_durumu', 1),
+                                        kalite_degerlendirme
+                                    ))
+                                logger.info(f"✅ {len(is_emri['olcumler'])} ölçüm kaydedildi")
+                            except Exception as e:
+                                logger.error(f"❌ Ölçüm kayıt hatası: {str(e)}")
+
                         # *** YENİ EKLEME: ANA DÜZEY DURUŞ VERİLERİNİ İŞLE ***
                         if 'durus_verileri' in data and data['durus_verileri']:
                             try:
@@ -1032,6 +1073,46 @@ def receive_data():
                                 logger.info(f"✅ Ana düzey: {len(data['fire_kayitlari'])} fire kaydedildi")
                             except Exception as e:
                                 logger.error(f"❌ Ana düzey fire kayıt hatası: {str(e)}")
+
+                        # *** ANA DÜZEY ÖLÇÜM VERİLERİNİ İŞLE (aktif iş emri için) ***
+                        if 'olcum_verileri' in data and data['olcum_verileri']:
+                            try:
+                                # Eski ölçümleri sil
+                                conn.execute('DELETE FROM measurements WHERE work_order_id = ?', (work_order_id,))
+
+                                # Yeni ölçümleri ekle
+                                for olcum in data['olcum_verileri']:
+                                    # Kalite değerlendirmesi
+                                    sicaklik = olcum.get('sicaklik', 0)
+                                    nem = olcum.get('nem', 0)
+                                    sertlik = olcum.get('sertlik', 0)
+                                    
+                                    kalite_degerlendirme = "PENDING"
+                                    if sicaklik >= 18 and sicaklik <= 25 and nem >= 40 and nem <= 60 and sertlik >= 50:
+                                        kalite_degerlendirme = "UYGUN"
+                                    elif sicaklik > 0 or nem > 0 or sertlik > 0:
+                                        kalite_degerlendirme = "UYGUN_DEGIL"
+
+                                    conn.execute('''
+                                        INSERT INTO measurements (
+                                            work_order_id, cihaz_id, is_emri_no, measurement_id,
+                                            baslama_zamani, bitis_zamani, urun_adi, sicaklik, nem, sertlik,
+                                            aciklama, olcum_durumu, kalite_degerlendirme
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    ''', (
+                                        work_order_id, cihaz_id, is_emri_no,
+                                        olcum.get('id', ''),
+                                        olcum.get('baslama_zamani', ''),
+                                        olcum.get('bitis_zamani', ''),
+                                        olcum.get('urun_adi', ''),
+                                        sicaklik, nem, sertlik,
+                                        olcum.get('aciklama', ''),
+                                        olcum.get('olcum_durumu', 1),
+                                        kalite_degerlendirme
+                                    ))
+                                logger.info(f"✅ Ana düzey: {len(data['olcum_verileri'])} ölçüm kaydedildi")
+                            except Exception as e:
+                                logger.error(f"❌ Ana düzey ölçüm kayıt hatası: {str(e)}")
 
                 except Exception as e:
                     logger.error(f"❌ İş emri işleme hatası: {str(e)}")
