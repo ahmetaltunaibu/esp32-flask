@@ -153,6 +153,43 @@
         margin-bottom: 5px;
         font-size: 0.9rem;
     }
+
+    /* Ölçüm verileri için stiller - YENİ! */
+.measurement-section {
+    background: #e8f5e8;
+    border-radius: 8px;
+    padding: 10px;
+    margin-top: 10px;
+    border-left: 3px solid #28a745;
+}
+
+.measurement-item {
+    background: white;
+    border-radius: 5px;
+    padding: 8px;
+    margin-bottom: 5px;
+    font-size: 0.9rem;
+}
+
+.quality-grade-A {
+    background: linear-gradient(135deg, #00b894 0%, #00cec9 100%);
+    color: white;
+}
+
+.quality-grade-B {
+    background: linear-gradient(135deg, #fdcb6e 0%, #f39c12 100%);
+    color: white;
+}
+
+.quality-grade-C {
+    background: linear-gradient(135deg, #fd7e14 0%, #e84118 100%);
+    color: white;
+}
+
+.quality-grade-D {
+    background: linear-gradient(135deg, #e84393 0%, #c44569 100%);
+    color: white;
+}
 </style>
 {% endblock %}
 
@@ -378,6 +415,20 @@
                                         </div>
                                     </div>
                                 </div>
+                                <!-- ÖLÇÜM VERİLERİ - YENİ EKLEME! -->
+<div class="measurement-section" id="measurements-{{ wo.id }}" style="display: none;">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <small><strong><i class="fas fa-thermometer-half me-1"></i>Ölçüm Verileri</strong></small>
+        <button class="btn btn-sm btn-outline-secondary" onclick="loadMeasurements({{ wo.id }})">
+            <i class="fas fa-sync-alt"></i>
+        </button>
+    </div>
+    <div id="measurement-content-{{ wo.id }}">
+        <div class="text-center py-2">
+            <small class="text-muted">Ölçüm verileri yüklenmedi</small>
+        </div>
+    </div>
+</div>
 
 
 
@@ -399,6 +450,9 @@
                                     </button>
                                     <button class="btn btn-sm btn-outline-danger" onclick="toggleFires({{ wo.id }})">
                                         <i class="fas fa-fire"></i> Fire
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-success" onclick="toggleMeasurements({{ wo.id }})">
+                                        <i class="fas fa-thermometer-half"></i> Ölçümler
                                     </button>
                                 </div>
                             </div>
@@ -715,6 +769,118 @@ function loadFires(workOrderId) {
         })
         .catch(error => {
             console.error('Fire loading error:', error);
+            contentElement.innerHTML = '<div class="text-center py-2"><small class="text-danger">Hata oluştu</small></div>';
+        });
+}
+
+// Ölçüm toggle fonksiyonu - YENİ!
+function toggleMeasurements(workOrderId) {
+    const section = document.getElementById(`measurements-${workOrderId}`);
+    if (section.style.display === 'none') {
+        section.style.display = 'block';
+        loadMeasurements(workOrderId);
+    } else {
+        section.style.display = 'none';
+    }
+}
+
+// Ölçüm yükleme fonksiyonu - YENİ!
+function loadMeasurements(workOrderId) {
+    const contentElement = document.getElementById(`measurement-content-${workOrderId}`);
+
+    contentElement.innerHTML = '<div class="text-center py-2"><small>Yükleniyor...</small></div>';
+
+    fetch(`/api/measurements/${workOrderId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.measurements.length > 0) {
+                let html = '';
+                let totalMeasurements = data.measurements.length;
+                let goodQuality = 0;
+
+                data.measurements.forEach((m, index) => {
+                    const qualityGrade = m.quality_grade || 'D';
+                    if (qualityGrade === 'A' || qualityGrade === 'B') goodQuality++;
+
+                    const statusText = m.olcum_durumu == 1 ? 'Başarılı' : 'Başarısız';
+                    const statusIcon = m.olcum_durumu == 1 ? 'check-circle' : 'times-circle';
+                    const statusColor = m.olcum_durumu == 1 ? 'success' : 'danger';
+
+                    html += `
+                        <div class="measurement-item border-start border-3 border-success ps-3 mb-2">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div class="flex-grow-1">
+                                    <div class="d-flex align-items-center mb-1">
+                                        <i class="fas fa-thermometer-half me-2 text-success"></i>
+                                        <strong>${m.measurement_id || `Ölçüm ${index + 1}`}</strong>
+                                        <span class="badge quality-grade-${qualityGrade} ms-2">${qualityGrade} Kalite</span>
+                                        <span class="badge bg-${statusColor} ms-1">
+                                            <i class="fas fa-${statusIcon} me-1"></i>${statusText}
+                                        </span>
+                                    </div>
+
+                                    <div class="row mb-2">
+                                        <div class="col-md-4">
+                                            <small><strong>Sıcaklık:</strong>
+                                                <span class="badge ${m.sicaklik >= 18 && m.sicaklik <= 25 ? 'bg-success' : 'bg-warning'}">${m.sicaklik}°C</span>
+                                            </small>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <small><strong>Nem:</strong>
+                                                <span class="badge ${m.nem >= 40 && m.nem <= 60 ? 'bg-success' : 'bg-warning'}">${m.nem}%</span>
+                                            </small>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <small><strong>Sertlik:</strong>
+                                                <span class="badge ${m.sertlik >= 50 ? 'bg-success' : 'bg-warning'}">${m.sertlik}</span>
+                                            </small>
+                                        </div>
+                                    </div>
+
+                                    ${m.urun_adi ? `
+                                    <div class="mb-1">
+                                        <small><strong>Ürün:</strong> ${m.urun_adi}</small>
+                                    </div>
+                                    ` : ''}
+
+                                    ${m.aciklama ? `
+                                    <div class="mb-1">
+                                        <small><strong>Açıklama:</strong> ${m.aciklama}</small>
+                                    </div>
+                                    ` : ''}
+
+                                    <div class="small text-muted">
+                                        <i class="fas fa-clock me-1"></i>
+                                        ${m.baslama_zamani || 'Başlangıç bilinmiyor'}
+                                        ${m.bitis_zamani ? `→ ${m.bitis_zamani}` : '(Devam ediyor)'}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                const qualityRate = ((goodQuality * 100) / totalMeasurements).toFixed(1);
+
+                html += `
+                    <div class="mt-3 p-2 bg-light rounded border-start border-3 border-success">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <strong><i class="fas fa-clipboard-check me-2"></i>Ölçüm Özeti:</strong>
+                            <span class="badge bg-success fs-6">${qualityRate}% Kaliteli</span>
+                        </div>
+                        <small class="text-muted">
+                            ${totalMeasurements} ölçüm • ${goodQuality} başarılı • ${totalMeasurements - goodQuality} uyarı
+                        </small>
+                    </div>
+                `;
+
+                contentElement.innerHTML = html;
+            } else {
+                contentElement.innerHTML = '<div class="text-center py-2"><small class="text-muted">Ölçüm kaydı yok</small></div>';
+            }
+        })
+        .catch(error => {
+            console.error('Measurement loading error:', error);
             contentElement.innerHTML = '<div class="text-center py-2"><small class="text-danger">Hata oluştu</small></div>';
         });
 }
