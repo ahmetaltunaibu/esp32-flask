@@ -694,10 +694,10 @@ def inject_user():
         user_factory=session.get('factory_access')
     )
 
-# sunucuya esp32 den  gelen veriler
+
 @app.route('/data', methods=['POST'])
 def receive_data():
-    """ESP32'den gelen verileri işle - ERROR HANDLING İYİLEŞTİRİLMİŞ"""
+    """ESP32'den gelen verileri işle - ERROR HANDLING İYİLEŞTİRİLMİŞ + ÖLÇÜM VERİLERİ"""
     try:
         # 1. JSON Validation
         data = request.get_json()
@@ -710,7 +710,7 @@ def receive_data():
             return jsonify({"status": "error", "message": "cihaz_id gerekli"}), 400
 
         cihaz_id = data['cihaz_id']
-        logger.info(f"📥 Data alındı: {cihaz_id}")
+        logger.info(f"🔥 Data alındı: {cihaz_id}")
 
         # 2. Timestamp hazırlığı
         turkey_tz = pytz.timezone('Europe/Istanbul')
@@ -767,6 +767,8 @@ def receive_data():
                 pass
 
             # 4. İŞ EMRİ İŞLEMLERİ - DETAYLI ERROR HANDLING
+            work_order_id = None  # Ölçüm verileri için gerekli
+
             if 'is_emri' in data and data['is_emri']:
                 try:
                     is_emri = data['is_emri']
@@ -972,7 +974,7 @@ def receive_data():
                             except Exception as e:
                                 logger.error(f"❌ Fire kayıt hatası: {str(e)}")
 
-                        # *** YENİ EKLEME: ANA DÜZEY DURUŞ VERİLERİNİ İŞLE ***
+                        # *** ANA DÜZEY DURUŞ VERİLERİNİ İŞLE ***
                         if 'durus_verileri' in data and data['durus_verileri']:
                             try:
                                 # Eski duruşları sil
@@ -1002,7 +1004,7 @@ def receive_data():
                             except Exception as e:
                                 logger.error(f"❌ Ana düzey duruş kayıt hatası: {str(e)}")
 
-                        # *** YENİ EKLEME: ANA DÜZEY FİRE VERİLERİNİ İŞLE ***
+                        # *** ANA DÜZEY FIRE VERİLERİNİ İŞLE ***
                         if 'fire_kayitlari' in data and data['fire_kayitlari']:
                             try:
                                 # Eski fire kayıtlarını sil
@@ -1037,7 +1039,64 @@ def receive_data():
                     logger.error(f"❌ İş emri işleme hatası: {str(e)}")
                     # İş emri hatası olsa bile sensör verilerini kaydet
 
-            # 11. SENSÖR VERİLERİNİ KAYDET
+            # 11. ÖLÇÜM VERİLERİNİ İŞLE - YENİ EKLENEN BÖLÜM!
+            if 'olcum_verileri' in data and data['olcum_verileri'] and work_order_id:
+                try:
+                    # Eski ölçümleri sil
+                    conn.execute('DELETE FROM measurements WHERE work_order_id = ?', (work_order_id,))
+
+                    # Yeni ölçümleri ekle
+                    for olcum in data['olcum_verileri']:
+                        # Kalite değerlendirmesi yap
+                        sicaklik = olcum.get('sicaklik', 0)
+                        nem = olcum.get('nem', 0)
+                        sertlik = olcum.get('sertlik', 0)
+
+                        # Kalite puanı hesapla
+                        quality_score = 0
+                        if 18 <= sicaklik <= 25:
+                            quality_score += 33
+                        if 40 <= nem <= 60:
+                            quality_score += 33
+                        if sertlik >= 50:
+                            quality_score += 34
+
+                        # Kalite derecesi belirle
+                        if quality_score >= 90:
+                            kalite_degerlendirme = 'UYGUN'
+                            olcum_durumu = 1
+                        elif quality_score >= 70:
+                            kalite_degerlendirme = 'KABUL_EDILEBILIR'
+                            olcum_durumu = 1
+                        else:
+                            kalite_degerlendirme = 'UYGUN_DEGIL'
+                            olcum_durumu = 0
+
+                        conn.execute('''
+                            INSERT INTO measurements (
+                                work_order_id, cihaz_id, is_emri_no, measurement_id,
+                                baslama_zamani, bitis_zamani, urun_adi,
+                                sicaklik, nem, sertlik, aciklama,
+                                olcum_durumu, kalite_degerlendirme
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (
+                            work_order_id, cihaz_id, is_emri_no,
+                            olcum.get('id', ''),
+                            olcum.get('baslama_zamani', ''),
+                            olcum.get('bitis_zamani', ''),
+                            olcum.get('urun_adi', ''),
+                            sicaklik, nem, sertlik,
+                            olcum.get('aciklama', ''),
+                            olcum_durumu,
+                            kalite_degerlendirme
+                        ))
+
+                    logger.info(f"✅ {len(data['olcum_verileri'])} ölçüm kaydedildi")
+
+                except Exception as e:
+                    logger.error(f"❌ Ölçüm kayıt hatası: {str(e)}")
+
+            # 12. SENSÖR VERİLERİNİ KAYDET
             if 'sensor_verileri' in data:
                 try:
                     for veri in data['sensor_verileri']:
@@ -1056,7 +1115,7 @@ def receive_data():
                 except Exception as e:
                     logger.error(f"❌ Sensör veri kayıt hatası: {str(e)}")
 
-            # 12. COMMIT - TÜM İŞLEMLERİ KAYDET
+            # 13. COMMIT - TÜM İŞLEMLERİ KAYDET
             conn.commit()
             logger.info(f"✅ Tüm veriler başarıyla kaydedildi: {cihaz_id}")
 
@@ -1080,7 +1139,6 @@ def receive_data():
             "error_type": type(e).__name__,
             "debug": str(e)[:200]  # Hata mesajının ilk 200 karakteri
         }), 500
-
 @app.route('/api/downtimes/<int:work_order_id>')
 @login_required
 def get_downtimes(work_order_id):
@@ -1666,7 +1724,7 @@ def change_work_order_status(work_order_id):
 @app.route('/api/work_order_report/<int:work_order_id>')
 @login_required
 def generate_work_order_pdf_report(work_order_id):
-    """İş emri PDF raporu oluştur - GERÇEK TÜRKÇE FİX"""
+    """İş emri PDF raporu oluştur - GERÇEK TÜRKÇE FIX + ÖLÇÜM VERİLERİ"""
     try:
         with get_db() as conn:
             # İş emri bilgileri - ROW TO DICT FIX
@@ -1680,7 +1738,7 @@ def generate_work_order_pdf_report(work_order_id):
             if not work_order_raw:
                 return jsonify({'error': 'İş emri bulunamadı'}), 404
 
-            # 🔧 ROW'u DICT'e çevir
+            # ROW'u DICT'e çevir
             work_order = dict(work_order_raw)
 
             # Duruş ve fire kayıtları - ROW TO DICT FIX
@@ -1692,15 +1750,21 @@ def generate_work_order_pdf_report(work_order_id):
                 SELECT * FROM fires WHERE work_order_id = ? ORDER BY baslama_zamani
             ''', (work_order_id,)).fetchall()
 
-            # 🔧 ROW'ları DICT'e çevir
+            # ÖLÇÜM VERİLERİNİ AL - YENİ!
+            measurement_records_raw = conn.execute('''
+                SELECT * FROM measurements WHERE work_order_id = ? ORDER BY baslama_zamani
+            ''', (work_order_id,)).fetchall()
+
+            # ROW'ları DICT'e çevir
             downtime_records = [dict(row) for row in downtime_records_raw]
             fire_records = [dict(row) for row in fire_records_raw]
+            measurement_records = [dict(row) for row in measurement_records_raw]
 
         # PDF oluştur
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1 * inch)
 
-        # 🌟 GERÇEK TÜRKÇE KARAKTER FİX
+        # GERÇEK TÜRKÇE KARAKTER FIX
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
         from reportlab.lib.fonts import addMapping
@@ -1775,7 +1839,7 @@ def generate_work_order_pdf_report(work_order_id):
             encoding='utf-8'
         )
 
-        # 🌟 UTF-8 TEXT FUNCTİON
+        # UTF-8 TEXT FUNCTION
         def turkish_text(text):
             """UTF-8 Türkçe metin işleme"""
             if not text:
@@ -1868,9 +1932,99 @@ def generate_work_order_pdf_report(work_order_id):
         story.append(performance_table)
         story.append(Spacer(1, 20))
 
-        # 🔥 FIRE ANALİZİ
+        # ÖLÇÜM ANALİZİ - YENİ BÖLÜM!
+        if measurement_records:
+            story.append(Paragraph(turkish_text("ÖLÇÜM ANALİZİ"), heading_style))
+
+            measurement_data = [
+                [turkish_text('Ölçüm ID'), turkish_text('Başlama'), turkish_text('Bitiş'),
+                 turkish_text('Sıcaklık'), turkish_text('Nem'), turkish_text('Sertlik'),
+                 turkish_text('Kalite'), turkish_text('Açıklama')]
+            ]
+
+            total_measurements = 0
+            good_measurements = 0
+
+            for record in measurement_records:
+                try:
+                    total_measurements += 1
+
+                    # Kalite değerlendirmesi
+                    kalite_deg = record.get('kalite_degerlendirme', 'UYGUN_DEGIL')
+                    if kalite_deg in ['UYGUN', 'KABUL_EDILEBILIR']:
+                        good_measurements += 1
+
+                    # Kalite grade hesapla
+                    sicaklik = record.get('sicaklik', 0)
+                    nem = record.get('nem', 0)
+                    sertlik = record.get('sertlik', 0)
+
+                    quality_score = 0
+                    if 18 <= sicaklik <= 25:
+                        quality_score += 33
+                    if 40 <= nem <= 60:
+                        quality_score += 33
+                    if sertlik >= 50:
+                        quality_score += 34
+
+                    if quality_score >= 90:
+                        grade = 'A'
+                    elif quality_score >= 70:
+                        grade = 'B'
+                    elif quality_score >= 50:
+                        grade = 'C'
+                    else:
+                        grade = 'D'
+
+                    measurement_data.append([
+                        turkish_text(record['measurement_id'] or 'N/A'),
+                        turkish_text(record['baslama_zamani'] or 'N/A'),
+                        turkish_text(record['bitis_zamani'] or 'N/A'),
+                        turkish_text(f"{sicaklik}°C"),
+                        turkish_text(f"{nem}%"),
+                        turkish_text(f"{sertlik}"),
+                        turkish_text(f"Sınıf {grade}"),
+                        turkish_text(record['aciklama'] or 'N/A')
+                    ])
+
+                except Exception as e:
+                    logger.error(f"Measurement rapor hatası: {e}")
+
+            # Toplam satırı
+            if total_measurements > 0:
+                success_rate = (good_measurements * 100 / total_measurements)
+                measurement_data.append([
+                    turkish_text('TOPLAM'), '', '',
+                    turkish_text(f'{total_measurements} ölçüm'),
+                    turkish_text(f'{good_measurements} başarılı'),
+                    turkish_text(f'%{success_rate:.1f} kalite'),
+                    '', ''
+                ])
+
+            # Ölçüm tablosu
+            measurement_table = Table(measurement_data,
+                                      colWidths=[0.8 * inch, 1.1 * inch, 1.1 * inch, 0.7 * inch, 0.6 * inch, 0.6 * inch,
+                                                 0.6 * inch, 1.1 * inch])
+            measurement_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.green),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('BACKGROUND', (-1, -1), (-1, -1), colors.lightgreen) if total_measurements > 0 else ('BACKGROUND',
+                                                                                                      (-1, -1),
+                                                                                                      (-1, -1),
+                                                                                                      colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTSIZE', (0, 0), (-1, -1), 8),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('FONTNAME', (0, 0), (-1, -1), font_name),
+            ]))
+
+            story.append(measurement_table)
+            story.append(Spacer(1, 20))
+
+        # FİRE ANALİZİ
         if fire_records:
-            story.append(Paragraph(turkish_text("FIRE ANALİZİ"), heading_style))
+            story.append(Paragraph(turkish_text("FİRE ANALİZİ"), heading_style))
 
             fire_data = [
                 [turkish_text('Fire ID'), turkish_text('Başlama'), turkish_text('Bitiş'),
@@ -2029,7 +2183,7 @@ def generate_work_order_pdf_report(work_order_id):
 
         filename = f"is_emri_rapor_{safe_work_order_number}_{current_time.strftime('%Y%m%d_%H%M%S')}.pdf"
 
-        logger.info(f"✅ PDF raporu oluşturuldu (GERÇEK Türkçe + Fire): {filename}")
+        logger.info(f"✅ PDF raporu oluşturuldu (GERÇEK Türkçe + Fire + Ölçüm): {filename}")
 
         return send_file(
             buffer,
@@ -2046,7 +2200,7 @@ def generate_work_order_pdf_report(work_order_id):
 @app.route('/api/work_order_excel/<int:work_order_id>')
 @login_required
 def generate_work_order_excel_report(work_order_id):
-    """İş emri Excel raporu oluştur - FIRE VERİLERİ DAHİL"""
+    """İş emri Excel raporu oluştur - FIRE VERİLERİ + ÖLÇÜM VERİLERİ DAHİL"""
     try:
         with get_db() as conn:
             # İş emri bilgilerini al
@@ -2067,9 +2221,16 @@ def generate_work_order_excel_report(work_order_id):
                 ORDER BY baslama_zamani
             ''', (work_order_id,)).fetchall()
 
-            # 🔥 FIRE VERİLERİNİ AL - YENİ!
+            # Fire verilerini al
             fires = conn.execute('''
                 SELECT * FROM fires 
+                WHERE work_order_id = ? 
+                ORDER BY baslama_zamani
+            ''', (work_order_id,)).fetchall()
+
+            # ÖLÇÜM VERİLERİNİ AL - YENİ!
+            measurements = conn.execute('''
+                SELECT * FROM measurements 
                 WHERE work_order_id = ? 
                 ORDER BY baslama_zamani
             ''', (work_order_id,)).fetchall()
@@ -2120,7 +2281,7 @@ def generate_work_order_excel_report(work_order_id):
                         round((work_order['gerceklesen_urun'] or 0) * 100 / (work_order['hedef_urun'] or 1), 1) if
                         work_order['hedef_urun'] else 0,
                         round(((work_order['gerceklesen_urun'] or 0) - (work_order['fire_sayisi'] or 0)) * 100 / (
-                                    work_order['gerceklesen_urun'] or 1), 1) if work_order['gerceklesen_urun'] else 0
+                                work_order['gerceklesen_urun'] or 1), 1) if work_order['gerceklesen_urun'] else 0
                     ]
                 }
 
@@ -2151,7 +2312,84 @@ def generate_work_order_excel_report(work_order_id):
                     df_arduino = pd.DataFrame(arduino_data)
                     df_arduino.to_excel(writer, sheet_name='Arduino Sensör Verileri', index=False)
 
-                # 3. 🔥 FIRE VERİLERİ - YENİ SHEET!
+                # 3. ÖLÇÜM VERİLERİ - YENİ SHEET!
+                if measurements:
+                    measurement_data = []
+                    total_measurements = 0
+                    good_measurements = 0
+
+                    for measurement in measurements:
+                        total_measurements += 1
+
+                        # Kalite puanı hesapla
+                        sicaklik = measurement['sicaklik'] or 0
+                        nem = measurement['nem'] or 0
+                        sertlik = measurement['sertlik'] or 0
+
+                        quality_score = 0
+                        if 18 <= sicaklik <= 25:
+                            quality_score += 33
+                        if 40 <= nem <= 60:
+                            quality_score += 33
+                        if sertlik >= 50:
+                            quality_score += 34
+
+                        # Kalite derecesi
+                        if quality_score >= 90:
+                            grade = 'A'
+                            good_measurements += 1
+                        elif quality_score >= 70:
+                            grade = 'B'
+                            good_measurements += 1
+                        elif quality_score >= 50:
+                            grade = 'C'
+                        else:
+                            grade = 'D'
+
+                        # Süreyi formatla
+                        duration_text = 'N/A'
+                        if measurement['baslama_zamani'] and measurement['bitis_zamani']:
+                            duration_text = f"{measurement['baslama_zamani']} → {measurement['bitis_zamani']}"
+
+                        measurement_data.append({
+                            'Ölçüm ID': measurement['measurement_id'] or 'N/A',
+                            'Başlama Zamanı': measurement['baslama_zamani'] or 'N/A',
+                            'Bitiş Zamanı': measurement['bitis_zamani'] or 'N/A',
+                            'Süre': duration_text,
+                            'Ürün Adı': measurement['urun_adi'] or 'N/A',
+                            'Sıcaklık (°C)': sicaklik,
+                            'Nem (%)': nem,
+                            'Sertlik': sertlik,
+                            'Kalite Puanı': quality_score,
+                            'Kalite Derecesi': grade,
+                            'Ölçüm Durumu': 'Başarılı' if measurement['olcum_durumu'] == 1 else 'Başarısız',
+                            'Kalite Değerlendirmesi': measurement['kalite_degerlendirme'] or 'N/A',
+                            'Açıklama': measurement['aciklama'] or 'N/A'
+                        })
+
+                    # Toplam satırı ekle
+                    quality_rate = (good_measurements * 100 / total_measurements) if total_measurements > 0 else 0
+
+                    measurement_data.append({
+                        'Ölçüm ID': 'TOPLAM',
+                        'Başlama Zamanı': '',
+                        'Bitiş Zamanı': '',
+                        'Süre': '',
+                        'Ürün Adı': '',
+                        'Sıcaklık (°C)': '',
+                        'Nem (%)': '',
+                        'Sertlik': '',
+                        'Kalite Puanı': f'{quality_rate:.1f}%',
+                        'Kalite Derecesi': f'{good_measurements}/{total_measurements}',
+                        'Ölçüm Durumu': f'{total_measurements} kayıt',
+                        'Kalite Değerlendirmesi': f'%{quality_rate:.1f} başarı oranı',
+                        'Açıklama': f'Toplam {total_measurements} ölçüm'
+                    })
+
+                    df_measurements = pd.DataFrame(measurement_data)
+                    df_measurements.to_excel(writer, sheet_name='Ölçüm Verileri', index=False)
+
+                # 4. FİRE VERİLERİ
                 if fires:
                     fire_data = []
                     total_fire_amount = 0
@@ -2210,7 +2448,7 @@ def generate_work_order_excel_report(work_order_id):
                     df_fires = pd.DataFrame(fire_data)
                     df_fires.to_excel(writer, sheet_name='Fire Verileri', index=False)
 
-                # 4. Duruş Verileri
+                # 5. DURUŞ VERİLERİ
                 if downtimes:
                     downtime_data = []
                     total_downtime_seconds = 0
@@ -2273,7 +2511,7 @@ def generate_work_order_excel_report(work_order_id):
                     df_downtimes = pd.DataFrame(downtime_data)
                     df_downtimes.to_excel(writer, sheet_name='Duruş Verileri', index=False)
 
-                # 5. Sensör Ham Verileri (varsa)
+                # 6. Ham Sensör Verileri (varsa)
                 if sensor_data:
                     sensor_raw_data = []
                     for sd in sensor_data:
@@ -2287,7 +2525,14 @@ def generate_work_order_excel_report(work_order_id):
                     df_sensor_raw = pd.DataFrame(sensor_raw_data)
                     df_sensor_raw.to_excel(writer, sheet_name='Ham Sensör Verileri', index=False)
 
-                # 6. 📊 ÖZET İSTATİSTİKLER - YENİ SHEET!
+                # 7. ÖZET İSTATİSTİKLER - GÜNCELLENMİŞ ÖLÇÜM DAHİL
+                measurement_count = len(measurements) if measurements else 0
+                good_measurement_count = 0
+                if measurements:
+                    for m in measurements:
+                        if m.get('kalite_degerlendirme') in ['UYGUN', 'KABUL_EDILEBILIR']:
+                            good_measurement_count += 1
+
                 summary_stats = {
                     'Metrik': [
                         'Toplam Üretim Hedefi',
@@ -2300,6 +2545,9 @@ def generate_work_order_excel_report(work_order_id):
                         'Toplam Duruş Süresi (dk)',
                         'Toplam Fire Kayıt Sayısı',
                         'Toplam Duruş Kayıt Sayısı',
+                        'Toplam Ölçüm Sayısı',
+                        'Başarılı Ölçüm Sayısı',
+                        'Ölçüm Başarı Oranı (%)',
                         'Arduino OEE (%)',
                         'Arduino Kullanılabilirlik (%)',
                         'Arduino Performans (%)',
@@ -2313,12 +2561,15 @@ def generate_work_order_excel_report(work_order_id):
                         round((work_order['gerceklesen_urun'] or 0) * 100 / (work_order['hedef_urun'] or 1), 2) if
                         work_order['hedef_urun'] else 0,
                         round(((work_order['gerceklesen_urun'] or 0) - (work_order['fire_sayisi'] or 0)) * 100 / (
-                                    work_order['gerceklesen_urun'] or 1), 2) if work_order['gerceklesen_urun'] else 0,
+                                work_order['gerceklesen_urun'] or 1), 2) if work_order['gerceklesen_urun'] else 0,
                         round((work_order['fire_sayisi'] or 0) * 100 / (work_order['gerceklesen_urun'] or 1), 2) if
                         work_order['gerceklesen_urun'] else 0,
                         round(total_downtime_seconds / 60, 1) if downtimes else 0,
                         len(fires) if fires else 0,
                         len(downtimes) if downtimes else 0,
+                        measurement_count,
+                        good_measurement_count,
+                        round((good_measurement_count * 100 / measurement_count), 2) if measurement_count > 0 else 0,
                         work_order['sensor_oee'] or 0,
                         work_order['sensor_kullanilabilirlik'] or 0,
                         work_order['sensor_performans'] or 0,
@@ -2331,10 +2582,16 @@ def generate_work_order_excel_report(work_order_id):
 
             output.seek(0)
 
-            # Fire miktarını dosya adına ekle
+            # Fire ve ölçüm miktarlarını dosya adına ekle
             total_fire_from_records = sum([f['miktar'] or 0 for f in fires]) if fires else (
                         work_order['fire_sayisi'] or 0)
-            fire_suffix = f"_fire_{total_fire_from_records}" if total_fire_from_records > 0 else ""
+            total_measurements = len(measurements) if measurements else 0
+
+            suffix = ""
+            if total_fire_from_records > 0:
+                suffix += f"_fire_{total_fire_from_records}"
+            if total_measurements > 0:
+                suffix += f"_olcum_{total_measurements}"
 
             # Türkçe karaktersiz dosya adı
             work_order_name = (work_order['is_emri_no'] or 'UNKNOWN').replace('İ', 'I').replace('ı', 'i').replace('Ş',
@@ -2343,9 +2600,9 @@ def generate_work_order_excel_report(work_order_id):
                                                                                                           'O').replace(
                 'ö', 'o').replace('Ç', 'C').replace('ç', 'c')
 
-            filename = f"is_emri_excel_{work_order_name}{fire_suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            filename = f"is_emri_excel_{work_order_name}{suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
 
-            logger.info(f"✅ Excel raporu oluşturuldu (Fire dahil): {filename}")
+            logger.info(f"✅ Excel raporu oluşturuldu (Fire + Ölçüm dahil): {filename}")
 
             return send_file(
                 output,
@@ -2357,6 +2614,8 @@ def generate_work_order_excel_report(work_order_id):
     except Exception as e:
         logger.error(f"❌ Excel report error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+
 
 # toplu iş emirleri fonksiyonu
 @app.route('/admin/api/work_orders/bulk', methods=['POST'])
